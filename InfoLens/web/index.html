@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>InfoLens · 拜访图片提取</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #050609;
+      --surface: rgba(20, 22, 28, .72);
+      --surface-strong: rgba(28, 31, 39, .88);
+      --line: rgba(255, 255, 255, .1);
+      --line-bright: rgba(255, 255, 255, .18);
+      --text: #f5f5f7;
+      --muted: #9898a2;
+      --blue: #5da8ff;
+      --cyan: #72e6ff;
+      --violet: #9a7cff;
+      --success: #65e6a7;
+      --danger: #ff7b76;
+      --shadow: 0 32px 100px rgba(0, 0, 0, .48);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display",
+        "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background:
+        radial-gradient(ellipse 60% 44% at 50% -5%, rgba(61, 125, 255, .24), transparent 72%),
+        radial-gradient(ellipse 45% 36% at 98% 26%, rgba(132, 79, 255, .13), transparent 68%),
+        radial-gradient(ellipse 38% 30% at -8% 58%, rgba(0, 194, 255, .1), transparent 70%),
+        var(--bg);
+      -webkit-font-smoothing: antialiased;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: .38;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.14'/%3E%3C/svg%3E");
+      mix-blend-mode: soft-light;
+    }
+    body::after {
+      content: "";
+      position: fixed;
+      z-index: -1;
+      left: 50%;
+      top: 110px;
+      width: min(760px, 86vw);
+      aspect-ratio: 1;
+      transform: translateX(-50%);
+      border-radius: 50%;
+      background: conic-gradient(from 130deg, rgba(67, 220, 255, .16), rgba(105, 93, 255, .2), rgba(67, 220, 255, 0) 58%);
+      filter: blur(100px);
+      opacity: .65;
+    }
+    .shell {
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 0 0 100px;
+      position: relative;
+    }
+    .topbar {
+      height: 76px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255, 255, 255, .06);
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text);
+      font-size: 15px;
+      font-weight: 650;
+      letter-spacing: -.01em;
+    }
+    .brand-mark {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(255, 255, 255, .16);
+      border-radius: 9px;
+      background: linear-gradient(145deg, rgba(255,255,255,.16), rgba(255,255,255,.04));
+      box-shadow: inset 0 1px rgba(255,255,255,.18), 0 8px 28px rgba(72,130,255,.18);
+    }
+    .brand-mark::before {
+      content: "";
+      width: 10px;
+      height: 10px;
+      border: 2px solid #a8d7ff;
+      border-radius: 50%;
+      box-shadow: 4px 0 12px rgba(93,168,255,.9);
+    }
+    .privacy {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: #b7b7c0;
+      font-size: 12px;
+    }
+    .privacy::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 12px rgba(101,230,167,.75);
+    }
+    .account { display: flex; align-items: center; gap: 14px; }
+    .logout {
+      color: #777984;
+      font-size: 11px;
+      text-decoration: none;
+      transition: color .2s;
+    }
+    .logout:hover { color: #d7d7dc; }
+    .hero {
+      padding: clamp(72px, 11vw, 132px) 0 54px;
+      text-align: center;
+    }
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 24px;
+      color: #c0c0c8;
+      font-size: 12px;
+      font-weight: 620;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .eyebrow::before, .eyebrow::after {
+      content: "";
+      width: 28px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.28));
+    }
+    .eyebrow::after { transform: rotate(180deg); }
+    h1 {
+      margin: 0;
+      font-size: clamp(48px, 8vw, 92px);
+      line-height: .98;
+      letter-spacing: -.065em;
+      font-weight: 700;
+    }
+    h1 span {
+      display: inline-block;
+      color: transparent;
+      background: linear-gradient(110deg, #fff 8%, #a7caff 45%, #9d8cff 82%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      text-shadow: 0 18px 70px rgba(96, 128, 255, .24);
+    }
+    .subtitle {
+      max-width: 620px;
+      margin: 26px auto 0;
+      color: var(--muted);
+      font-size: clamp(15px, 2vw, 18px);
+      line-height: 1.72;
+      letter-spacing: -.015em;
+    }
+    .panel {
+      position: relative;
+      max-width: 930px;
+      margin: 0 auto;
+      padding: 28px;
+      overflow: hidden;
+      background: linear-gradient(145deg, rgba(29,32,40,.84), rgba(15,17,22,.72));
+      border: 1px solid var(--line-bright);
+      border-radius: 28px;
+      box-shadow: var(--shadow), inset 0 1px rgba(255,255,255,.08);
+      backdrop-filter: blur(28px) saturate(135%);
+      -webkit-backdrop-filter: blur(28px) saturate(135%);
+    }
+    .panel::before {
+      content: "";
+      position: absolute;
+      left: 14%;
+      right: 14%;
+      top: -1px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(126,190,255,.8), transparent);
+      box-shadow: 0 0 30px rgba(93,168,255,.6);
+    }
+    .panel-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 20px;
+    }
+    .panel-title { margin: 0 0 5px; font-size: 16px; font-weight: 650; letter-spacing: -.02em; }
+    .panel-note { margin: 0; color: var(--muted); font-size: 12px; }
+    .private-chip {
+      padding: 6px 10px;
+      border: 1px solid rgba(114,230,255,.16);
+      border-radius: 999px;
+      color: #aadaff;
+      background: rgba(93,168,255,.08);
+      font: 600 10px/1 -apple-system, sans-serif;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+    .input-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      position: relative;
+      z-index: 1;
+    }
+    input {
+      width: 100%;
+      min-width: 0;
+      height: 58px;
+      border: 1px solid var(--line);
+      border-radius: 17px;
+      padding: 0 18px;
+      color: var(--text);
+      background: rgba(4, 5, 8, .62);
+      outline: none;
+      font-size: 14px;
+      box-shadow: inset 0 1px 8px rgba(0,0,0,.35);
+      transition: border-color .25s, box-shadow .25s, background .25s;
+    }
+    input::placeholder { color: #6f7079; }
+    input:focus {
+      border-color: rgba(93,168,255,.65);
+      background: rgba(7,9,14,.8);
+      box-shadow: 0 0 0 4px rgba(93,168,255,.1), inset 0 1px 8px rgba(0,0,0,.3);
+    }
+    button {
+      min-width: 138px;
+      height: 58px;
+      border: 0;
+      border-radius: 17px;
+      padding: 0 20px;
+      color: #07101d;
+      background: linear-gradient(135deg, #f7fbff 0%, #b7d9ff 55%, #a2b7ff 100%);
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: -.01em;
+      cursor: pointer;
+      box-shadow: inset 0 1px rgba(255,255,255,.8), 0 12px 34px rgba(79,130,255,.22);
+      transition: transform .2s, filter .2s, box-shadow .2s;
+    }
+    button::after { content: " ↗"; font-size: 13px; }
+    button:hover {
+      filter: brightness(1.07);
+      transform: translateY(-1px);
+      box-shadow: inset 0 1px rgba(255,255,255,.9), 0 16px 42px rgba(79,130,255,.3);
+    }
+    button:active { transform: scale(.985); }
+    button:disabled { cursor: wait; opacity: .55; transform: none; }
+    .status {
+      min-height: 20px;
+      margin: 14px 3px 0;
+      color: #777982;
+      font-size: 12px;
+    }
+    .status.error { color: var(--danger); }
+    .status.busy::before {
+      content: "";
+      display: inline-block;
+      width: 11px;
+      height: 11px;
+      margin-right: 8px;
+      border: 1.5px solid rgba(93,168,255,.25);
+      border-top-color: var(--blue);
+      border-radius: 50%;
+      vertical-align: -2px;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .section-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      margin: 78px 2px 20px;
+    }
+    .section-kicker { display: block; margin-bottom: 8px; color: var(--blue); font-size: 11px; font-weight: 650; letter-spacing: .12em; text-transform: uppercase; }
+    h2 { margin: 0; font-size: clamp(25px, 4vw, 34px); line-height: 1.1; letter-spacing: -.045em; }
+    #count {
+      padding: 7px 11px;
+      color: #a1a2aa;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255,255,255,.035);
+      font-size: 11px;
+    }
+    .empty {
+      padding: 72px 24px;
+      text-align: center;
+      color: var(--muted);
+      border: 1px dashed var(--line-bright);
+      border-radius: 24px;
+      background: rgba(255,255,255,.025);
+    }
+    .result {
+      position: relative;
+      margin-bottom: 22px;
+      padding: 24px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 26px;
+      background: linear-gradient(145deg, rgba(26,28,35,.72), rgba(12,14,18,.68));
+      box-shadow: 0 22px 70px rgba(0,0,0,.22), inset 0 1px rgba(255,255,255,.04);
+      backdrop-filter: blur(18px);
+    }
+    .result::before {
+      content: "";
+      position: absolute;
+      width: 180px;
+      height: 180px;
+      right: -100px;
+      top: -120px;
+      border-radius: 50%;
+      background: rgba(93,168,255,.14);
+      filter: blur(35px);
+    }
+    .result-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: flex-start;
+      margin-bottom: 22px;
+    }
+    .result h3 { margin: 0 0 7px; font-size: 18px; font-weight: 620; letter-spacing: -.025em; }
+    .meta { color: #777984; font-size: 11px; }
+    .badge {
+      position: relative;
+      padding: 7px 11px;
+      color: #acd6ff;
+      border: 1px solid rgba(93,168,255,.15);
+      border-radius: 999px;
+      background: rgba(93,168,255,.08);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+      gap: 14px;
+    }
+    .photo {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      overflow: hidden;
+      color: var(--text);
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 18px;
+      background: rgba(255,255,255,.035);
+      text-decoration: none;
+      box-shadow: 0 12px 32px rgba(0,0,0,.2);
+      transition: transform .3s cubic-bezier(.2,.8,.2,1), border-color .3s, background .3s;
+    }
+    .photo:hover {
+      transform: translateY(-4px);
+      border-color: rgba(255,255,255,.18);
+      background: rgba(255,255,255,.055);
+    }
+    .photo img {
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      object-fit: cover;
+      background: #111318;
+      transition: transform .5s cubic-bezier(.2,.8,.2,1), filter .3s;
+    }
+    .photo:hover img { transform: scale(1.025); filter: saturate(1.08); }
+    .photo span {
+      display: block;
+      min-width: 0;
+      padding: 12px 13px 13px;
+      color: #b9bac1;
+      font-size: 10px;
+      line-height: 1.5;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      border-top: 1px solid rgba(255,255,255,.06);
+    }
+    @media (max-width: 700px) {
+      .shell { width: min(100% - 24px, 1180px); }
+      .topbar { height: 64px; }
+      .hero { padding: 72px 0 40px; }
+      h1 { font-size: clamp(44px, 15vw, 68px); }
+      .subtitle { font-size: 15px; padding: 0 8px; }
+      .panel { padding: 20px; border-radius: 22px; }
+      .panel-top { margin-bottom: 16px; }
+      .input-row { grid-template-columns: 1fr; }
+      button { width: 100%; }
+      .section-head { margin-top: 58px; }
+      .result { padding: 18px; border-radius: 22px; }
+      .gallery { grid-template-columns: 1fr; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <nav class="topbar">
+      <div class="brand"><span class="brand-mark"></span>InfoLens</div>
+      <div class="account">
+        <span id="user-status" class="privacy">安全连接 · 已认证</span>
+        <a class="logout" href="/logout">退出</a>
+      </div>
+    </nav>
+
+    <header class="hero">
+      <div class="eyebrow">Intelligent Image Workspace</div>
+      <h1>让现场影像<br><span>清晰归档。</span></h1>
+      <p class="subtitle">从 CRM 拜访链接中智能筛选 private 图片，自动规范命名，沉浸式预览每一次现场记录。</p>
+    </header>
+
+    <section class="panel">
+      <div class="panel-top">
+        <div>
+          <p class="panel-title">开始一次新的提取</p>
+          <p class="panel-note">粘贴完整的 visitDetail 链接即可</p>
+        </div>
+        <span class="private-chip">Private only</span>
+      </div>
+      <label for="url">CRM 拜访详情链接</label>
+      <div class="input-row">
+        <input id="url" type="url" autocomplete="off" placeholder="粘贴 visitDetail 链接…">
+        <button id="extract">提取图片</button>
+      </div>
+      <div id="status" class="status">仅提取 photoid 以 private 开头的图片</div>
+    </section>
+
+    <div class="section-head">
+      <div>
+        <span class="section-kicker">Recent collections</span>
+        <h2>最近提取</h2>
+      </div>
+      <span id="count"></span>
+    </div>
+    <section id="results"><div class="empty">尚无可显示的提取记录</div></section>
+  </main>
+
+  <script>
+    const input = document.querySelector("#url");
+    const button = document.querySelector("#extract");
+    const status = document.querySelector("#status");
+    const results = document.querySelector("#results");
+    const count = document.querySelector("#count");
+    const userStatus = document.querySelector("#user-status");
+    let csrfToken = "";
+
+    const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, char => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[char]));
+
+    function render(items) {
+      count.textContent = `${items.length} 条记录`;
+      if (!items.length) {
+        results.innerHTML = '<div class="empty">尚无可显示的提取记录</div>';
+        return;
+      }
+      results.innerHTML = items.map(item => `
+        <article class="result">
+          <div class="result-top">
+            <div>
+              <h3>${escapeHtml(item.terminal_name)}</h3>
+              <div class="meta">业务员：${escapeHtml(item.partner_name)} · 记录 ${escapeHtml(item.visit_id).slice(0, 12)}</div>
+            </div>
+            <div class="badge">${item.images.length} 张图片</div>
+          </div>
+          <div class="gallery">
+            ${item.images.map(image => `
+              <a class="photo" href="${image.url}" target="_blank" title="打开原图">
+                <img src="${image.url}" alt="${escapeHtml(image.display_filename || image.filename)}" loading="lazy">
+                <span>${escapeHtml(image.display_filename || image.filename)} · ${(image.size_bytes / 1024).toFixed(1)} KB</span>
+              </a>
+            `).join("")}
+          </div>
+        </article>
+      `).join("");
+    }
+
+    async function loadSession() {
+      const response = await fetch("/api/session");
+      if (!response.ok) {
+        location.href = "/login";
+        return;
+      }
+      const data = await response.json();
+      csrfToken = data.csrf_token;
+      userStatus.textContent = data.user ? `已登录 · ${data.user}` : "安全连接 · 已认证";
+    }
+
+    async function loadResults() {
+      try {
+        const response = await fetch("/api/results");
+        render(await response.json());
+      } catch {
+        status.textContent = "无法读取本地提取记录";
+        status.className = "status error";
+      }
+    }
+
+    async function extract() {
+      const url = input.value.trim();
+      if (!url) {
+        status.textContent = "请先粘贴 CRM 拜访详情链接";
+        status.className = "status error";
+        input.focus();
+        return;
+      }
+      button.disabled = true;
+      button.textContent = "提取中…";
+      status.textContent = "正在读取拜访信息并下载图片，请稍候";
+      status.className = "status busy";
+      try {
+        const response = await fetch("/api/extract", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": csrfToken
+          },
+          body: JSON.stringify({url})
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "提取失败");
+        status.textContent = `完成：已提取 ${data.images.length} 张图片`;
+        status.className = "status";
+        input.value = "";
+        await loadResults();
+      } catch (error) {
+        status.textContent = error.message;
+        status.className = "status error";
+      } finally {
+        button.disabled = false;
+        button.textContent = "提取图片";
+      }
+    }
+
+    button.addEventListener("click", extract);
+    input.addEventListener("keydown", event => {
+      if (event.key === "Enter") extract();
+    });
+    (async () => {
+      await loadSession();
+      await loadResults();
+    })();
+  </script>
+</body>
+</html>
