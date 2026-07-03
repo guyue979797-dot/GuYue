@@ -3,21 +3,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>InfoLens · 拜访图片提取</title>
+  <title>雪花CRM拜访照片提取</title>
   <style>
     :root {
       color-scheme: dark;
-      --bg: #050609;
-      --surface: rgba(20, 22, 28, .72);
-      --surface-strong: rgba(28, 31, 39, .88);
+      --bg: #000;
+      --surface: rgba(18, 18, 18, .92);
+      --surface-strong: rgba(24, 24, 24, .96);
       --line: rgba(255, 255, 255, .1);
       --line-bright: rgba(255, 255, 255, .18);
       --text: #f5f5f7;
       --muted: #9898a2;
-      --blue: #5da8ff;
-      --cyan: #72e6ff;
-      --violet: #9a7cff;
-      --success: #65e6a7;
+      --blue: #e8e8ea;
+      --cyan: #e8e8ea;
+      --violet: #b8b8bd;
+      --success: #ededee;
       --danger: #ff7b76;
       --shadow: 0 32px 100px rgba(0, 0, 0, .48);
     }
@@ -30,9 +30,7 @@
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display",
         "SF Pro Text", "PingFang SC", "Microsoft YaHei", sans-serif;
       background:
-        radial-gradient(ellipse 60% 44% at 50% -5%, rgba(61, 125, 255, .24), transparent 72%),
-        radial-gradient(ellipse 45% 36% at 98% 26%, rgba(132, 79, 255, .13), transparent 68%),
-        radial-gradient(ellipse 38% 30% at -8% 58%, rgba(0, 194, 255, .1), transparent 70%),
+        radial-gradient(ellipse 60% 42% at 50% -8%, rgba(255, 255, 255, .08), transparent 72%),
         var(--bg);
       -webkit-font-smoothing: antialiased;
     }
@@ -44,20 +42,6 @@
       opacity: .38;
       background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.14'/%3E%3C/svg%3E");
       mix-blend-mode: soft-light;
-    }
-    body::after {
-      content: "";
-      position: fixed;
-      z-index: -1;
-      left: 50%;
-      top: 110px;
-      width: min(760px, 86vw);
-      aspect-ratio: 1;
-      transform: translateX(-50%);
-      border-radius: 50%;
-      background: conic-gradient(from 130deg, rgba(67, 220, 255, .16), rgba(105, 93, 255, .2), rgba(67, 220, 255, 0) 58%);
-      filter: blur(100px);
-      opacity: .65;
     }
     .shell {
       width: min(1180px, calc(100% - 40px));
@@ -75,29 +59,13 @@
     .brand {
       display: inline-flex;
       align-items: center;
-      gap: 10px;
-      color: var(--text);
-      font-size: 15px;
-      font-weight: 650;
-      letter-spacing: -.01em;
     }
-    .brand-mark {
-      width: 28px;
-      height: 28px;
-      display: grid;
-      place-items: center;
-      border: 1px solid rgba(255, 255, 255, .16);
-      border-radius: 9px;
-      background: linear-gradient(145deg, rgba(255,255,255,.16), rgba(255,255,255,.04));
-      box-shadow: inset 0 1px rgba(255,255,255,.18), 0 8px 28px rgba(72,130,255,.18);
-    }
-    .brand-mark::before {
-      content: "";
-      width: 10px;
-      height: 10px;
-      border: 2px solid #a8d7ff;
-      border-radius: 50%;
-      box-shadow: 4px 0 12px rgba(93,168,255,.9);
+    .brand-logo {
+      display: block;
+      width: 104px;
+      height: auto;
+      filter: grayscale(1) brightness(2.5);
+      opacity: .92;
     }
     .privacy {
       display: inline-flex;
@@ -112,7 +80,7 @@
       height: 6px;
       border-radius: 50%;
       background: var(--success);
-      box-shadow: 0 0 12px rgba(101,230,167,.75);
+      box-shadow: 0 0 8px rgba(255,255,255,.35);
     }
     .account { display: flex; align-items: center; gap: 14px; }
     .logout {
@@ -122,58 +90,13 @@
       transition: color .2s;
     }
     .logout:hover { color: #d7d7dc; }
-    .hero {
-      padding: clamp(72px, 11vw, 132px) 0 54px;
-      text-align: center;
-    }
-    .eyebrow {
-      display: inline-flex;
-      align-items: center;
-      gap: 9px;
-      margin-bottom: 24px;
-      color: #c0c0c8;
-      font-size: 12px;
-      font-weight: 620;
-      letter-spacing: .12em;
-      text-transform: uppercase;
-    }
-    .eyebrow::before, .eyebrow::after {
-      content: "";
-      width: 28px;
-      height: 1px;
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,.28));
-    }
-    .eyebrow::after { transform: rotate(180deg); }
-    h1 {
-      margin: 0;
-      font-size: clamp(48px, 8vw, 92px);
-      line-height: .98;
-      letter-spacing: -.065em;
-      font-weight: 700;
-    }
-    h1 span {
-      display: inline-block;
-      color: transparent;
-      background: linear-gradient(110deg, #fff 8%, #a7caff 45%, #9d8cff 82%);
-      -webkit-background-clip: text;
-      background-clip: text;
-      text-shadow: 0 18px 70px rgba(96, 128, 255, .24);
-    }
-    .subtitle {
-      max-width: 620px;
-      margin: 26px auto 0;
-      color: var(--muted);
-      font-size: clamp(15px, 2vw, 18px);
-      line-height: 1.72;
-      letter-spacing: -.015em;
-    }
     .panel {
       position: relative;
       max-width: 930px;
-      margin: 0 auto;
+      margin: 54px auto 0;
       padding: 28px;
       overflow: hidden;
-      background: linear-gradient(145deg, rgba(29,32,40,.84), rgba(15,17,22,.72));
+      background: linear-gradient(145deg, rgba(24,24,24,.96), rgba(11,11,11,.94));
       border: 1px solid var(--line-bright);
       border-radius: 28px;
       box-shadow: var(--shadow), inset 0 1px rgba(255,255,255,.08);
@@ -187,8 +110,7 @@
       right: 14%;
       top: -1px;
       height: 1px;
-      background: linear-gradient(90deg, transparent, rgba(126,190,255,.8), transparent);
-      box-shadow: 0 0 30px rgba(93,168,255,.6);
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.48), transparent);
     }
     .panel-top {
       display: flex;
@@ -199,12 +121,41 @@
     }
     .panel-title { margin: 0 0 5px; font-size: 16px; font-weight: 650; letter-spacing: -.02em; }
     .panel-note { margin: 0; color: var(--muted); font-size: 12px; }
+    .mode-switch {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      max-width: 360px;
+      margin: 0 auto 24px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(4, 5, 8, .55);
+    }
+    .mode-tab {
+      min-width: 0;
+      height: 38px;
+      padding: 0 14px;
+      color: #858691;
+      border-radius: 10px;
+      background: transparent;
+      box-shadow: none;
+      font-size: 12px;
+      font-weight: 620;
+    }
+    .mode-tab::after { content: ""; }
+    .mode-tab:hover { color: #d9d9df; background: rgba(255,255,255,.04); box-shadow: none; transform: none; }
+    .mode-tab.active {
+      color: #111;
+      background: #f0f0f2;
+      box-shadow: inset 0 1px rgba(255,255,255,.11), 0 8px 20px rgba(0,0,0,.2);
+    }
+    .mode-panel[hidden] { display: none; }
     .private-chip {
       padding: 6px 10px;
-      border: 1px solid rgba(114,230,255,.16);
+      border: 1px solid rgba(255,255,255,.14);
       border-radius: 999px;
-      color: #aadaff;
-      background: rgba(93,168,255,.08);
+      color: #b9b9bd;
+      background: rgba(255,255,255,.05);
       font: 600 10px/1 -apple-system, sans-serif;
       letter-spacing: .08em;
       text-transform: uppercase;
@@ -233,9 +184,9 @@
     }
     input::placeholder { color: #6f7079; }
     input:focus {
-      border-color: rgba(93,168,255,.65);
+      border-color: rgba(255,255,255,.55);
       background: rgba(7,9,14,.8);
-      box-shadow: 0 0 0 4px rgba(93,168,255,.1), inset 0 1px 8px rgba(0,0,0,.3);
+      box-shadow: 0 0 0 4px rgba(255,255,255,.07), inset 0 1px 8px rgba(0,0,0,.3);
     }
     button {
       min-width: 138px;
@@ -243,20 +194,20 @@
       border: 0;
       border-radius: 17px;
       padding: 0 20px;
-      color: #07101d;
-      background: linear-gradient(135deg, #f7fbff 0%, #b7d9ff 55%, #a2b7ff 100%);
+      color: #0a0a0a;
+      background: linear-gradient(135deg, #fff 0%, #e7e7e9 100%);
       font-size: 14px;
       font-weight: 700;
       letter-spacing: -.01em;
       cursor: pointer;
-      box-shadow: inset 0 1px rgba(255,255,255,.8), 0 12px 34px rgba(79,130,255,.22);
+      box-shadow: inset 0 1px rgba(255,255,255,.8), 0 12px 34px rgba(0,0,0,.32);
       transition: transform .2s, filter .2s, box-shadow .2s;
     }
     button::after { content: " ↗"; font-size: 13px; }
     button:hover {
       filter: brightness(1.07);
       transform: translateY(-1px);
-      box-shadow: inset 0 1px rgba(255,255,255,.9), 0 16px 42px rgba(79,130,255,.3);
+      box-shadow: inset 0 1px rgba(255,255,255,.9), 0 16px 42px rgba(0,0,0,.42);
     }
     button:active { transform: scale(.985); }
     button:disabled { cursor: wait; opacity: .55; transform: none; }
@@ -266,14 +217,143 @@
       color: #777982;
       font-size: 12px;
     }
+    .status:empty { display: none; }
     .status.error { color: var(--danger); }
+    .upload-zone {
+      position: relative;
+      width: 100%;
+      height: auto;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 16px;
+      padding: 18px;
+      overflow: visible;
+      clip: auto;
+      color: inherit;
+      border: 1px dashed rgba(255,255,255,.24);
+      border-radius: 18px;
+      background: rgba(4,5,8,.48);
+      cursor: pointer;
+      transition: border-color .2s, background .2s, transform .2s;
+    }
+    .upload-zone:hover, .upload-zone.dragging {
+      border-color: rgba(255,255,255,.55);
+      background: rgba(255,255,255,.045);
+      transform: translateY(-1px);
+    }
+    .upload-icon {
+      width: 42px;
+      height: 42px;
+      display: grid;
+      place-items: center;
+      color: #e3e3e5;
+      border: 1px solid rgba(255,255,255,.18);
+      border-radius: 13px;
+      background: rgba(255,255,255,.07);
+      font-size: 20px;
+    }
+    .upload-copy { min-width: 0; }
+    .upload-copy strong { display: block; margin-bottom: 0; font-size: 13px; }
+    .upload-copy small { display: block; color: var(--muted); font-size: 11px; }
+    .file-name {
+      max-width: 240px;
+      overflow: hidden;
+      color: #d4d4d7;
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .batch-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-top: 12px;
+    }
+    .batch-actions button { height: 48px; min-width: 152px; border-radius: 15px; }
+    .download-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-top: 16px;
+      padding: 16px 17px;
+      border: 1px solid rgba(255,255,255,.18);
+      border-radius: 17px;
+      background: rgba(255,255,255,.055);
+    }
+    .download-card[hidden] { display: none; }
+    .download-summary strong { display: block; margin-bottom: 4px; color: #dfffee; font-size: 13px; }
+    .download-summary small { color: #8faaa0; font-size: 11px; line-height: 1.5; }
+    .download-link {
+      flex: none;
+      padding: 10px 14px;
+      color: #090909;
+      border-radius: 12px;
+      background: #f1f1f2;
+      font-size: 12px;
+      font-weight: 750;
+      text-decoration: none;
+      box-shadow: 0 8px 24px rgba(0,0,0,.28);
+    }
+    .batch-errors {
+      margin: 12px 2px 0;
+      color: #d69b98;
+      font-size: 11px;
+      line-height: 1.7;
+    }
+    .field-card {
+      margin-top: 14px;
+      padding: 16px 17px;
+      border: 1px solid rgba(255,255,255,.16);
+      border-radius: 17px;
+      background: rgba(255,255,255,.04);
+    }
+    .field-card[hidden] { display: none; }
+    .field-card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 11px;
+    }
+    .field-card-title strong { display: block; margin-bottom: 4px; font-size: 13px; }
+    .field-card-title small { color: var(--muted); font-size: 11px; }
+    .copy-button {
+      width: auto;
+      min-width: 116px;
+      height: 38px;
+      padding: 0 14px;
+      color: #e3e3e5;
+      border: 1px solid rgba(255,255,255,.18);
+      border-radius: 11px;
+      background: rgba(255,255,255,.08);
+      box-shadow: none;
+      font-size: 11px;
+    }
+    .copy-button::after { content: ""; }
+    .copy-button:hover { background: rgba(255,255,255,.13); box-shadow: none; }
+    .field-output {
+      width: 100%;
+      min-height: 116px;
+      resize: vertical;
+      padding: 12px 14px;
+      color: #e0e0e2;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 12px;
+      background: rgba(4,5,8,.55);
+      outline: none;
+      font: 11px/1.75 ui-monospace, SFMono-Regular, Menlo, monospace;
+      white-space: pre;
+    }
     .status.busy::before {
       content: "";
       display: inline-block;
       width: 11px;
       height: 11px;
       margin-right: 8px;
-      border: 1.5px solid rgba(93,168,255,.25);
+      border: 1.5px solid rgba(255,255,255,.18);
       border-top-color: var(--blue);
       border-radius: 50%;
       vertical-align: -2px;
@@ -286,7 +366,6 @@
       justify-content: space-between;
       margin: 78px 2px 20px;
     }
-    .section-kicker { display: block; margin-bottom: 8px; color: var(--blue); font-size: 11px; font-weight: 650; letter-spacing: .12em; text-transform: uppercase; }
     h2 { margin: 0; font-size: clamp(25px, 4vw, 34px); line-height: 1.1; letter-spacing: -.045em; }
     #count {
       padding: 7px 11px;
@@ -323,7 +402,7 @@
       right: -100px;
       top: -120px;
       border-radius: 50%;
-      background: rgba(93,168,255,.14);
+      background: rgba(255,255,255,.08);
       filter: blur(35px);
     }
     .result-top {
@@ -338,10 +417,10 @@
     .badge {
       position: relative;
       padding: 7px 11px;
-      color: #acd6ff;
-      border: 1px solid rgba(93,168,255,.15);
+      color: #c9c9cc;
+      border: 1px solid rgba(255,255,255,.14);
       border-radius: 999px;
-      background: rgba(93,168,255,.08);
+      background: rgba(255,255,255,.055);
       font-size: 11px;
       white-space: nowrap;
     }
@@ -391,13 +470,17 @@
     @media (max-width: 700px) {
       .shell { width: min(100% - 24px, 1180px); }
       .topbar { height: 64px; }
-      .hero { padding: 72px 0 40px; }
-      h1 { font-size: clamp(44px, 15vw, 68px); }
-      .subtitle { font-size: 15px; padding: 0 8px; }
-      .panel { padding: 20px; border-radius: 22px; }
+      .panel { margin-top: 32px; padding: 20px; border-radius: 22px; }
       .panel-top { margin-bottom: 16px; }
       .input-row { grid-template-columns: 1fr; }
       button { width: 100%; }
+      .upload-zone { grid-template-columns: auto 1fr; }
+      .file-name { grid-column: 1 / -1; max-width: 100%; }
+      .batch-actions { display: block; }
+      .batch-actions button { margin-top: 12px; }
+      .download-card { align-items: flex-start; flex-direction: column; }
+      .field-card-head { align-items: flex-start; flex-direction: column; }
+      .copy-button { width: 100%; }
       .section-head { margin-top: 58px; }
       .result { padding: 18px; border-radius: 22px; }
       .gallery { grid-template-columns: 1fr; }
@@ -410,38 +493,77 @@
 <body>
   <main class="shell">
     <nav class="topbar">
-      <div class="brand"><span class="brand-mark"></span>InfoLens</div>
+      <div class="brand">
+        <img class="brand-logo" src="https://www.crbeer.com.hk/733e20a4-524a-4602-b929-ca1b0bc8e936.png" alt="华润雪花啤酒">
+      </div>
       <div class="account">
         <span id="user-status" class="privacy">安全连接 · 已认证</span>
         <a class="logout" href="/logout">退出</a>
       </div>
     </nav>
 
-    <header class="hero">
-      <div class="eyebrow">Intelligent Image Workspace</div>
-      <h1>让现场影像<br><span>清晰归档。</span></h1>
-      <p class="subtitle">从 CRM 拜访链接中智能筛选 private 图片，自动规范命名，沉浸式预览每一次现场记录。</p>
-    </header>
-
     <section class="panel">
+      <div class="mode-switch" aria-label="提取方式">
+        <button class="mode-tab active" type="button" data-mode="single">链接提取</button>
+        <button class="mode-tab" type="button" data-mode="batch">批量提取</button>
+      </div>
+      <div id="single-panel" class="mode-panel">
       <div class="panel-top">
         <div>
-          <p class="panel-title">开始一次新的提取</p>
-          <p class="panel-note">粘贴完整的 visitDetail 链接即可</p>
+          <p class="panel-title">请输入CRM链接</p>
+          <p class="panel-note">支持两种 CRM 拜访链接</p>
         </div>
-        <span class="private-chip">Private only</span>
+        <span class="private-chip">仅私有图片</span>
       </div>
       <label for="url">CRM 拜访详情链接</label>
       <div class="input-row">
-        <input id="url" type="url" autocomplete="off" placeholder="粘贴 visitDetail 链接…">
+        <input id="url" type="url" autocomplete="off" placeholder="粘贴 CRM 拜访链接…">
         <button id="extract">提取图片</button>
       </div>
-      <div id="status" class="status">仅提取 photoid 以 private 开头的图片</div>
+      <div id="status" class="status"></div>
+      </div>
+
+      <div id="batch-panel" class="mode-panel" hidden>
+        <div class="panel-top">
+          <div>
+            <p class="panel-title">请上传excel文档</p>
+          </div>
+        </div>
+        <input id="excel-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+        <label class="upload-zone" for="excel-file" id="upload-zone">
+          <span class="upload-icon">+</span>
+          <span class="upload-copy">
+            <strong>选择或拖入文件</strong>
+          </span>
+          <span id="file-name" class="file-name">尚未选择文件</span>
+        </label>
+        <div class="batch-actions">
+          <div id="batch-status" class="status">完成后会自动生成可下载的图片压缩包</div>
+          <button id="batch-extract" type="button" disabled>批量提取</button>
+        </div>
+        <div id="download-card" class="download-card" hidden>
+          <div class="download-summary">
+            <strong id="download-title">压缩包已生成</strong>
+            <small id="download-detail"></small>
+          </div>
+          <a id="download-link" class="download-link" href="#" download>下载压缩包</a>
+        </div>
+        <div id="field-card" class="field-card" hidden>
+          <div class="field-card-head">
+            <div class="field-card-title">
+              <strong id="field-title">框选字段清单</strong>
+              <small>复制后可直接粘贴到 Excel，自动分为两列</small>
+            </div>
+            <button id="copy-fields" class="copy-button" type="button">复制到 Excel</button>
+          </div>
+          <textarea id="field-output" class="field-output" readonly></textarea>
+        </div>
+        <div id="batch-errors" class="batch-errors"></div>
+      </div>
     </section>
 
     <div class="section-head">
       <div>
-        <span class="section-kicker">Recent collections</span>
         <h2>最近提取</h2>
       </div>
       <span id="count"></span>
@@ -456,6 +578,23 @@
     const results = document.querySelector("#results");
     const count = document.querySelector("#count");
     const userStatus = document.querySelector("#user-status");
+    const modeTabs = document.querySelectorAll(".mode-tab");
+    const singlePanel = document.querySelector("#single-panel");
+    const batchPanel = document.querySelector("#batch-panel");
+    const excelFile = document.querySelector("#excel-file");
+    const uploadZone = document.querySelector("#upload-zone");
+    const fileName = document.querySelector("#file-name");
+    const batchButton = document.querySelector("#batch-extract");
+    const batchStatus = document.querySelector("#batch-status");
+    const downloadCard = document.querySelector("#download-card");
+    const downloadTitle = document.querySelector("#download-title");
+    const downloadDetail = document.querySelector("#download-detail");
+    const downloadLink = document.querySelector("#download-link");
+    const fieldCard = document.querySelector("#field-card");
+    const fieldTitle = document.querySelector("#field-title");
+    const fieldOutput = document.querySelector("#field-output");
+    const copyFields = document.querySelector("#copy-fields");
+    const batchErrors = document.querySelector("#batch-errors");
     let csrfToken = "";
 
     const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, char => ({
@@ -546,6 +685,110 @@
       }
     }
 
+    function selectFile(file) {
+      const valid = file && file.name.toLowerCase().endsWith(".xlsx");
+      if (!valid) {
+        excelFile.value = "";
+        fileName.textContent = file ? "仅支持 .xlsx 文件" : "尚未选择文件";
+        batchStatus.textContent = file ? "请选择有效的 .xlsx 文件" : "完成后会自动生成可下载的图片压缩包";
+        batchStatus.className = file ? "status error" : "status";
+        batchButton.disabled = true;
+        return;
+      }
+      fileName.textContent = file.name;
+      batchStatus.textContent = `已选择 ${(file.size / 1024).toFixed(1)} KB，点击开始批量提取`;
+      batchStatus.className = "status";
+      batchButton.disabled = false;
+      downloadCard.hidden = true;
+      fieldCard.hidden = true;
+      batchErrors.textContent = "";
+    }
+
+    async function batchExtract() {
+      const file = excelFile.files[0];
+      if (!file) return;
+      batchButton.disabled = true;
+      batchButton.textContent = "处理中…";
+      batchStatus.textContent = "正在逐条识别链接并提取图片，数量较多时请耐心等待";
+      batchStatus.className = "status busy";
+      downloadCard.hidden = true;
+      fieldCard.hidden = true;
+      batchErrors.textContent = "";
+      try {
+        const form = new FormData();
+        form.append("file", file);
+        const response = await fetch("/api/batch-extract", {
+          method: "POST",
+          headers: {"X-CSRF-Token": csrfToken},
+          body: form
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "批量提取失败");
+        const duplicateNote = data.duplicate_count
+          ? `，已跳过 ${data.duplicate_count} 条重复链接`
+          : "";
+        batchStatus.textContent = `完成：${data.succeeded}/${data.total} 条成功，共提取 ${data.image_count} 张图片${duplicateNote}`;
+        batchStatus.className = "status";
+        downloadTitle.textContent = data.archive_name;
+        downloadDetail.textContent = `${data.image_count} 张图片 · ${data.failed} 条失败`;
+        downloadLink.href = data.archive_url;
+        downloadLink.download = data.archive_name;
+        downloadCard.hidden = false;
+        if (data.field_rows.length) {
+          fieldTitle.textContent = `框选字段清单 · ${data.field_rows.length} 个唯一值`;
+          fieldOutput.value = [
+            "Excel行号\t框选字段",
+            ...data.field_rows.map(item => `${item.row}\t${item.field}`)
+          ].join("\n");
+          fieldCard.hidden = false;
+        }
+        batchErrors.innerHTML = data.errors.length
+          ? `未成功：${data.errors.map(item => `第 ${item.row} 行（${escapeHtml(item.error)}）`).join("；")}`
+          : "";
+        await loadResults();
+      } catch (error) {
+        batchStatus.textContent = error.message;
+        batchStatus.className = "status error";
+      } finally {
+        batchButton.disabled = false;
+        batchButton.textContent = "批量提取";
+      }
+    }
+
+    modeTabs.forEach(tab => tab.addEventListener("click", () => {
+      const batchMode = tab.dataset.mode === "batch";
+      modeTabs.forEach(item => item.classList.toggle("active", item === tab));
+      singlePanel.hidden = batchMode;
+      batchPanel.hidden = !batchMode;
+    }));
+    excelFile.addEventListener("change", () => selectFile(excelFile.files[0]));
+    ["dragenter", "dragover"].forEach(name => uploadZone.addEventListener(name, event => {
+      event.preventDefault();
+      uploadZone.classList.add("dragging");
+    }));
+    ["dragleave", "drop"].forEach(name => uploadZone.addEventListener(name, event => {
+      event.preventDefault();
+      uploadZone.classList.remove("dragging");
+    }));
+    uploadZone.addEventListener("drop", event => {
+      const file = event.dataTransfer.files[0];
+      if (!file) return;
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      excelFile.files = transfer.files;
+      selectFile(file);
+    });
+    copyFields.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(fieldOutput.value);
+      } catch {
+        fieldOutput.select();
+        document.execCommand("copy");
+      }
+      copyFields.textContent = "已复制";
+      setTimeout(() => { copyFields.textContent = "复制到 Excel"; }, 1600);
+    });
+    batchButton.addEventListener("click", batchExtract);
     button.addEventListener("click", extract);
     input.addEventListener("keydown", event => {
       if (event.key === "Enter") extract();

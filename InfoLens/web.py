@@ -11,17 +11,23 @@
 from __future__ import annotations
 
 import hmac
+import io
 import json
 import os
+import re
 import secrets
 import threading
 import time
 import urllib.parse
+import zipfile
 from collections import defaultdict, deque
+from datetime import datetime
 from functools import wraps
 from pathlib import Path
 from typing import Callable
 
+from openpyxl import load_workbook
+from openpyxl.utils.exceptions import InvalidFileException
 from flask import (
     Flask,
     abort,
@@ -41,6 +47,7 @@ from infolens.extractor import (
     ExtractResult,
     build_image_filename,
     extract_images,
+    photoid_name_field,
 )
 
 
@@ -51,6 +58,8 @@ AUTH_MODE = os.environ.get("INFOLENS_AUTH_MODE", "off").strip().lower()
 EXTRACT_LOCK = threading.Lock()
 RATE_LOCK = threading.Lock()
 RATE_BUCKETS: dict[str, deque[float]] = defaultdict(deque)
+MAX_BATCH_LINKS = int(os.environ.get("INFOLENS_MAX_BATCH_LINKS", "100"))
+MAX_UPLOAD_BYTES = int(os.environ.get("INFOLENS_MAX_UPLOAD_BYTES", str(4 * 1024 * 1024)))
 
 
 def _require_production_config() -> None:
@@ -99,6 +108,153 @@ def _serialize_result(result: ExtractResult) -> dict:
             }
             for image in result.images
         ],
+    }
+
+
+def _parse_excel_links(file_stream) -> tuple[list[tuple[int, str]], int]:
+    """读取首个工作表中唯一的“链接”列。"""
+    try:
+        payload = file_stream.read(MAX_UPLOAD_BYTES + 1)
+        if len(payload) > MAX_UPLOAD_BYTES:
+            raise ValueError("Excel 文件超过上传大小限制")
+        excel_buffer = io.BytesIO(payload)
+        with zipfile.ZipFile(excel_buffer) as archive:
+            expanded_size = sum(item.file_size for item in archive.infolist())
+            if expanded_size > 32 * 1024 * 1024:
+                raise ValueError("Excel 文件解压后的内容过大")
+        excel_buffer.seek(0)
+        workbook = load_workbook(excel_buffer, read_only=True, data_only=True)
+    except (InvalidFileException, OSError, ValueError, zipfile.BadZipFile) as exc:
+        if isinstance(exc, ValueError) and str(exc).startswith("Excel 文件"):
+            raise
+        raise ValueError("无法读取 Excel 文件，请确认文件为有效的 .xlsx 格式") from exc
+
+    try:
+        worksheet = workbook.active
+        rows = worksheet.iter_rows(values_only=True)
+        header = next(rows, None)
+        if header is None:
+            raise ValueError("Excel 文件为空")
+
+        populated_headers = [
+            str(value).strip() for value in header if value is not None and str(value).strip()
+        ]
+        if populated_headers != ["链接"]:
+            raise ValueError('Excel 第一行必须只有一个字段，字段名为“链接”')
+
+        links: list[tuple[int, str]] = []
+        seen: set[str] = set()
+        duplicate_count = 0
+        input_count = 0
+        for row_number, row in enumerate(rows, start=2):
+            populated = [
+                value for value in row[1:] if value is not None and str(value).strip()
+            ]
+            if populated:
+                raise ValueError(f"Excel 第 {row_number} 行包含“链接”列之外的数据")
+
+            value = row[0] if row else None
+            if value is None or not str(value).strip():
+                continue
+            input_count += 1
+            if input_count > MAX_BATCH_LINKS:
+                raise ValueError(f"单次最多处理 {MAX_BATCH_LINKS} 条链接")
+            link = str(value).strip()
+            if link in seen:
+                duplicate_count += 1
+                continue
+            seen.add(link)
+            links.append((row_number, link))
+
+        if not links:
+            raise ValueError("Excel 中没有可处理的链接")
+        return links, duplicate_count
+    finally:
+        workbook.close()
+
+
+def _create_batch_archive(
+    links: list[tuple[int, str]],
+    duplicate_count: int = 0,
+) -> dict:
+    batch_dir = OUTPUT_ROOT / "_batches"
+    batch_dir.mkdir(parents=True, exist_ok=True)
+    batch_key = f"{datetime.now():%Y%m%d_%H%M%S}_{secrets.token_hex(4)}"
+    archive_name = f"InfoLens_批量图片_{batch_key}.zip"
+    archive_path = batch_dir / archive_name
+    errors: list[dict] = []
+    completed: list[dict] = []
+    field_rows: list[dict] = []
+    seen_fields: set[str] = set()
+    image_count = 0
+
+    with zipfile.ZipFile(
+        archive_path,
+        "w",
+        compression=zipfile.ZIP_DEFLATED,
+        compresslevel=6,
+    ) as archive:
+        for position, (row_number, link) in enumerate(links, start=1):
+            try:
+                result = extract_images(link, OUTPUT_ROOT)
+                visit_folder = re.sub(
+                    r'[\\/:*?"<>|]',
+                    "_",
+                    f"{position:03d}_{result.terminal_name}_{result.visit_id[:8]}",
+                )
+                for image in result.images:
+                    source = Path(result.output_dir) / image.filename
+                    archive.write(source, f"{visit_folder}/{image.filename}")
+                    try:
+                        field = photoid_name_field(image.photoid)
+                    except ValueError:
+                        continue
+                    if field not in seen_fields:
+                        seen_fields.add(field)
+                        field_rows.append(
+                            {
+                                "row": row_number,
+                                "field": field,
+                            }
+                        )
+                image_count += len(result.images)
+                completed.append(
+                    {
+                        "row": row_number,
+                        "terminal_name": result.terminal_name,
+                        "partner_name": result.partner_name,
+                        "image_count": len(result.images),
+                    }
+                )
+            except (ValueError, CrmApiError) as exc:
+                errors.append({"row": row_number, "error": str(exc)})
+            except Exception:
+                errors.append({"row": row_number, "error": "处理失败，请联系管理员"})
+
+        report = {
+            "total": len(links),
+            "duplicate_count": duplicate_count,
+            "succeeded": len(completed),
+            "failed": len(errors),
+            "image_count": image_count,
+            "field_rows": field_rows,
+            "completed": completed,
+            "errors": errors,
+        }
+        archive.writestr(
+            "提取结果.json",
+            json.dumps(report, ensure_ascii=False, indent=2),
+        )
+
+    if not completed:
+        archive_path.unlink(missing_ok=True)
+        first_error = errors[0]["error"] if errors else "没有成功提取任何图片"
+        raise ValueError(f"批量提取失败：{first_error}")
+
+    return {
+        **report,
+        "archive_name": archive_name,
+        "archive_url": _image_url("_batches", archive_name),
     }
 
 
@@ -255,7 +411,7 @@ def create_app() -> Flask:
         x_host=1,
     )
     application.config.update(
-        MAX_CONTENT_LENGTH=16 * 1024,
+        MAX_CONTENT_LENGTH=MAX_UPLOAD_BYTES,
         SECRET_KEY=os.environ.get("INFOLENS_SESSION_SECRET") or secrets.token_hex(32),
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
@@ -280,7 +436,7 @@ def create_app() -> Flask:
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "img-src 'self' data:; "
+            "img-src 'self' data: https://www.crbeer.com.hk; "
             "style-src 'self' 'unsafe-inline'; "
             "script-src 'self' 'unsafe-inline'; "
             "connect-src 'self'; "
@@ -392,6 +548,33 @@ def create_app() -> Flask:
             return jsonify({"error": "提取失败，请联系管理员查看服务日志"}), 500
         return jsonify(_serialize_result(result))
 
+    @application.post("/api/batch-extract")
+    @_login_required
+    def batch_extract():
+        _check_csrf()
+        _check_rate_limit()
+        upload = request.files.get("file")
+        if upload is None or not upload.filename:
+            return jsonify({"error": "请选择 Excel 文件"}), 400
+        if Path(upload.filename).suffix.lower() != ".xlsx":
+            return jsonify({"error": "仅支持 .xlsx 格式的 Excel 文件"}), 400
+
+        try:
+            links, duplicate_count = _parse_excel_links(upload.stream)
+            with EXTRACT_LOCK:
+                result = _create_batch_archive(links, duplicate_count)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception:
+            application.logger.exception("批量提取图片失败")
+            return jsonify({"error": "批量提取失败，请联系管理员查看服务日志"}), 500
+        return jsonify(result)
+
+    @application.errorhandler(413)
+    def upload_too_large(_error):
+        size_mb = MAX_UPLOAD_BYTES / 1024 / 1024
+        return jsonify({"error": f"上传文件不能超过 {size_mb:g} MB"}), 413
+
     @application.errorhandler(403)
     @application.errorhandler(429)
     def handled_error(error):
@@ -404,4 +587,5 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=8765, debug=False, threaded=True)
+    #app.run(host="127.0.0.1", port=8765, debug=False, threaded=True)
+    app.run(host="0.0.0.0", port=8765, debug=False, threaded=True)

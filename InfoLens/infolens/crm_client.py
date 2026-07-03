@@ -20,6 +20,7 @@ COS_BASE = os.environ.get(
 )
 
 VISIT_DETAIL_PATH = "/h5/report/getWorkCircleTerminalVisitAndSupervisorDetail"
+WORK_CIRCLE_DETAIL_PATH = "/h5/report/getVisitWorkCircleDetail"
 PIC_URL_PATH = "/heineKen/getPicUrlByPhotoIds"
 TIMESTAMP_PATH = "/heineKen/getTimestamp"
 
@@ -95,6 +96,16 @@ def get_visit_detail(appuser: str, visit_id: str, process_type: str) -> dict[str
     )
     if not data:
         raise CrmApiError("未找到拜访记录")
+    return data[0] if isinstance(data, list) else data
+
+
+def get_work_circle_detail(appuser: str, visit_id: str) -> dict[str, Any]:
+    data = share_request(
+        WORK_CIRCLE_DETAIL_PATH,
+        {"appuser": appuser, "id": visit_id},
+    )
+    if not data:
+        raise CrmApiError("未找到工作圈拜访记录")
     return data[0] if isinstance(data, list) else data
 
 
