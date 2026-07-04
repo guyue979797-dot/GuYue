@@ -58,6 +58,9 @@ AUTH_MODE = os.environ.get("INFOLENS_AUTH_MODE", "off").strip().lower()
 EXTRACT_LOCK = threading.Lock()
 RATE_LOCK = threading.Lock()
 RATE_BUCKETS: dict[str, deque[float]] = defaultdict(deque)
+BATCH_JOBS_LOCK = threading.Lock()
+BATCH_JOBS: dict[str, dict] = {}
+BATCH_JOB_TTL_SECONDS = 6 * 60 * 60
 MAX_BATCH_LINKS = int(os.environ.get("INFOLENS_MAX_BATCH_LINKS", "100"))
 MAX_UPLOAD_BYTES = int(os.environ.get("INFOLENS_MAX_UPLOAD_BYTES", str(4 * 1024 * 1024)))
 
@@ -176,16 +179,17 @@ def _parse_excel_links(file_stream) -> tuple[list[tuple[int, str]], int]:
 def _create_batch_archive(
     links: list[tuple[int, str]],
     duplicate_count: int = 0,
+    progress_callback: Callable[[dict], None] | None = None,
 ) -> dict:
     batch_dir = OUTPUT_ROOT / "_batches"
     batch_dir.mkdir(parents=True, exist_ok=True)
     batch_key = f"{datetime.now():%Y%m%d_%H%M%S}_{secrets.token_hex(4)}"
-    archive_name = f"InfoLens_批量图片_{batch_key}.zip"
-    archive_path = batch_dir / archive_name
+    archive_path = batch_dir / f".batch_{batch_key}.zip"
     errors: list[dict] = []
     completed: list[dict] = []
     field_rows: list[dict] = []
     seen_fields: set[str] = set()
+    image_groups: dict[tuple[str, str], dict[str, str | int]] = {}
     image_count = 0
 
     with zipfile.ZipFile(
@@ -194,21 +198,44 @@ def _create_batch_archive(
         compression=zipfile.ZIP_DEFLATED,
         compresslevel=6,
     ) as archive:
-        for position, (row_number, link) in enumerate(links, start=1):
+        for processed, (row_number, link) in enumerate(links, start=1):
             try:
                 result = extract_images(link, OUTPUT_ROOT)
-                visit_folder = re.sub(
-                    r'[\\/:*?"<>|]',
-                    "_",
-                    f"{position:03d}_{result.terminal_name}_{result.visit_id[:8]}",
-                )
+                archived_for_visit = 0
                 for image in result.images:
-                    source = Path(result.output_dir) / image.filename
-                    archive.write(source, f"{visit_folder}/{image.filename}")
                     try:
                         field = photoid_name_field(image.photoid)
                     except ValueError:
                         continue
+                    image_key = (field, result.terminal_name)
+                    group = image_groups.get(image_key)
+                    if group is None:
+                        safe_field = re.sub(r'[\\/:*?"<>|]', "_", field)
+                        safe_terminal = re.sub(
+                            r'[\\/:*?"<>|]',
+                            "_",
+                            result.terminal_name.strip(),
+                        ) or "未知终端"
+                        group = {
+                            "folder": (
+                                f"{len(image_groups) + 1:02d}_"
+                                f"{safe_field}_{safe_terminal}"
+                            ),
+                            "image_count": 0,
+                        }
+                        image_groups[image_key] = group
+
+                    source = Path(result.output_dir) / image.filename
+                    extension = source.suffix.lower() or ".jpg"
+                    group["image_count"] = int(group["image_count"]) + 1
+                    archive_filename = (
+                        f"{group['folder']}/"
+                        f"{int(group['image_count']):02d}{extension}"
+                    )
+                    archive.write(source, archive_filename)
+                    image_count += 1
+                    archived_for_visit += 1
+
                     if field not in seen_fields:
                         seen_fields.add(field)
                         field_rows.append(
@@ -217,19 +244,29 @@ def _create_batch_archive(
                                 "field": field,
                             }
                         )
-                image_count += len(result.images)
                 completed.append(
                     {
                         "row": row_number,
                         "terminal_name": result.terminal_name,
                         "partner_name": result.partner_name,
-                        "image_count": len(result.images),
+                        "image_count": archived_for_visit,
                     }
                 )
             except (ValueError, CrmApiError) as exc:
                 errors.append({"row": row_number, "error": str(exc)})
             except Exception:
                 errors.append({"row": row_number, "error": "处理失败，请联系管理员"})
+            if progress_callback:
+                progress_callback(
+                    {
+                        "processed": processed,
+                        "total": len(links),
+                        "current_row": row_number,
+                        "succeeded": len(completed),
+                        "failed": len(errors),
+                        "image_count": image_count,
+                    }
+                )
 
         report = {
             "total": len(links),
@@ -251,11 +288,98 @@ def _create_batch_archive(
         first_error = errors[0]["error"] if errors else "没有成功提取任何图片"
         raise ValueError(f"批量提取失败：{first_error}")
 
+    partner_name = completed[0]["partner_name"]
+    safe_partner = re.sub(
+        r'[\\/:*?"<>|]',
+        "_",
+        str(partner_name).strip(),
+    ) or "未知业务员"
+    archive_stem = f"{datetime.now():%Y%m%d}_{safe_partner}_{len(seen_fields)}"
+    archive_name = f"{archive_stem}.zip"
+    final_archive_path = batch_dir / archive_name
+    sequence = 2
+    while final_archive_path.exists():
+        archive_name = f"{archive_stem}_{sequence:02d}.zip"
+        final_archive_path = batch_dir / archive_name
+        sequence += 1
+    archive_path.replace(final_archive_path)
+
     return {
         **report,
         "archive_name": archive_name,
         "archive_url": _image_url("_batches", archive_name),
     }
+
+
+def _update_batch_job(job_id: str, **values) -> None:
+    with BATCH_JOBS_LOCK:
+        job = BATCH_JOBS.get(job_id)
+        if job is not None:
+            job.update(values)
+            job["updated_at"] = time.time()
+
+
+def _run_batch_job(
+    application: Flask,
+    job_id: str,
+    links: list[tuple[int, str]],
+    duplicate_count: int,
+) -> None:
+    _update_batch_job(job_id, status="running")
+
+    def report_progress(progress: dict) -> None:
+        _update_batch_job(job_id, **progress)
+
+    try:
+        with EXTRACT_LOCK:
+            result = _create_batch_archive(
+                links,
+                duplicate_count,
+                progress_callback=report_progress,
+            )
+        _update_batch_job(
+            job_id,
+            status="completed",
+            processed=len(links),
+            result=result,
+        )
+    except ValueError as exc:
+        _update_batch_job(job_id, status="failed", error=str(exc))
+    except Exception:
+        application.logger.exception("批量提取图片失败")
+        _update_batch_job(
+            job_id,
+            status="failed",
+            error="批量提取失败，请联系管理员查看服务日志",
+        )
+
+
+def _prune_batch_jobs() -> None:
+    cutoff = time.time() - BATCH_JOB_TTL_SECONDS
+    with BATCH_JOBS_LOCK:
+        expired = [
+            job_id
+            for job_id, job in BATCH_JOBS.items()
+            if job.get("updated_at", 0) < cutoff
+        ]
+        for job_id in expired:
+            BATCH_JOBS.pop(job_id, None)
+
+
+def _public_batch_job(job: dict) -> dict:
+    fields = (
+        "status",
+        "processed",
+        "total",
+        "current_row",
+        "succeeded",
+        "failed",
+        "image_count",
+        "duplicate_count",
+        "result",
+        "error",
+    )
+    return {field: job[field] for field in fields if field in job}
 
 
 def _load_saved_results() -> list[dict]:
@@ -561,14 +685,53 @@ def create_app() -> Flask:
 
         try:
             links, duplicate_count = _parse_excel_links(upload.stream)
-            with EXTRACT_LOCK:
-                result = _create_batch_archive(links, duplicate_count)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         except Exception:
             application.logger.exception("批量提取图片失败")
             return jsonify({"error": "批量提取失败，请联系管理员查看服务日志"}), 500
-        return jsonify(result)
+
+        _prune_batch_jobs()
+        job_id = secrets.token_urlsafe(18)
+        now = time.time()
+        with BATCH_JOBS_LOCK:
+            BATCH_JOBS[job_id] = {
+                "owner": _current_user(),
+                "status": "queued",
+                "processed": 0,
+                "total": len(links),
+                "current_row": None,
+                "succeeded": 0,
+                "failed": 0,
+                "image_count": 0,
+                "duplicate_count": duplicate_count,
+                "created_at": now,
+                "updated_at": now,
+            }
+        threading.Thread(
+            target=_run_batch_job,
+            args=(application, job_id, links, duplicate_count),
+            daemon=True,
+            name=f"batch-{job_id[:8]}",
+        ).start()
+        return jsonify(
+            {
+                "job_id": job_id,
+                "status": "queued",
+                "total": len(links),
+                "duplicate_count": duplicate_count,
+            }
+        ), 202
+
+    @application.get("/api/batch-extract/<job_id>")
+    @_login_required
+    def batch_extract_status(job_id: str):
+        with BATCH_JOBS_LOCK:
+            job = BATCH_JOBS.get(job_id)
+            if job is None or job.get("owner") != _current_user():
+                return jsonify({"error": "批量任务不存在或已过期"}), 404
+            payload = _public_batch_job(job)
+        return jsonify(payload)
 
     @application.errorhandler(413)
     def upload_too_large(_error):

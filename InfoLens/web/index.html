@@ -272,6 +272,39 @@
       margin-top: 12px;
     }
     .batch-actions button { height: 48px; min-width: 152px; border-radius: 15px; }
+    .batch-progress {
+      margin-top: 14px;
+      padding: 14px 16px;
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: 15px;
+      background: rgba(255,255,255,.035);
+    }
+    .batch-progress[hidden] { display: none; }
+    .progress-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 10px;
+      color: #b8b8bd;
+      font-size: 11px;
+    }
+    .progress-meta strong { color: #f1f1f2; font-size: 12px; }
+    .progress-track {
+      height: 7px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(255,255,255,.09);
+    }
+    .progress-bar {
+      display: block;
+      width: 0;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #8d8f96, #f4f4f5);
+      box-shadow: 0 0 18px rgba(255,255,255,.2);
+      transition: width .35s ease;
+    }
     .download-card {
       display: flex;
       align-items: center;
@@ -541,6 +574,22 @@
           <div id="batch-status" class="status">完成后会自动生成可下载的图片压缩包</div>
           <button id="batch-extract" type="button" disabled>批量提取</button>
         </div>
+        <div id="batch-progress" class="batch-progress" hidden>
+          <div class="progress-meta">
+            <strong id="progress-label">准备处理</strong>
+            <span id="progress-percent">0%</span>
+          </div>
+          <div
+            id="progress-track"
+            class="progress-track"
+            role="progressbar"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow="0"
+          >
+            <span id="progress-bar" class="progress-bar"></span>
+          </div>
+        </div>
         <div id="download-card" class="download-card" hidden>
           <div class="download-summary">
             <strong id="download-title">压缩包已生成</strong>
@@ -551,8 +600,8 @@
         <div id="field-card" class="field-card" hidden>
           <div class="field-card-head">
             <div class="field-card-title">
-              <strong id="field-title">框选字段清单</strong>
-              <small>复制后可直接粘贴到 Excel，自动分为两列</small>
+              <strong id="field-title">唯一值</strong>
+              <small>复制后可直接粘贴到 Excel，自动排列为一列</small>
             </div>
             <button id="copy-fields" class="copy-button" type="button">复制到 Excel</button>
           </div>
@@ -586,6 +635,11 @@
     const fileName = document.querySelector("#file-name");
     const batchButton = document.querySelector("#batch-extract");
     const batchStatus = document.querySelector("#batch-status");
+    const batchProgress = document.querySelector("#batch-progress");
+    const progressLabel = document.querySelector("#progress-label");
+    const progressPercent = document.querySelector("#progress-percent");
+    const progressTrack = document.querySelector("#progress-track");
+    const progressBar = document.querySelector("#progress-bar");
     const downloadCard = document.querySelector("#download-card");
     const downloadTitle = document.querySelector("#download-title");
     const downloadDetail = document.querySelector("#download-detail");
@@ -701,7 +755,40 @@
       batchButton.disabled = false;
       downloadCard.hidden = true;
       fieldCard.hidden = true;
+      batchProgress.hidden = true;
       batchErrors.textContent = "";
+    }
+
+    function updateBatchProgress(job) {
+      const total = Number(job.total || 0);
+      const processed = Number(job.processed || 0);
+      const percent = total ? Math.round(processed / total * 100) : 0;
+      const rowNote = job.current_row ? ` · Excel 第 ${job.current_row} 行` : "";
+      progressBar.style.width = `${percent}%`;
+      progressPercent.textContent = `${percent}%`;
+      progressTrack.setAttribute("aria-valuenow", String(percent));
+      progressLabel.textContent = job.status === "queued"
+        ? `任务排队中 · 共 ${total} 条`
+        : `已处理 ${processed}/${total} 条 · 成功 ${job.succeeded || 0} · 失败 ${job.failed || 0}${rowNote}`;
+      batchStatus.textContent = job.status === "queued"
+        ? "正在准备批量任务"
+        : `正在处理：${processed}/${total} 条，已提取 ${job.image_count || 0} 张图片`;
+    }
+
+    async function waitForBatchJob(jobId, initialJob) {
+      let job = initialJob;
+      while (true) {
+        updateBatchProgress(job);
+        if (job.status === "completed") return job.result;
+        if (job.status === "failed") {
+          throw new Error(job.error || "批量提取失败");
+        }
+        await new Promise(resolve => setTimeout(resolve, 650));
+        const response = await fetch(`/api/batch-extract/${encodeURIComponent(jobId)}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "无法读取处理进度");
+        job = data;
+      }
     }
 
     async function batchExtract() {
@@ -713,6 +800,11 @@
       batchStatus.className = "status busy";
       downloadCard.hidden = true;
       fieldCard.hidden = true;
+      batchProgress.hidden = false;
+      progressBar.style.width = "0%";
+      progressPercent.textContent = "0%";
+      progressTrack.setAttribute("aria-valuenow", "0");
+      progressLabel.textContent = "正在读取 Excel";
       batchErrors.textContent = "";
       try {
         const form = new FormData();
@@ -722,11 +814,20 @@
           headers: {"X-CSRF-Token": csrfToken},
           body: form
         });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || "批量提取失败");
+        const started = await response.json();
+        if (!response.ok) throw new Error(started.error || "批量提取失败");
+        const data = await waitForBatchJob(started.job_id, started);
         const duplicateNote = data.duplicate_count
           ? `，已跳过 ${data.duplicate_count} 条重复链接`
           : "";
+        updateBatchProgress({
+          status: "completed",
+          processed: data.total,
+          total: data.total,
+          succeeded: data.succeeded,
+          failed: data.failed,
+          image_count: data.image_count
+        });
         batchStatus.textContent = `完成：${data.succeeded}/${data.total} 条成功，共提取 ${data.image_count} 张图片${duplicateNote}`;
         batchStatus.className = "status";
         downloadTitle.textContent = data.archive_name;
@@ -735,11 +836,10 @@
         downloadLink.download = data.archive_name;
         downloadCard.hidden = false;
         if (data.field_rows.length) {
-          fieldTitle.textContent = `框选字段清单 · ${data.field_rows.length} 个唯一值`;
-          fieldOutput.value = [
-            "Excel行号\t框选字段",
-            ...data.field_rows.map(item => `${item.row}\t${item.field}`)
-          ].join("\n");
+          fieldTitle.textContent = `唯一值 · ${data.field_rows.length} 个`;
+          fieldOutput.value = data.field_rows
+            .map(item => item.field)
+            .join("\n");
           fieldCard.hidden = false;
         }
         batchErrors.innerHTML = data.errors.length
@@ -749,6 +849,7 @@
       } catch (error) {
         batchStatus.textContent = error.message;
         batchStatus.className = "status error";
+        progressLabel.textContent = "处理已停止";
       } finally {
         batchButton.disabled = false;
         batchButton.textContent = "批量提取";

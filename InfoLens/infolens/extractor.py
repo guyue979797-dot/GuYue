@@ -163,18 +163,30 @@ def extract_images(url: str, output_root: str | Path = "output") -> ExtractResul
         for photo in photo_info
         if str(photo.get("photoid") or "").startswith("private")
     ]
+    extractable_photos = []
+    for photo in private_photos:
+        photoid = str(photo.get("photoid") or "")
+        try:
+            field = photoid_name_field(photoid)
+        except ValueError:
+            extractable_photos.append(photo)
+            continue
+        if field.casefold() != "newterminal":
+            extractable_photos.append(photo)
 
     if not photo_info:
         raise CrmApiError("该拜访记录没有图片")
     if not private_photos:
         raise CrmApiError("该拜访记录没有 photoid 以 private 开头的图片")
+    if not extractable_photos:
+        raise CrmApiError("该拜访记录没有可提取的图片")
 
     folder_name = f"{_safe_name(terminal_name)}_{parsed['id'][:8]}"
     output_dir = Path(output_root) / folder_name
     output_dir.mkdir(parents=True, exist_ok=True)
 
     saved: list[SavedImage] = []
-    for index, photo in enumerate(private_photos, start=1):
+    for index, photo in enumerate(extractable_photos, start=1):
         photoid = photo.get("photoid") or ""
 
         image_url = resolve_photo_url(photoid)

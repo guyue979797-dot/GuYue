@@ -19,6 +19,10 @@ PRIVATE_PHOTOID = (
     "private/TCOS/Z0019/O50002488/20260610/1023275022/"
     "Z0019O500024882026061014225113010232750220.jpeg?signature=test"
 )
+NEW_TERMINAL_PHOTOID = (
+    "private/TCOS/Z0019/O50002488/20260610/newterminal/"
+    "Z0019O500024882026061014225113010000000000.jpeg"
+)
 WORK_CIRCLE_URL = (
     "https://crm.crb.cn/page/#/workCirclevisit"
     "?appuser=21483291&id=A343379C0B5443FFAE8E59FA7909C1C2"
@@ -81,6 +85,7 @@ class ExtractorTests(unittest.TestCase):
             "partner_name": " 韦春云",
             "photo_info": [
                 {"photoid": "TCOS/Z0003/O50002488/20250325/1023275022/old.jpeg"},
+                {"photoid": NEW_TERMINAL_PHOTOID},
                 {"photoid": PRIVATE_PHOTOID},
             ],
         }
@@ -104,6 +109,7 @@ class ExtractorTests(unittest.TestCase):
                 )
 
             self.assertEqual(len(result.images), 1)
+            self.assertEqual(result.images[0].index, 1)
             self.assertEqual(
                 result.images[0].filename,
                 "1023275022_拾蕙莱智能便利店（金茂）_韦春云_01.jpeg",

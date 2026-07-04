@@ -2,6 +2,7 @@ import importlib
 import io
 import os
 import tempfile
+import time
 import unittest
 import zipfile
 from pathlib import Path
@@ -45,6 +46,10 @@ class WebSecurityTests(unittest.TestCase):
         self.assertEqual(self.client.get("/").status_code, 302)
         self.assertEqual(self.client.get("/api/results").status_code, 401)
         self.assertEqual(self.client.post("/api/batch-extract").status_code, 401)
+        self.assertEqual(
+            self.client.get("/api/batch-extract/unknown").status_code,
+            401,
+        )
         self.assertEqual(self.client.get("/output/private.jpg").status_code, 401)
         self.assertEqual(self.client.get("/healthz").status_code, 200)
 
@@ -93,6 +98,7 @@ class WebSecurityTests(unittest.TestCase):
         worksheet.append([link])
         worksheet.append([link])
         worksheet.append([link.replace("954187FD1234", "A343379C1234")])
+        worksheet.append([link.replace("954187FD1234", "B453379C1234")])
         excel = io.BytesIO()
         workbook.save(excel)
         excel.seek(0)
@@ -102,9 +108,14 @@ class WebSecurityTests(unittest.TestCase):
             current_session["csrf_token"] = "test-token"
 
         def fake_extract(_url, output_root):
+            field = (
+                "2045678901"
+                if "B453379C1234" in _url
+                else "1023275022"
+            )
             output_dir = Path(output_root) / "测试终端_954187FD"
             output_dir.mkdir(parents=True, exist_ok=True)
-            filename = "1023275022_测试终端_测试业务员_01.jpg"
+            filename = f"{field}_测试终端_测试业务员_01.jpg"
             (output_dir / filename).write_bytes(b"image")
             return ExtractResult(
                 visit_id="954187FD1234",
@@ -116,7 +127,7 @@ class WebSecurityTests(unittest.TestCase):
                         index=1,
                         photoid=(
                             "private/TCOS/Z0019/O50002488/20260610/"
-                            "1023275022/source.jpeg"
+                            f"{field}/source.jpeg"
                         ),
                         filename=filename,
                         url="",
@@ -137,24 +148,61 @@ class WebSecurityTests(unittest.TestCase):
                 headers={"X-CSRF-Token": "test-token"},
                 content_type="multipart/form-data",
             )
+            self.assertEqual(response.status_code, 202)
+            started = response.get_json()
+            self.assertEqual(started["status"], "queued")
+            self.assertEqual(started["total"], 3)
 
-        self.assertEqual(response.status_code, 200)
-        data = response.get_json()
-        self.assertEqual(extract_images.call_count, 2)
-        self.assertEqual(data["total"], 2)
+            for _attempt in range(200):
+                status_response = self.client.get(
+                    f"/api/batch-extract/{started['job_id']}"
+                )
+                self.assertEqual(status_response.status_code, 200)
+                job = status_response.get_json()
+                if job["status"] in {"completed", "failed"}:
+                    break
+                time.sleep(0.01)
+            else:
+                self.fail("批量任务未在预期时间内完成")
+
+        self.assertEqual(job["status"], "completed")
+        self.assertEqual(job["processed"], 3)
+        data = job["result"]
+        self.assertEqual(extract_images.call_count, 3)
+        self.assertEqual(data["total"], 3)
         self.assertEqual(data["duplicate_count"], 1)
-        self.assertEqual(data["succeeded"], 2)
-        self.assertEqual(data["image_count"], 2)
+        self.assertEqual(data["succeeded"], 3)
+        self.assertEqual(data["image_count"], 3)
+        self.assertRegex(
+            data["archive_name"],
+            r"^\d{8}_测试业务员_2\.zip$",
+        )
         self.assertEqual(
             data["field_rows"],
-            [{"row": 2, "field": "1023275022"}],
+            [
+                {"row": 2, "field": "1023275022"},
+                {"row": 5, "field": "2045678901"},
+            ],
         )
         archive_path = Path(self.output.name) / "_batches" / data["archive_name"]
         self.assertTrue(archive_path.is_file())
         with zipfile.ZipFile(archive_path) as archive:
             names = archive.namelist()
         self.assertIn("提取结果.json", names)
-        self.assertTrue(any(name.endswith("_01.jpg") for name in names))
+        self.assertIn("01_1023275022_测试终端/01.jpg", names)
+        self.assertIn("01_1023275022_测试终端/02.jpg", names)
+        self.assertIn("02_2045678901_测试终端/01.jpg", names)
+        self.assertEqual(
+            {
+                name.rsplit("/", 1)[0]
+                for name in names
+                if name.endswith(".jpg")
+            },
+            {
+                "01_1023275022_测试终端",
+                "02_2045678901_测试终端",
+            },
+        )
 
     def test_batch_extract_rejects_wrong_header(self):
         workbook = Workbook()
