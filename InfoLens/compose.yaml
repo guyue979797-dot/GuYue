@@ -23,6 +23,23 @@ services:
       retries: 3
       start_period: 15s
 
+  wecom-bot:
+    build:
+      context: .
+    profiles:
+      - wecom
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      INFOLENS_OUTPUT_ROOT: /data/output
+    command:
+      - python
+      - -m
+      - infolens.wecom_ws
+    volumes:
+      - infolens_output:/data/output
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped

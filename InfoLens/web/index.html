@@ -123,8 +123,8 @@
     .panel-note { margin: 0; color: var(--muted); font-size: 12px; }
     .mode-switch {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      max-width: 360px;
+      grid-template-columns: repeat(3, 1fr);
+      max-width: 520px;
       margin: 0 auto 24px;
       padding: 4px;
       border: 1px solid var(--line);
@@ -380,6 +380,59 @@
       font: 11px/1.75 ui-monospace, SFMono-Regular, Menlo, monospace;
       white-space: pre;
     }
+    .distribution-overview {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .overview-metric {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      background: rgba(255,255,255,.035);
+    }
+    .overview-metric small {
+      display: block;
+      margin-bottom: 7px;
+      color: var(--muted);
+      font-size: 10px;
+    }
+    .overview-metric strong { font-size: 20px; letter-spacing: -.03em; }
+    .business-grid { display: grid; gap: 12px; }
+    .business-card {
+      display: grid;
+      grid-template-columns: minmax(150px, 1.4fr) repeat(3, minmax(92px, .7fr)) auto;
+      align-items: center;
+      gap: 12px;
+      padding: 16px;
+      border: 1px solid rgba(255,255,255,.13);
+      border-radius: 17px;
+      background: rgba(255,255,255,.04);
+    }
+    .business-name strong {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 14px;
+    }
+    .business-name small { color: var(--muted); font-size: 10px; }
+    .business-metric span {
+      display: block;
+      margin-bottom: 5px;
+      color: var(--muted);
+      font-size: 10px;
+    }
+    .business-metric strong { font-size: 17px; }
+    .business-download {
+      width: auto;
+      min-width: 104px;
+      height: 40px;
+      padding: 0 14px;
+      border-radius: 12px;
+      font-size: 11px;
+    }
+    .business-download::after { content: " ↓"; }
+    .business-download:disabled { cursor: not-allowed; }
     .status.busy::before {
       content: "";
       display: inline-block;
@@ -514,6 +567,10 @@
       .download-card { align-items: flex-start; flex-direction: column; }
       .field-card-head { align-items: flex-start; flex-direction: column; }
       .copy-button { width: 100%; }
+      .distribution-overview { grid-template-columns: 1fr; }
+      .business-card { grid-template-columns: 1fr 1fr; }
+      .business-name { grid-column: 1 / -1; }
+      .business-download { grid-column: 1 / -1; width: 100%; }
       .section-head { margin-top: 58px; }
       .result { padding: 18px; border-radius: 22px; }
       .gallery { grid-template-columns: 1fr; }
@@ -539,6 +596,7 @@
       <div class="mode-switch" aria-label="提取方式">
         <button class="mode-tab active" type="button" data-mode="single">链接提取</button>
         <button class="mode-tab" type="button" data-mode="batch">批量提取</button>
+        <button class="mode-tab" type="button" data-mode="distribution">分发处理</button>
       </div>
       <div id="single-panel" class="mode-panel">
       <div class="panel-top">
@@ -609,8 +667,37 @@
         </div>
         <div id="batch-errors" class="batch-errors"></div>
       </div>
+
+      <div id="distribution-panel" class="mode-panel" hidden>
+        <div class="panel-top">
+          <div>
+            <p class="panel-title">机器人链接分发处理</p>
+            <p class="panel-note">按业务员汇总 field 唯一值并下载全部提取内容</p>
+          </div>
+          <span class="private-chip">自动刷新</span>
+        </div>
+        <div class="distribution-overview">
+          <div class="overview-metric">
+            <small>业务数量</small>
+            <strong id="distribution-business-total">0</strong>
+          </div>
+          <div class="overview-metric">
+            <small>field 唯一值</small>
+            <strong id="distribution-field-total">0</strong>
+          </div>
+          <div class="overview-metric">
+            <small>分发链接</small>
+            <strong id="distribution-link-total">0</strong>
+          </div>
+        </div>
+        <div id="distribution-status" class="status">正在读取分发任务</div>
+        <div id="business-grid" class="business-grid">
+          <div class="empty">尚无机器人分发记录</div>
+        </div>
+      </div>
     </section>
 
+    <div id="recent-section">
     <div class="section-head">
       <div>
         <h2>最近提取</h2>
@@ -618,6 +705,7 @@
       <span id="count"></span>
     </div>
     <section id="results"><div class="empty">尚无可显示的提取记录</div></section>
+    </div>
   </main>
 
   <script>
@@ -630,6 +718,13 @@
     const modeTabs = document.querySelectorAll(".mode-tab");
     const singlePanel = document.querySelector("#single-panel");
     const batchPanel = document.querySelector("#batch-panel");
+    const distributionPanel = document.querySelector("#distribution-panel");
+    const recentSection = document.querySelector("#recent-section");
+    const distributionStatus = document.querySelector("#distribution-status");
+    const businessGrid = document.querySelector("#business-grid");
+    const distributionBusinessTotal = document.querySelector("#distribution-business-total");
+    const distributionFieldTotal = document.querySelector("#distribution-field-total");
+    const distributionLinkTotal = document.querySelector("#distribution-link-total");
     const excelFile = document.querySelector("#excel-file");
     const uploadZone = document.querySelector("#upload-zone");
     const fileName = document.querySelector("#file-name");
@@ -650,6 +745,7 @@
     const copyFields = document.querySelector("#copy-fields");
     const batchErrors = document.querySelector("#batch-errors");
     let csrfToken = "";
+    let distributionTimer = null;
 
     const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, char => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -700,6 +796,102 @@
       } catch {
         status.textContent = "无法读取本地提取记录";
         status.className = "status error";
+      }
+    }
+
+    function renderDistributions(data) {
+      const totals = data.totals || {};
+      const items = data.items || [];
+      distributionBusinessTotal.textContent = totals.business_count || 0;
+      distributionFieldTotal.textContent = totals.quantity || 0;
+      distributionLinkTotal.textContent = totals.distributed_count || 0;
+      distributionStatus.textContent = `待下载 ${totals.pending_download_count || 0} 个 field 唯一值`;
+      distributionStatus.className = "status";
+      if (!items.length) {
+        businessGrid.innerHTML = '<div class="empty">尚无机器人分发记录</div>';
+        return;
+      }
+      businessGrid.innerHTML = items.map(item => {
+        const running = Number(item.queued_count || 0) + Number(item.processing_count || 0);
+        const detail = [
+          running ? `处理中 ${running}` : "",
+          item.failed_count ? `失败 ${item.failed_count}` : "",
+          item.image_count ? `${item.image_count} 张图片` : ""
+        ].filter(Boolean).join(" · ") || "等待处理";
+        const canDownload = item.business !== "待识别" && Number(item.quantity || 0) > 0;
+        return `
+          <article class="business-card">
+            <div class="business-name">
+              <strong>${escapeHtml(item.business)}</strong>
+              <small>${escapeHtml(detail)}</small>
+            </div>
+            <div class="business-metric">
+              <span>数量</span>
+              <strong>${Number(item.quantity || 0)}</strong>
+            </div>
+            <div class="business-metric">
+              <span>分发数量</span>
+              <strong>${Number(item.distributed_count || 0)}</strong>
+            </div>
+            <div class="business-metric">
+              <span>待下载数量</span>
+              <strong>${Number(item.pending_download_count || 0)}</strong>
+            </div>
+            <button
+              class="business-download"
+              type="button"
+              data-business="${escapeHtml(item.business)}"
+              ${canDownload ? "" : "disabled"}
+            >下载全部</button>
+          </article>
+        `;
+      }).join("");
+    }
+
+    async function loadDistributions() {
+      try {
+        const response = await fetch("/api/distributions");
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "无法读取分发任务");
+        renderDistributions(data);
+      } catch (error) {
+        distributionStatus.textContent = error.message;
+        distributionStatus.className = "status error";
+      }
+    }
+
+    async function downloadBusiness(button) {
+      const business = button.dataset.business;
+      if (!business) return;
+      button.disabled = true;
+      button.textContent = "打包中…";
+      distributionStatus.textContent = `正在打包 ${business} 的全部提取内容`;
+      distributionStatus.className = "status busy";
+      try {
+        const response = await fetch(
+          `/api/distributions/${encodeURIComponent(business)}/archive`,
+          {
+            method: "POST",
+            headers: {"X-CSRF-Token": csrfToken}
+          }
+        );
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "打包失败");
+        const link = document.createElement("a");
+        link.href = data.archive_url;
+        link.download = data.archive_name;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        distributionStatus.textContent = `${business}：已打包 ${data.field_count} 个 field 唯一值、${data.image_count} 张图片`;
+        distributionStatus.className = "status";
+        await loadDistributions();
+      } catch (error) {
+        distributionStatus.textContent = error.message;
+        distributionStatus.className = "status error";
+      } finally {
+        button.disabled = false;
+        button.textContent = "下载全部";
       }
     }
 
@@ -857,11 +1049,25 @@
     }
 
     modeTabs.forEach(tab => tab.addEventListener("click", () => {
-      const batchMode = tab.dataset.mode === "batch";
+      const mode = tab.dataset.mode;
       modeTabs.forEach(item => item.classList.toggle("active", item === tab));
-      singlePanel.hidden = batchMode;
-      batchPanel.hidden = !batchMode;
+      singlePanel.hidden = mode !== "single";
+      batchPanel.hidden = mode !== "batch";
+      distributionPanel.hidden = mode !== "distribution";
+      recentSection.hidden = mode === "distribution";
+      if (distributionTimer) {
+        clearInterval(distributionTimer);
+        distributionTimer = null;
+      }
+      if (mode === "distribution") {
+        loadDistributions();
+        distributionTimer = setInterval(loadDistributions, 3000);
+      }
     }));
+    businessGrid.addEventListener("click", event => {
+      const target = event.target.closest(".business-download");
+      if (target && !target.disabled) downloadBusiness(target);
+    });
     excelFile.addEventListener("change", () => selectFile(excelFile.files[0]));
     ["dragenter", "dragover"].forEach(name => uploadZone.addEventListener(name, event => {
       event.preventDefault();

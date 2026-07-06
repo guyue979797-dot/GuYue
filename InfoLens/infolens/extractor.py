@@ -144,7 +144,12 @@ def _download(url: str, dest: Path, timeout: float = 60) -> tuple[int, str | Non
         time.sleep(min(0.75 * (2 ** (attempt - 1)), 4))
 
 
-def extract_images(url: str, output_root: str | Path = "output") -> ExtractResult:
+def extract_images(
+    url: str,
+    output_root: str | Path = "output",
+    *,
+    group_by_partner: bool = False,
+) -> ExtractResult:
     parsed = parse_visit_url(url)
     if parsed["page_type"] == "workcirclevisit":
         detail = get_work_circle_detail(parsed["appuser"], parsed["id"])
@@ -182,7 +187,10 @@ def extract_images(url: str, output_root: str | Path = "output") -> ExtractResul
         raise CrmApiError("该拜访记录没有可提取的图片")
 
     folder_name = f"{_safe_name(terminal_name)}_{parsed['id'][:8]}"
-    output_dir = Path(output_root) / folder_name
+    output_dir = Path(output_root)
+    if group_by_partner:
+        output_dir /= _safe_name(partner_name)
+    output_dir /= folder_name
     output_dir.mkdir(parents=True, exist_ok=True)
 
     saved: list[SavedImage] = []

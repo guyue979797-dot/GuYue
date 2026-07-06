@@ -1,5 +1,6 @@
 import importlib
 import io
+import json
 import os
 import tempfile
 import time
@@ -45,6 +46,7 @@ class WebSecurityTests(unittest.TestCase):
     def test_protected_routes_require_login(self):
         self.assertEqual(self.client.get("/").status_code, 302)
         self.assertEqual(self.client.get("/api/results").status_code, 401)
+        self.assertEqual(self.client.get("/api/distributions").status_code, 401)
         self.assertEqual(self.client.post("/api/batch-extract").status_code, 401)
         self.assertEqual(
             self.client.get("/api/batch-extract/unknown").status_code,
@@ -223,6 +225,105 @@ class WebSecurityTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("字段名为“链接”", response.get_json()["error"])
+
+    def test_distribution_summary_and_business_archive(self):
+        output_dir = (
+            Path(self.output.name)
+            / "测试业务员"
+            / "测试终端_VISIT001"
+        )
+        output_dir.mkdir(parents=True)
+        photoid = (
+            "private/TCOS/Z0019/O50002488/20260610/"
+            "1023275022/source.jpeg"
+        )
+        filename = "1023275022_测试终端_测试业务员_01.jpeg"
+        (output_dir / filename).write_bytes(b"image")
+        (output_dir / "metadata.json").write_text(
+            json.dumps(
+                {
+                    "visit_id": "VISIT001",
+                    "terminal_name": "测试终端",
+                    "partner_name": "测试业务员",
+                    "images": [
+                        {
+                            "photoid": photoid,
+                            "filename": filename,
+                            "size_bytes": 5,
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        job, _duplicate = self.web.DISTRIBUTION_STORE.enqueue(
+            job_id="job-1",
+            url=(
+                "https://crm.example/visitDetail"
+                "?appuser=u&id=VISIT001&process_type=p"
+            ),
+        )
+        self.web.DISTRIBUTION_STORE.complete(
+            job.id,
+            ExtractResult(
+                visit_id="VISIT001",
+                terminal_name="测试终端",
+                partner_name="测试业务员",
+                output_dir=str(output_dir),
+                images=[
+                    SavedImage(
+                        index=1,
+                        photoid=photoid,
+                        filename=filename,
+                        url="",
+                        size_bytes=5,
+                    )
+                ],
+                metadata_file=str(output_dir / "metadata.json"),
+            ),
+        )
+
+        with self.client.session_transaction() as current_session:
+            current_session["user"] = "team"
+            current_session["csrf_token"] = "test-token"
+
+        summary = self.client.get("/api/distributions")
+        self.assertEqual(summary.status_code, 200)
+        item = summary.get_json()["items"][0]
+        self.assertEqual(item["business"], "测试业务员")
+        self.assertEqual(item["quantity"], 1)
+        self.assertEqual(item["distributed_count"], 1)
+        self.assertEqual(item["pending_download_count"], 1)
+
+        missing_csrf = self.client.post(
+            "/api/distributions/测试业务员/archive"
+        )
+        self.assertEqual(missing_csrf.status_code, 403)
+        archive_response = self.client.post(
+            "/api/distributions/测试业务员/archive",
+            headers={"X-CSRF-Token": "test-token"},
+        )
+        self.assertEqual(archive_response.status_code, 200)
+        archive_data = archive_response.get_json()
+        archive_path = (
+            Path(self.output.name)
+            / "_distribution_downloads"
+            / archive_data["archive_name"]
+        )
+        self.assertTrue(archive_path.is_file())
+        with zipfile.ZipFile(archive_path) as archive:
+            names = archive.namelist()
+        self.assertIn("分发提取结果.json", names)
+        self.assertIn(
+            "01_1023275022_测试终端/01.jpeg",
+            names,
+        )
+        refreshed = self.client.get("/api/distributions").get_json()
+        self.assertEqual(
+            refreshed["items"][0]["pending_download_count"],
+            0,
+        )
 
 
 if __name__ == "__main__":

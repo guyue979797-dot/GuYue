@@ -43,11 +43,23 @@ from werkzeug.security import check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from infolens.crm_client import CrmApiError
+from infolens.distribution import DistributionStore
 from infolens.extractor import (
     ExtractResult,
     build_image_filename,
     extract_images,
     photoid_name_field,
+)
+from infolens.wecom_bot import (
+    MessageDeduplicator,
+    WecomBotCrypto,
+    WecomBotError,
+    extract_crm_urls,
+    message_text,
+    send_response_url,
+    stream_reply,
+    text_reply,
+    validate_callback_timestamp,
 )
 
 
@@ -63,6 +75,19 @@ BATCH_JOBS: dict[str, dict] = {}
 BATCH_JOB_TTL_SECONDS = 6 * 60 * 60
 MAX_BATCH_LINKS = int(os.environ.get("INFOLENS_MAX_BATCH_LINKS", "100"))
 MAX_UPLOAD_BYTES = int(os.environ.get("INFOLENS_MAX_UPLOAD_BYTES", str(4 * 1024 * 1024)))
+WECOM_BOT_ENABLED = os.environ.get("WECOM_BOT_ENABLED", "false").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+WECOM_BOT_MODE = os.environ.get("WECOM_BOT_MODE", "callback").strip().lower()
+WECOM_BOT_CALLBACK_ENABLED = WECOM_BOT_ENABLED and WECOM_BOT_MODE == "callback"
+WECOM_BOT_MAX_LINKS = int(os.environ.get("WECOM_BOT_MAX_LINKS", "10"))
+WECOM_DEDUPLICATOR = MessageDeduplicator()
+DISTRIBUTION_STORE = DistributionStore(
+    OUTPUT_ROOT / "_system" / "distributions.sqlite3"
+)
 
 
 def _require_production_config() -> None:
@@ -89,6 +114,17 @@ def _require_production_config() -> None:
         missing = [name for name in required if not os.environ.get(name)]
         if missing:
             raise RuntimeError(f"OIDC 登录缺少环境变量: {', '.join(missing)}")
+    if WECOM_BOT_MODE not in {"callback", "long_connection"}:
+        raise RuntimeError("WECOM_BOT_MODE 必须为 callback 或 long_connection")
+    if WECOM_BOT_CALLBACK_ENABLED:
+        required = (
+            "WECOM_BOT_TOKEN",
+            "WECOM_BOT_ENCODING_AES_KEY",
+            "WECOM_BOT_ID",
+        )
+        missing = [name for name in required if not os.environ.get(name)]
+        if missing:
+            raise RuntimeError(f"企业微信机器人缺少环境变量: {', '.join(missing)}")
 
 
 def _image_url(folder: str, filename: str) -> str:
@@ -98,7 +134,10 @@ def _image_url(folder: str, filename: str) -> str:
 
 
 def _serialize_result(result: ExtractResult) -> dict:
-    folder = Path(result.output_dir).name
+    try:
+        folder = str(Path(result.output_dir).relative_to(OUTPUT_ROOT))
+    except ValueError:
+        folder = Path(result.output_dir).name
     return {
         "visit_id": result.visit_id,
         "terminal_name": result.terminal_name,
@@ -388,7 +427,7 @@ def _load_saved_results() -> list[dict]:
         return results
 
     metadata_files = sorted(
-        OUTPUT_ROOT.glob("*/metadata.json"),
+        OUTPUT_ROOT.glob("**/metadata.json"),
         key=lambda path: path.stat().st_mtime,
         reverse=True,
     )
@@ -398,7 +437,7 @@ def _load_saved_results() -> list[dict]:
         except (OSError, json.JSONDecodeError):
             continue
 
-        folder = metadata_file.parent.name
+        folder = str(metadata_file.parent.relative_to(OUTPUT_ROOT))
         images = []
         private_images = [
             item
@@ -523,9 +562,194 @@ def _check_rate_limit() -> None:
         bucket.append(now)
 
 
+def _run_wecom_extract_job(
+    application: Flask,
+    crypto: WecomBotCrypto,
+    task_id: str,
+    message: dict,
+    links: list[str],
+) -> None:
+    succeeded: list[ExtractResult] = []
+    errors: list[str] = []
+    response_url = str(message.get("response_url") or "")
+
+    with EXTRACT_LOCK:
+        for position, link in enumerate(links, start=1):
+            try:
+                result = extract_images(
+                    link,
+                    OUTPUT_ROOT,
+                    group_by_partner=True,
+                )
+                succeeded.append(result)
+                audit = {
+                    "task_id": task_id,
+                    "wecom_message_id": message.get("msgid"),
+                    "wecom_user_id": (message.get("from") or {}).get("userid"),
+                    "wecom_chat_id": message.get("chatid"),
+                    "received_at": datetime.now().isoformat(timespec="seconds"),
+                }
+                (Path(result.output_dir) / "wecom_submission.json").write_text(
+                    json.dumps(audit, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+            except (ValueError, CrmApiError) as exc:
+                errors.append(f"第 {position} 条：{exc}")
+            except Exception:
+                application.logger.exception(
+                    "企业微信任务 %s 的第 %s 条链接处理失败",
+                    task_id,
+                    position,
+                )
+                errors.append(f"第 {position} 条：处理失败，请联系管理员")
+
+    lines = [
+        f"**任务 {task_id} 处理完成**",
+        f"> 成功：{len(succeeded)} 条",
+        f"> 失败：{len(errors)} 条",
+    ]
+    for result in succeeded:
+        lines.append(
+            f"- {result.partner_name}｜{result.terminal_name}｜{len(result.images)} 张图片"
+        )
+    if errors:
+        lines.append("\n**失败明细**")
+        lines.extend(f"- {error}" for error in errors[:5])
+        if len(errors) > 5:
+            lines.append(f"- 另有 {len(errors) - 5} 条失败")
+
+    allowed_hosts = {
+        item.strip().lower()
+        for item in os.environ.get(
+            "WECOM_BOT_RESPONSE_HOSTS",
+            "qyapi.weixin.qq.com",
+        ).split(",")
+        if item.strip()
+    }
+    try:
+        send_response_url(
+            response_url,
+            stream_reply(f"{task_id}-result", "\n".join(lines)),
+            crypto,
+            allowed_hosts=allowed_hosts,
+        )
+    except WecomBotError:
+        application.logger.exception("企业微信任务 %s 的结果通知失败", task_id)
+
+
+def _create_distribution_archive(business: str) -> dict:
+    jobs = DISTRIBUTION_STORE.completed_for_business(business)
+    if not jobs:
+        raise ValueError("该业务暂无可下载的提取内容")
+
+    archive_root = OUTPUT_ROOT / "_distribution_downloads"
+    archive_root.mkdir(parents=True, exist_ok=True)
+    safe_business = re.sub(r'[\\/:*?"<>|]', "_", business.strip()) or "未知业务"
+    archive_key = f"{datetime.now():%Y%m%d_%H%M%S}_{secrets.token_hex(3)}"
+    temp_path = archive_root / f".{archive_key}.zip"
+    groups: dict[tuple[str, str], dict[str, str | int]] = {}
+    archived_images = 0
+    fields: set[str] = set()
+
+    with zipfile.ZipFile(
+        temp_path,
+        "w",
+        compression=zipfile.ZIP_DEFLATED,
+        compresslevel=6,
+    ) as archive:
+        for job in jobs:
+            output_dir = Path(job.output_dir).resolve()
+            try:
+                output_dir.relative_to(OUTPUT_ROOT)
+            except ValueError:
+                continue
+            metadata_file = output_dir / "metadata.json"
+            try:
+                metadata = json.loads(metadata_file.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+
+            for item in metadata.get("images") or []:
+                filename = str(item.get("filename") or "")
+                image_file = (output_dir / filename).resolve()
+                if not filename or not image_file.is_file():
+                    continue
+                try:
+                    image_file.relative_to(output_dir)
+                    field = photoid_name_field(str(item.get("photoid") or ""))
+                except ValueError:
+                    continue
+                terminal = str(
+                    metadata.get("terminal_name")
+                    or job.terminal_name
+                    or "未知终端"
+                )
+                group_key = (field, terminal)
+                group = groups.get(group_key)
+                if group is None:
+                    safe_field = re.sub(r'[\\/:*?"<>|]', "_", field)
+                    safe_terminal = re.sub(r'[\\/:*?"<>|]', "_", terminal)
+                    group = {
+                        "folder": (
+                            f"{len(groups) + 1:02d}_{safe_field}_{safe_terminal}"
+                        ),
+                        "image_count": 0,
+                    }
+                    groups[group_key] = group
+                group["image_count"] = int(group["image_count"]) + 1
+                extension = image_file.suffix.lower() or ".jpg"
+                archive.write(
+                    image_file,
+                    (
+                        f"{group['folder']}/"
+                        f"{int(group['image_count']):02d}{extension}"
+                    ),
+                )
+                fields.add(field)
+                archived_images += 1
+
+        report = {
+            "business": business,
+            "field_count": len(fields),
+            "fields": sorted(fields),
+            "distributed_count": len(jobs),
+            "image_count": archived_images,
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        archive.writestr(
+            "分发提取结果.json",
+            json.dumps(report, ensure_ascii=False, indent=2),
+        )
+
+    if not archived_images:
+        temp_path.unlink(missing_ok=True)
+        raise ValueError("该业务没有可打包的图片文件")
+
+    archive_name = (
+        f"{datetime.now():%Y%m%d}_{safe_business}_{len(fields)}个字段.zip"
+    )
+    archive_path = archive_root / archive_name
+    sequence = 2
+    while archive_path.exists():
+        archive_name = (
+            f"{datetime.now():%Y%m%d}_{safe_business}_"
+            f"{len(fields)}个字段_{sequence:02d}.zip"
+        )
+        archive_path = archive_root / archive_name
+        sequence += 1
+    temp_path.replace(archive_path)
+    DISTRIBUTION_STORE.mark_downloaded(business)
+    return {
+        "archive_name": archive_name,
+        "archive_url": _image_url("_distribution_downloads", archive_name),
+        **report,
+    }
+
+
 def create_app() -> Flask:
     _require_production_config()
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+    DISTRIBUTION_STORE.import_existing_outputs(OUTPUT_ROOT)
 
     application = Flask(__name__, static_folder=None)
     application.wsgi_app = ProxyFix(
@@ -543,6 +767,12 @@ def create_app() -> Flask:
         PERMANENT_SESSION_LIFETIME=8 * 60 * 60,
     )
     oauth = OAuth(application)
+    wecom_crypto = None
+    if WECOM_BOT_CALLBACK_ENABLED:
+        wecom_crypto = WecomBotCrypto(
+            os.environ["WECOM_BOT_TOKEN"],
+            os.environ["WECOM_BOT_ENCODING_AES_KEY"],
+        )
     if AUTH_MODE == "oidc":
         oauth.register(
             name="company",
@@ -574,6 +804,111 @@ def create_app() -> Flask:
     @application.get("/healthz")
     def healthz():
         return jsonify({"status": "ok"})
+
+    @application.route("/api/wecom/bot/callback", methods=["GET", "POST"])
+    def wecom_bot_callback():
+        if not WECOM_BOT_CALLBACK_ENABLED or wecom_crypto is None:
+            return jsonify({"error": "企业微信智能机器人未启用"}), 503
+
+        msg_signature = request.args.get("msg_signature", "")
+        timestamp = request.args.get("timestamp", "")
+        nonce = request.args.get("nonce", "")
+        if not msg_signature or not timestamp or not nonce:
+            return jsonify({"error": "企业微信回调参数不完整"}), 400
+
+        try:
+            validate_callback_timestamp(
+                timestamp,
+                int(os.environ.get("WECOM_BOT_CALLBACK_MAX_AGE_SECONDS", "600")),
+            )
+            if request.method == "GET":
+                echo_str = request.args.get("echostr", "")
+                if not echo_str:
+                    return jsonify({"error": "企业微信回调缺少 echostr"}), 400
+                return wecom_crypto.verify_url(
+                    msg_signature,
+                    timestamp,
+                    nonce,
+                    echo_str,
+                )
+
+            if request.content_length and request.content_length > 1024 * 1024:
+                return jsonify({"error": "企业微信回调正文过大"}), 413
+            message = wecom_crypto.decrypt(
+                request.get_data(cache=False),
+                msg_signature,
+                timestamp,
+                nonce,
+            )
+            if message.get("aibotid") != os.environ["WECOM_BOT_ID"]:
+                raise WecomBotError("企业微信机器人 ID 不匹配")
+
+            if message.get("msgtype") == "event":
+                event_type = (message.get("event") or {}).get("eventtype")
+                payload = (
+                    text_reply(
+                        "发送 CRM 拜访详情链接，我会自动提取图片并按业务员归档。"
+                    )
+                    if event_type == "enter_chat"
+                    else {}
+                )
+                return wecom_crypto.encrypt(payload, nonce)
+
+            if message.get("msgtype") == "stream":
+                return wecom_crypto.encrypt({}, nonce)
+
+            links = extract_crm_urls(
+                message_text(message),
+                max_links=WECOM_BOT_MAX_LINKS,
+            )
+            if not links:
+                return wecom_crypto.encrypt(
+                    stream_reply(
+                        f"help-{secrets.token_hex(6)}",
+                        "没有识别到 CRM 拜访链接。\n"
+                        "请发送包含 `visitDetail` 或 `workCirclevisit` 的链接。",
+                    ),
+                    nonce,
+                )
+            if not message.get("response_url"):
+                return wecom_crypto.encrypt(
+                    stream_reply(
+                        f"error-{secrets.token_hex(6)}",
+                        "消息缺少结果回传地址，请重新发送链接。",
+                    ),
+                    nonce,
+                )
+
+            proposed_task_id = (
+                f"IL{datetime.now():%Y%m%d%H%M%S}{secrets.token_hex(2).upper()}"
+            )
+            duplicate, task_id = WECOM_DEDUPLICATOR.remember(
+                str(message.get("msgid") or ""),
+                proposed_task_id,
+            )
+            if not duplicate:
+                threading.Thread(
+                    target=_run_wecom_extract_job,
+                    args=(application, wecom_crypto, task_id, message, links),
+                    daemon=True,
+                    name=f"wecom-{task_id}",
+                ).start()
+
+            duplicate_note = "（重复消息，未再次执行）" if duplicate else ""
+            return wecom_crypto.encrypt(
+                stream_reply(
+                    f"{task_id}-accepted",
+                    f"已接收 {len(links)} 条链接，任务号：`{task_id}`{duplicate_note}\n"
+                    "图片正在后台提取，完成后会自动回复。",
+                ),
+                nonce,
+            )
+        except WecomBotError as exc:
+            application.logger.warning("企业微信回调被拒绝：%s", exc)
+            return jsonify({"error": "企业微信回调验证失败"}), 403
+        except Exception:
+            application.logger.exception("企业微信智能机器人回调处理失败")
+            return jsonify({"error": "企业微信回调处理失败"}), 500
 
     @application.route("/login", methods=["GET", "POST"])
     def login():
@@ -644,6 +979,44 @@ def create_app() -> Flask:
     @_login_required
     def saved_results():
         return jsonify(_load_saved_results())
+
+    @application.get("/api/distributions")
+    @_login_required
+    def distribution_summary():
+        items = DISTRIBUTION_STORE.summaries()
+        return jsonify(
+            {
+                "items": items,
+                "totals": {
+                    "business_count": len(
+                        [
+                            item
+                            for item in items
+                            if item["business"] != "待识别"
+                        ]
+                    ),
+                    "quantity": sum(item["quantity"] for item in items),
+                    "distributed_count": sum(
+                        item["distributed_count"] for item in items
+                    ),
+                    "pending_download_count": sum(
+                        item["pending_download_count"] for item in items
+                    ),
+                },
+            }
+        )
+
+    @application.post("/api/distributions/<path:business>/archive")
+    @_login_required
+    def distribution_archive(business: str):
+        _check_csrf()
+        try:
+            return jsonify(_create_distribution_archive(business))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception:
+            application.logger.exception("生成业务分发压缩包失败")
+            return jsonify({"error": "生成压缩包失败，请联系管理员"}), 500
 
     @application.get("/output/<path:relative_path>")
     @_login_required

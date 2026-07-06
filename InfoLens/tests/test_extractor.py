@@ -106,9 +106,11 @@ class ExtractorTests(unittest.TestCase):
                     "https://crm.example/visitDetail"
                     "?appuser=u&id=954187FD1234&process_type=p",
                     output,
+                    group_by_partner=True,
                 )
 
             self.assertEqual(len(result.images), 1)
+            self.assertEqual(Path(result.output_dir).parent.name, "韦春云")
             self.assertEqual(result.images[0].index, 1)
             self.assertEqual(
                 result.images[0].filename,
