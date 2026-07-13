@@ -68,6 +68,10 @@ class DistributionStoreTests(unittest.TestCase):
 
             summary = store.summaries()[0]
             self.assertEqual(summary["quantity"], 3)
+            self.assertEqual(
+                summary["field_values"],
+                ["1001", "1002", "1003"],
+            )
             self.assertEqual(summary["distributed_count"], 2)
             self.assertEqual(summary["pending_download_count"], 3)
             self.assertEqual(summary["image_count"], 5)
@@ -99,6 +103,21 @@ class DistributionStoreTests(unittest.TestCase):
             )
             self.assertFalse(duplicate)
             self.assertEqual(retried.status, "queued")
+
+    def test_clears_all_distribution_jobs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            store = DistributionStore(Path(temporary) / "jobs.sqlite3")
+            store.enqueue(job_id="job-1", url=visit_link("VISIT001"))
+            store.enqueue(job_id="job-2", url=visit_link("VISIT002"))
+
+            self.assertEqual(store.clear_all(), 2)
+            self.assertEqual(store.summaries(), [])
+
+            _job, duplicate = store.enqueue(
+                job_id="job-3",
+                url=visit_link("VISIT001"),
+            )
+            self.assertFalse(duplicate)
 
 
 if __name__ == "__main__":

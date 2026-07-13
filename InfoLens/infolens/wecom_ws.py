@@ -14,6 +14,7 @@ from typing import Any, Callable
 from infolens.crm_client import CrmApiError
 from infolens.distribution import DistributionJob, DistributionStore
 from infolens.extractor import ExtractResult, extract_images
+from infolens.image_library import ImageLibraryStore
 from infolens.wecom_bot import extract_crm_urls, message_text
 
 
@@ -35,6 +36,7 @@ class LongConnectionBot:
         max_links: int = 10,
         extractor: Callable[..., ExtractResult] = extract_images,
         store: DistributionStore | None = None,
+        image_library: ImageLibraryStore | None = None,
     ):
         self.client = client
         self.output_root = Path(output_root)
@@ -43,7 +45,24 @@ class LongConnectionBot:
         self.store = store or DistributionStore(
             self.output_root / "_system" / "distributions.sqlite3"
         )
-        self.store.import_existing_outputs(self.output_root)
+        self.image_library = image_library or ImageLibraryStore(
+            self.output_root / "_system" / "image_library.sqlite3",
+            self.output_root,
+        )
+        if os.environ.get("INFOLENS_DISTRIBUTION_IMPORT_EXISTING", "").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            self.store.import_existing_outputs(self.output_root)
+        if os.environ.get("INFOLENS_IMAGE_LIBRARY_IMPORT_EXISTING", "").lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            self.image_library.import_existing_outputs()
         self._stop_worker = asyncio.Event()
 
     def register_handlers(self) -> None:
@@ -162,6 +181,7 @@ class LongConnectionBot:
             json.dumps(audit, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        self.image_library.add_result(result, source_url=job.url)
         self.store.complete(job.id, result)
 
 

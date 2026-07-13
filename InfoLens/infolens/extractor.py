@@ -43,6 +43,7 @@ class ExtractResult:
     output_dir: str
     images: list[SavedImage]
     metadata_file: str
+    visit_in_time: str = ""
 
 
 def parse_visit_url(url: str) -> dict[str, str]:
@@ -68,6 +69,7 @@ def parse_visit_url(url: str) -> dict[str, str]:
         "appuser": flat["appuser"],
         "id": flat["id"],
         "process_type": flat.get("process_type", ""),
+        "visit_in_time": flat.get("visit_in_time", ""),
     }
 
 
@@ -231,12 +233,13 @@ def extract_images(
             )
         )
 
+    visit_in_time = str(detail.get("visit_in_time") or parsed.get("visit_in_time") or "")
     metadata = {
         "visit_id": parsed["id"],
         "process_type": parsed["process_type"],
         "terminal_name": terminal_name,
         "partner_name": partner_name,
-        "visit_in_time": detail.get("visit_in_time"),
+        "visit_in_time": visit_in_time,
         "visit_out_time": detail.get("visit_out_time"),
         "leaving_note": detail.get("leaving_note"),
         "extracted_at": datetime.now().isoformat(timespec="seconds"),
@@ -262,4 +265,5 @@ def extract_images(
         output_dir=str(output_dir),
         images=saved,
         metadata_file=str(metadata_file),
+        visit_in_time=visit_in_time,
     )

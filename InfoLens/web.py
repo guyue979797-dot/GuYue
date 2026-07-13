@@ -39,8 +39,8 @@ from flask import (
     url_for,
 )
 from authlib.integrations.flask_client import OAuth
-from werkzeug.security import check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.security import generate_password_hash
 
 from infolens.crm_client import CrmApiError
 from infolens.distribution import DistributionStore
@@ -50,6 +50,8 @@ from infolens.extractor import (
     extract_images,
     photoid_name_field,
 )
+from infolens.image_library import ImageLibraryStore
+from infolens.users import UserStore
 from infolens.wecom_bot import (
     MessageDeduplicator,
     WecomBotCrypto,
@@ -88,6 +90,11 @@ WECOM_DEDUPLICATOR = MessageDeduplicator()
 DISTRIBUTION_STORE = DistributionStore(
     OUTPUT_ROOT / "_system" / "distributions.sqlite3"
 )
+IMAGE_LIBRARY = ImageLibraryStore(
+    OUTPUT_ROOT / "_system" / "image_library.sqlite3",
+    OUTPUT_ROOT,
+)
+USER_STORE = UserStore(OUTPUT_ROOT / "_system" / "users.sqlite3")
 
 
 def _require_production_config() -> None:
@@ -96,12 +103,18 @@ def _require_production_config() -> None:
     if os.environ.get("INFOLENS_ENV") == "production" and AUTH_MODE == "off":
         raise RuntimeError("生产环境禁止关闭鉴权")
     if AUTH_MODE == "password":
-        required = (
-            "INFOLENS_USERNAME",
-            "INFOLENS_PASSWORD_HASH",
-            "INFOLENS_SESSION_SECRET",
+        has_super_admin_secret = bool(
+            os.environ.get("INFOLENS_SUPER_ADMIN_PASSWORD_HASH")
+            or os.environ.get("INFOLENS_SUPER_ADMIN_PASSWORD")
+            or (
+                os.environ.get("INFOLENS_USERNAME")
+                and os.environ.get("INFOLENS_PASSWORD_HASH")
+            )
         )
+        required = ("INFOLENS_SESSION_SECRET",)
         missing = [name for name in required if not os.environ.get(name)]
+        if not has_super_admin_secret:
+            missing.append("INFOLENS_SUPER_ADMIN_PASSWORD_HASH")
         if missing:
             raise RuntimeError(f"密码登录缺少环境变量: {', '.join(missing)}")
     if AUTH_MODE == "oidc":
@@ -240,6 +253,7 @@ def _create_batch_archive(
         for processed, (row_number, link) in enumerate(links, start=1):
             try:
                 result = extract_images(link, OUTPUT_ROOT)
+                IMAGE_LIBRARY.add_result(result, source_url=link)
                 archived_for_visit = 0
                 for image in result.images:
                     try:
@@ -506,6 +520,16 @@ def _current_user() -> str | None:
     return user
 
 
+def _current_role() -> str:
+    if AUTH_MODE == "off":
+        return "admin"
+    return str(session.get("role") or "user")
+
+
+def _is_admin() -> bool:
+    return _current_role() == "admin"
+
+
 def _identity_allowed(user: str) -> bool:
     normalized = user.strip().lower()
     allowed_domain = os.environ.get("INFOLENS_ALLOWED_EMAIL_DOMAIN", "").lower()
@@ -533,6 +557,47 @@ def _login_required(view: Callable):
     return wrapped
 
 
+def _admin_required(view: Callable):
+    @wraps(view)
+    @_login_required
+    def wrapped(*args, **kwargs):
+        if _is_admin():
+            return view(*args, **kwargs)
+        return jsonify({"error": "没有权限访问用户管理"}), 403
+
+    return wrapped
+
+
+def _super_admin_config() -> tuple[str, str, str]:
+    username = (
+        os.environ.get("INFOLENS_SUPER_ADMIN_USERNAME")
+        or os.environ.get("INFOLENS_USERNAME")
+        or "admin"
+    )
+    display_name = os.environ.get("INFOLENS_SUPER_ADMIN_DISPLAY_NAME", "超级管理员")
+    password_hash = os.environ.get("INFOLENS_SUPER_ADMIN_PASSWORD_HASH")
+    if not password_hash:
+        password = os.environ.get("INFOLENS_SUPER_ADMIN_PASSWORD")
+        if password:
+            password_hash = generate_password_hash(password, method="pbkdf2:sha256")
+        else:
+            password_hash = os.environ.get("INFOLENS_PASSWORD_HASH", "")
+    return username, password_hash, display_name
+
+
+def _ensure_super_admin() -> None:
+    if AUTH_MODE != "password":
+        return
+    username, password_hash, display_name = _super_admin_config()
+    if not password_hash:
+        return
+    USER_STORE.ensure_super_admin(
+        username=username,
+        password_hash=password_hash,
+        display_name=display_name,
+    )
+
+
 def _csrf_token() -> str:
     token = session.get("csrf_token")
     if not token:
@@ -544,6 +609,11 @@ def _csrf_token() -> str:
 def _check_csrf() -> None:
     expected = session.get("csrf_token", "")
     supplied = request.headers.get("X-CSRF-Token", "")
+    if not supplied and request.is_json:
+        payload = request.get_json(silent=True) or {}
+        supplied = str(payload.get("csrf_token") or "")
+    if not supplied:
+        supplied = str(request.form.get("csrf_token") or "")
     if not expected or not hmac.compare_digest(expected, supplied):
         abort(403, description="安全令牌无效，请刷新页面后重试")
 
@@ -581,6 +651,7 @@ def _run_wecom_extract_job(
                     OUTPUT_ROOT,
                     group_by_partner=True,
                 )
+                IMAGE_LIBRARY.add_result(result, source_url=link)
                 succeeded.append(result)
                 audit = {
                     "task_id": task_id,
@@ -746,10 +817,107 @@ def _create_distribution_archive(business: str) -> dict:
     }
 
 
+def _parse_field_lines(value: str) -> list[str]:
+    fields: list[str] = []
+    seen: set[str] = set()
+    for item in re.split(r"[\s,，;；]+", value):
+        field = item.strip()
+        if not field or field in seen:
+            continue
+        seen.add(field)
+        fields.append(field)
+    return fields
+
+
+def _create_image_library_archive(image_ids: list[str]) -> dict:
+    images = IMAGE_LIBRARY.get_images(image_ids)
+    if not images:
+        raise ValueError("请先选择可导出的照片")
+
+    export_root = OUTPUT_ROOT / "_image_exports"
+    export_root.mkdir(parents=True, exist_ok=True)
+    archive_key = f"{datetime.now():%Y%m%d_%H%M%S}_{secrets.token_hex(3)}"
+    temp_path = export_root / f".{archive_key}.zip"
+    groups: dict[tuple[str, str, str], int] = {}
+    fields: set[str] = set()
+    archived_images = 0
+
+    with zipfile.ZipFile(
+        temp_path,
+        "w",
+        compression=zipfile.ZIP_DEFLATED,
+        compresslevel=6,
+    ) as archive:
+        for image in images:
+            source = (OUTPUT_ROOT / image.file_path).resolve()
+            try:
+                source.relative_to(OUTPUT_ROOT)
+            except ValueError:
+                continue
+            if not source.is_file():
+                continue
+            group_key = (image.field, image.customer_name, image.business)
+            groups[group_key] = groups.get(group_key, 0) + 1
+            sequence = groups[group_key]
+            safe_field = re.sub(r'[\\/:*?"<>|]', "_", image.field)
+            safe_customer = re.sub(r'[\\/:*?"<>|]', "_", image.customer_name)
+            safe_business = re.sub(r'[\\/:*?"<>|]', "_", image.business)
+            folder = f"{safe_field}_{safe_customer}_{safe_business}"
+            extension = source.suffix.lower() or ".jpg"
+            archive.write(source, f"{folder}/{sequence:02d}{extension}")
+            fields.add(image.field)
+            archived_images += 1
+
+        report = {
+            "field_count": len(fields),
+            "fields": sorted(fields),
+            "image_count": archived_images,
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        archive.writestr(
+            "图片库导出结果.json",
+            json.dumps(report, ensure_ascii=False, indent=2),
+        )
+
+    if not archived_images:
+        temp_path.unlink(missing_ok=True)
+        raise ValueError("选中的照片文件不存在，无法导出")
+
+    archive_name = f"{datetime.now():%Y%m%d}_选中照片_{archived_images}张.zip"
+    archive_path = export_root / archive_name
+    sequence = 2
+    while archive_path.exists():
+        archive_name = (
+            f"{datetime.now():%Y%m%d}_选中照片_{archived_images}张_{sequence:02d}.zip"
+        )
+        archive_path = export_root / archive_name
+        sequence += 1
+    temp_path.replace(archive_path)
+    return {
+        "archive_name": archive_name,
+        "archive_url": _image_url("_image_exports", archive_name),
+        **report,
+    }
+
+
 def create_app() -> Flask:
     _require_production_config()
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
-    DISTRIBUTION_STORE.import_existing_outputs(OUTPUT_ROOT)
+    _ensure_super_admin()
+    if os.environ.get("INFOLENS_DISTRIBUTION_IMPORT_EXISTING", "").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        DISTRIBUTION_STORE.import_existing_outputs(OUTPUT_ROOT)
+    if os.environ.get("INFOLENS_IMAGE_LIBRARY_IMPORT_EXISTING", "").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        IMAGE_LIBRARY.import_existing_outputs()
 
     application = Flask(__name__, static_folder=None)
     application.wsgi_app = ProxyFix(
@@ -926,13 +1094,14 @@ def create_app() -> Flask:
         if request.method == "POST":
             username = request.form.get("username", "")
             password = request.form.get("password", "")
-            expected_username = os.environ["INFOLENS_USERNAME"]
-            password_hash = os.environ["INFOLENS_PASSWORD_HASH"]
-            if hmac.compare_digest(username, expected_username) and check_password_hash(
-                password_hash, password
-            ):
+            user = USER_STORE.authenticate(username, password)
+            if user:
                 session.clear()
-                session["user"] = username
+                session["user"] = user["username"]
+                session["user_id"] = user["id"]
+                session["role"] = user["role"]
+                session["display_name"] = user["display_name"]
+                session["is_super_admin"] = user["is_super_admin"]
                 session.permanent = True
                 destination = request.args.get("next", "/")
                 if not destination.startswith("/") or destination.startswith("//"):
@@ -957,6 +1126,7 @@ def create_app() -> Flask:
             return "该公司账号没有 InfoLens 访问权限。", 403
         session.clear()
         session["user"] = user.lower()
+        session["role"] = "user"
         session.permanent = True
         return redirect(url_for("index"))
 
@@ -970,10 +1140,79 @@ def create_app() -> Flask:
     def index():
         return send_from_directory(WEB_ROOT, "index.html")
 
+    @application.get("/assets/<path:filename>")
+    @_login_required
+    def frontend_assets(filename: str):
+        response = send_from_directory(WEB_ROOT / "assets", filename)
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        return response
+
     @application.get("/api/session")
     @_login_required
     def session_info():
-        return jsonify({"user": _current_user(), "csrf_token": _csrf_token()})
+        return jsonify(
+            {
+                "user": _current_user(),
+                "display_name": session.get("display_name") or _current_user(),
+                "role": _current_role(),
+                "is_admin": _is_admin(),
+                "csrf_token": _csrf_token(),
+            }
+        )
+
+    @application.get("/api/users")
+    @_admin_required
+    def list_users():
+        return jsonify({"items": USER_STORE.list_users()})
+
+    @application.post("/api/users")
+    @_admin_required
+    def create_user():
+        _check_csrf()
+        payload = request.get_json(silent=True) or {}
+        try:
+            return (
+                jsonify(
+                    USER_STORE.create_user(
+                        username=str(payload.get("username") or ""),
+                        display_name=str(payload.get("display_name") or ""),
+                        password=str(payload.get("password") or ""),
+                        role=str(payload.get("role") or "user"),
+                        status=str(payload.get("status") or "enabled"),
+                    )
+                ),
+                201,
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @application.patch("/api/users/<int:user_id>")
+    @_admin_required
+    def update_user(user_id: int):
+        _check_csrf()
+        payload = request.get_json(silent=True) or {}
+        try:
+            return jsonify(
+                USER_STORE.update_user(
+                    user_id,
+                    display_name=str(payload.get("display_name") or ""),
+                    role=str(payload.get("role") or "user"),
+                    status=str(payload.get("status") or "enabled"),
+                    password=str(payload.get("password") or ""),
+                )
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @application.delete("/api/users/<int:user_id>")
+    @_admin_required
+    def delete_user(user_id: int):
+        _check_csrf()
+        try:
+            USER_STORE.delete_user(user_id)
+            return jsonify({"message": "用户已删除"})
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
 
     @application.get("/api/results")
     @_login_required
@@ -1006,6 +1245,18 @@ def create_app() -> Flask:
             }
         )
 
+    @application.delete("/api/distributions")
+    @_login_required
+    def clear_distributions():
+        _check_csrf()
+        deleted_count = DISTRIBUTION_STORE.clear_all()
+        return jsonify(
+            {
+                "deleted_count": deleted_count,
+                "message": f"已清空 {deleted_count} 条分发记录",
+            }
+        )
+
     @application.post("/api/distributions/<path:business>/archive")
     @_login_required
     def distribution_archive(business: str):
@@ -1017,6 +1268,72 @@ def create_app() -> Flask:
         except Exception:
             application.logger.exception("生成业务分发压缩包失败")
             return jsonify({"error": "生成压缩包失败，请联系管理员"}), 500
+
+    @application.get("/api/image-library")
+    @_login_required
+    def image_library():
+        month = request.args.get("month", "").strip()
+        business = request.args.get("business", "").strip()
+        customer_name = request.args.get("customer_name", "").strip()
+        fields = _parse_field_lines(request.args.get("fields", ""))
+        return jsonify(
+            {
+                **IMAGE_LIBRARY.query(
+                    fields=fields,
+                    month=month,
+                    business=business,
+                    customer_name=customer_name,
+                ),
+                "months": IMAGE_LIBRARY.months(),
+                "businesses": IMAGE_LIBRARY.businesses(),
+                "customer_names": IMAGE_LIBRARY.customer_names(),
+            }
+        )
+
+    @application.post("/api/image-library/search")
+    @_login_required
+    def image_library_search():
+        payload = request.get_json(silent=True) or {}
+        raw_fields = payload.get("fields", "")
+        if isinstance(raw_fields, list):
+            fields = [
+                str(item).strip()
+                for item in raw_fields
+                if str(item).strip()
+            ]
+        else:
+            fields = _parse_field_lines(str(raw_fields))
+        return jsonify(
+            {
+                **IMAGE_LIBRARY.query(
+                    fields=fields,
+                    month=str(payload.get("month") or "").strip(),
+                    business=str(payload.get("business") or "").strip(),
+                    customer_name=str(payload.get("customer_name") or "").strip(),
+                ),
+                "months": IMAGE_LIBRARY.months(),
+                "businesses": IMAGE_LIBRARY.businesses(),
+                "customer_names": IMAGE_LIBRARY.customer_names(),
+            }
+        )
+
+    @application.post("/api/image-library/export")
+    @_login_required
+    def export_library_images():
+        _check_csrf()
+        payload = request.get_json(silent=True) or {}
+        image_ids = [
+            str(item)
+            for item in payload.get("image_ids") or []
+            if str(item).strip()
+        ]
+        try:
+            return jsonify(_create_image_library_archive(image_ids))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception:
+            application.logger.exception("图片库导出失败")
+            return jsonify({"error": "导出失败，请联系管理员"}), 500
 
     @application.get("/output/<path:relative_path>")
     @_login_required
@@ -1038,6 +1355,7 @@ def create_app() -> Flask:
         try:
             with EXTRACT_LOCK:
                 result = extract_images(url, OUTPUT_ROOT)
+                IMAGE_LIBRARY.add_result(result, source_url=url)
         except (ValueError, CrmApiError) as exc:
             return jsonify({"error": str(exc)}), 400
         except Exception:

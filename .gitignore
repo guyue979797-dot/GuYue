@@ -1,2 +1,4 @@
 .DS_Store
 __MACOSX/
+InfoLens/frontend/node_modules/
+InfoLens/frontend/.vite/

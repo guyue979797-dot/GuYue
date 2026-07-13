@@ -278,6 +278,7 @@ class DistributionStore:
                 {
                     "business": group["business"],
                     "quantity": len(group["field_values"]),
+                    "field_values": sorted(group["field_values"]),
                     "distributed_count": group["distributed_count"],
                     "pending_download_count": len(
                         group["pending_field_values"]
@@ -319,6 +320,18 @@ class DistributionStore:
                 """,
                 (datetime.now().isoformat(timespec="seconds"), business),
             )
+
+    def clear_all(self) -> int:
+        """清空全部分发任务，返回删除的记录数。"""
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT COUNT(*) AS count FROM distribution_jobs"
+            ).fetchone()
+            deleted_count = int(row["count"])
+            connection.execute("DELETE FROM distribution_jobs")
+            connection.execute("COMMIT")
+        return deleted_count
 
     def import_existing_outputs(self, output_root: str | Path) -> int:
         imported = 0

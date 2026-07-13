@@ -47,6 +47,7 @@ class WebSecurityTests(unittest.TestCase):
         self.assertEqual(self.client.get("/").status_code, 302)
         self.assertEqual(self.client.get("/api/results").status_code, 401)
         self.assertEqual(self.client.get("/api/distributions").status_code, 401)
+        self.assertEqual(self.client.delete("/api/distributions").status_code, 401)
         self.assertEqual(self.client.post("/api/batch-extract").status_code, 401)
         self.assertEqual(
             self.client.get("/api/batch-extract/unknown").status_code,
@@ -71,6 +72,8 @@ class WebSecurityTests(unittest.TestCase):
         session_response = self.client.get("/api/session")
         session_data = session_response.get_json()
         self.assertEqual(session_data["user"], "team")
+        self.assertEqual(session_data["role"], "admin")
+        self.assertTrue(session_data["is_admin"])
         self.assertTrue(session_data["csrf_token"])
 
         missing_csrf = self.client.post("/api/extract", json={"url": "x"})
@@ -82,6 +85,70 @@ class WebSecurityTests(unittest.TestCase):
             headers={"X-CSRF-Token": session_data["csrf_token"]},
         )
         self.assertEqual(empty_url.status_code, 400)
+
+    def test_admin_can_manage_users(self):
+        good = self.client.post(
+            "/login",
+            data={"username": "team", "password": "correct horse"},
+        )
+        self.assertEqual(good.status_code, 302)
+        session_data = self.client.get("/api/session").get_json()
+        csrf_token = session_data["csrf_token"]
+
+        users = self.client.get("/api/users")
+        self.assertEqual(users.status_code, 200)
+        initial_items = users.get_json()["items"]
+        self.assertEqual(initial_items[0]["username"], "team")
+        self.assertTrue(initial_items[0]["is_super_admin"])
+
+        created = self.client.post(
+            "/api/users",
+            json={
+                "username": "worker",
+                "display_name": "普通用户",
+                "password": "secret1",
+                "role": "user",
+                "status": "enabled",
+            },
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        self.assertEqual(created.status_code, 201)
+        worker = created.get_json()
+        self.assertEqual(worker["username"], "worker")
+
+        updated = self.client.patch(
+            f"/api/users/{worker['id']}",
+            json={
+                "display_name": "普通用户2",
+                "role": "admin",
+                "status": "disabled",
+            },
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        self.assertEqual(updated.status_code, 200)
+        updated_data = updated.get_json()
+        self.assertEqual(updated_data["role"], "admin")
+        self.assertEqual(updated_data["status"], "disabled")
+
+        forbidden_delete = self.client.delete(
+            f"/api/users/{initial_items[0]['id']}",
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        self.assertEqual(forbidden_delete.status_code, 400)
+
+        deleted = self.client.delete(
+            f"/api/users/{worker['id']}",
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        self.assertEqual(deleted.status_code, 200)
+
+    def test_user_management_requires_admin_role(self):
+        with self.client.session_transaction() as current_session:
+            current_session["user"] = "worker"
+            current_session["role"] = "user"
+            current_session["csrf_token"] = "test-token"
+
+        self.assertEqual(self.client.get("/api/users").status_code, 403)
 
     def test_security_headers(self):
         response = self.client.get("/healthz")
@@ -137,6 +204,7 @@ class WebSecurityTests(unittest.TestCase):
                     )
                 ],
                 metadata_file=str(output_dir / "metadata.json"),
+                visit_in_time="1782714405357",
             )
 
         with patch.object(
@@ -293,6 +361,7 @@ class WebSecurityTests(unittest.TestCase):
         item = summary.get_json()["items"][0]
         self.assertEqual(item["business"], "测试业务员")
         self.assertEqual(item["quantity"], 1)
+        self.assertEqual(item["field_values"], ["1023275022"])
         self.assertEqual(item["distributed_count"], 1)
         self.assertEqual(item["pending_download_count"], 1)
 
@@ -324,6 +393,90 @@ class WebSecurityTests(unittest.TestCase):
             refreshed["items"][0]["pending_download_count"],
             0,
         )
+
+        missing_clear_csrf = self.client.delete("/api/distributions")
+        self.assertEqual(missing_clear_csrf.status_code, 403)
+        clear_response = self.client.delete(
+            "/api/distributions",
+            headers={"X-CSRF-Token": "test-token"},
+        )
+        self.assertEqual(clear_response.status_code, 200)
+        self.assertEqual(clear_response.get_json()["deleted_count"], 1)
+        self.assertEqual(
+            self.client.get("/api/distributions").get_json()["items"],
+            [],
+        )
+
+    def test_image_library_search_delete_and_export(self):
+        output_dir = Path(self.output.name) / "测试终端_VISITLIB"
+        output_dir.mkdir(parents=True)
+        photoid = (
+            "private/TCOS/Z0019/O50002488/20260610/"
+            "1023275022/source.jpeg"
+        )
+        filename = "1023275022_测试终端_测试业务员_01.jpeg"
+        (output_dir / filename).write_bytes(b"image")
+        self.web.IMAGE_LIBRARY.add_result(
+            ExtractResult(
+                visit_id="VISITLIB",
+                terminal_name="测试终端",
+                partner_name="测试业务员",
+                output_dir=str(output_dir),
+                images=[
+                    SavedImage(
+                        index=1,
+                        photoid=photoid,
+                        filename=filename,
+                        url="",
+                        size_bytes=5,
+                    )
+                ],
+                metadata_file=str(output_dir / "metadata.json"),
+                visit_in_time="1782714405357",
+            ),
+            created_at="2026-07-07T09:00:00",
+        )
+
+        with self.client.session_transaction() as current_session:
+            current_session["user"] = "team"
+            current_session["csrf_token"] = "test-token"
+
+        search = self.client.post(
+            "/api/image-library/search",
+            json={"fields": "1023275022\n9999999999", "month": "2026-06"},
+        )
+        self.assertEqual(search.status_code, 200)
+        data = search.get_json()
+        self.assertEqual(data["field_count"], 1)
+        self.assertEqual(data["image_count"], 1)
+        self.assertEqual(data["missing_fields"], ["9999999999"])
+        image_id = data["items"][0]["images"][0]["id"]
+
+        missing_csrf = self.client.post(
+            "/api/image-library/export",
+            json={"image_ids": [image_id]},
+        )
+        self.assertEqual(missing_csrf.status_code, 403)
+        export = self.client.post(
+            "/api/image-library/export",
+            json={"image_ids": [image_id]},
+            headers={"X-CSRF-Token": "test-token"},
+        )
+        self.assertEqual(export.status_code, 200)
+        export_data = export.get_json()
+        archive_path = (
+            Path(self.output.name) / "_image_exports" / export_data["archive_name"]
+        )
+        self.assertTrue(archive_path.is_file())
+        with zipfile.ZipFile(archive_path) as archive:
+            names = archive.namelist()
+        self.assertIn("图片库导出结果.json", names)
+        self.assertIn("1023275022_测试终端_测试业务员/01.jpeg", names)
+
+        refreshed = self.client.get(
+            "/api/image-library?fields=1023275022&month=2026-06"
+        ).get_json()
+        self.assertEqual(refreshed["image_count"], 1)
 
 
 if __name__ == "__main__":

@@ -3,56 +3,299 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>登录 · InfoLens</title>
+  <title>登录 · CRM图片处理</title>
   <style>
-    :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif; }
+    :root {
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: #1d2738;
+      background: #f4f7fb;
+    }
     * { box-sizing: border-box; }
     body {
-      min-height: 100vh; margin: 0; display: grid; place-items: center; color: #f5f5f7;
-      background: radial-gradient(ellipse 70% 55% at 50% -5%, #172950 0, transparent 70%), #050609;
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      grid-template-columns: minmax(320px, 1fr) 480px;
+      background:
+        linear-gradient(120deg, rgba(22, 93, 255, .08), transparent 42%),
+        #f4f7fb;
       -webkit-font-smoothing: antialiased;
     }
-    .card {
-      width: min(420px, calc(100% - 32px)); padding: 34px; border: 1px solid rgba(255,255,255,.14);
-      border-radius: 28px; background: rgba(24,27,34,.76); box-shadow: 0 32px 100px rgba(0,0,0,.5);
-      backdrop-filter: blur(28px); -webkit-backdrop-filter: blur(28px);
+    .brand {
+      position: relative;
+      padding: 64px 72px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-width: 0;
+      overflow: hidden;
+      isolation: isolate;
+      color: #ffffff;
+      background:
+        linear-gradient(135deg, #fff7e6 0%, #fed7aa 34%, #fb923c 100%);
     }
-    .mark {
-      width: 42px; height: 42px; margin-bottom: 28px; display: grid; place-items: center;
-      border: 1px solid rgba(255,255,255,.16); border-radius: 13px;
-      background: linear-gradient(145deg, rgba(255,255,255,.16), rgba(255,255,255,.04));
+    .brand::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      background:
+        radial-gradient(circle at 18% 18%, rgba(255, 255, 255, .62), transparent 30%),
+        linear-gradient(135deg, rgba(180, 83, 9, .08), rgba(22, 101, 52, .18));
+      pointer-events: none;
     }
-    .mark::before { content: ""; width: 14px; height: 14px; border: 2px solid #a8d7ff; border-radius: 50%; box-shadow: 5px 0 15px #5da8ff; }
-    h1 { margin: 0; font-size: 30px; letter-spacing: -.045em; }
-    p { margin: 9px 0 28px; color: #8d8f98; font-size: 14px; line-height: 1.6; }
-    label { display: block; margin: 0 0 8px 3px; color: #b9bac0; font-size: 12px; }
+    .trade-scene {
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      overflow: hidden;
+    }
+    .trade-card {
+      position: absolute;
+      border: 1px solid rgba(255, 255, 255, .58);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, .34);
+      box-shadow: 0 24px 60px rgba(154, 52, 18, .18);
+      backdrop-filter: blur(10px);
+    }
+    .trade-card.shelf {
+      left: 72px;
+      bottom: 128px;
+      width: 260px;
+      height: 190px;
+      padding: 24px;
+    }
+    .shelf-line {
+      height: 14px;
+      margin-bottom: 30px;
+      border-radius: 999px;
+      background: rgba(154, 52, 18, .28);
+      box-shadow:
+        0 38px 0 rgba(154, 52, 18, .18),
+        0 76px 0 rgba(154, 52, 18, .12);
+    }
+    .bottle-row {
+      display: flex;
+      gap: 12px;
+      align-items: flex-end;
+    }
+    .bottle {
+      width: 28px;
+      height: 72px;
+      border-radius: 12px 12px 8px 8px;
+      background: linear-gradient(180deg, #16a34a, #166534);
+      box-shadow: inset 0 0 0 5px rgba(255, 255, 255, .22);
+    }
+    .bottle:nth-child(2) { height: 92px; background: linear-gradient(180deg, #2563eb, #1d4ed8); }
+    .bottle:nth-child(3) { height: 82px; background: linear-gradient(180deg, #f59e0b, #b45309); }
+    .bottle::before {
+      content: "";
+      display: block;
+      width: 14px;
+      height: 18px;
+      margin: -16px auto 0;
+      border-radius: 5px 5px 2px 2px;
+      background: inherit;
+    }
+    .trade-card.delivery {
+      right: 72px;
+      bottom: 190px;
+      width: 240px;
+      height: 132px;
+    }
+    .delivery::before {
+      content: "";
+      position: absolute;
+      left: 28px;
+      top: 36px;
+      width: 118px;
+      height: 54px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, .72);
+    }
+    .delivery::after {
+      content: "";
+      position: absolute;
+      right: 34px;
+      top: 50px;
+      width: 56px;
+      height: 40px;
+      border-radius: 8px 16px 8px 8px;
+      background: rgba(255, 255, 255, .62);
+      box-shadow:
+        -112px 52px 0 -18px rgba(30, 64, 175, .8),
+        -20px 52px 0 -18px rgba(30, 64, 175, .8);
+    }
+    .trade-card.metric {
+      right: 120px;
+      top: 184px;
+      width: 180px;
+      height: 110px;
+      padding: 22px;
+    }
+    .metric span {
+      display: block;
+      height: 12px;
+      margin-bottom: 14px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .72);
+    }
+    .metric span:nth-child(1) { width: 90px; }
+    .metric span:nth-child(2) { width: 132px; }
+    .metric span:nth-child(3) { width: 70px; }
+    .route-line {
+      position: absolute;
+      left: 132px;
+      right: 128px;
+      bottom: 108px;
+      height: 4px;
+      border-radius: 999px;
+      background: rgba(22, 101, 52, .42);
+      box-shadow: 0 0 0 10px rgba(22, 101, 52, .08);
+    }
+    .brand-logo {
+      position: relative;
+      display: flex;
+      align-items: center;
+      color: #ffffff;
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: 0;
+      text-shadow: 0 2px 14px rgba(154, 52, 18, .22);
+    }
+    .brand-mark {
+      width: 52px;
+      height: 52px;
+      margin-right: 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, .92);
+      color: #b45309;
+      font-size: 16px;
+      font-weight: 900;
+      box-shadow: 0 16px 34px rgba(0, 0, 0, .18);
+    }
+    .brand-slogan {
+      max-width: 420px;
+      color: rgba(255, 255, 255, .9);
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1.7;
+      text-shadow: 0 2px 16px rgba(154, 52, 18, .24);
+    }
+    .panel {
+      min-height: 100vh;
+      padding: 48px;
+      display: flex;
+      align-items: center;
+      background: #ffffff;
+      border-left: 1px solid #e5e8ef;
+      box-shadow: -14px 0 36px rgba(29, 39, 56, .05);
+    }
+    form { width: 100%; }
+    h2 {
+      margin: 0 0 8px;
+      font-size: 26px;
+      line-height: 1.3;
+      letter-spacing: 0;
+    }
+    .hint {
+      margin: 0 0 28px;
+      color: #7b8798;
+      font-size: 14px;
+    }
+    label {
+      display: block;
+      margin: 16px 0 8px;
+      color: #344054;
+      font-size: 13px;
+      font-weight: 600;
+    }
     input {
-      width: 100%; height: 52px; margin-bottom: 16px; padding: 0 15px; color: #fff;
-      border: 1px solid rgba(255,255,255,.1); border-radius: 15px; outline: none;
-      background: rgba(0,0,0,.3); font-size: 14px;
+      width: 100%;
+      height: 44px;
+      padding: 0 12px;
+      border: 1px solid #dfe4ec;
+      border-radius: 6px;
+      outline: none;
+      background: #fbfcfe;
+      color: #1d2738;
+      font-size: 14px;
     }
-    input:focus { border-color: rgba(93,168,255,.65); box-shadow: 0 0 0 4px rgba(93,168,255,.1); }
+    input:focus {
+      border-color: #165dff;
+      box-shadow: 0 0 0 3px rgba(22, 93, 255, .12);
+      background: #ffffff;
+    }
     button {
-      width: 100%; height: 52px; margin-top: 6px; border: 0; border-radius: 15px; cursor: pointer;
-      color: #07101d; background: linear-gradient(135deg,#f7fbff,#aacfff 60%,#a5b8ff);
-      font-size: 14px; font-weight: 700; box-shadow: 0 14px 35px rgba(79,130,255,.22);
+      width: 100%;
+      height: 44px;
+      margin-top: 24px;
+      border: 0;
+      border-radius: 6px;
+      background: #165dff;
+      color: #ffffff;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 700;
     }
-    .error { min-height: 20px; margin: -3px 0 9px; color: #ff827c; font-size: 12px; }
-    footer { margin-top: 24px; color: #666872; text-align: center; font-size: 11px; }
+    button:hover { background: #0e48d8; }
+    .error {
+      min-height: 22px;
+      margin-bottom: 2px;
+      color: #f53f3f;
+      font-size: 13px;
+    }
+    @media (max-width: 860px) {
+      body { grid-template-columns: 1fr; }
+      .brand { display: none; }
+      .panel {
+        min-height: 100vh;
+        padding: 32px 22px;
+        border-left: 0;
+      }
+    }
   </style>
 </head>
 <body>
-  <form class="card" method="post">
-    <div class="mark"></div>
-    <h1>欢迎回来</h1>
-    <p>登录 InfoLens，继续处理团队的现场影像。</p>
-    <div class="error">{{ERROR}}</div>
-    <label for="username">账号</label>
-    <input id="username" name="username" autocomplete="username" required autofocus>
-    <label for="password">密码</label>
-    <input id="password" name="password" type="password" autocomplete="current-password" required>
-    <button type="submit">安全登录</button>
-    <footer>InfoLens · Protected workspace</footer>
-  </form>
+  <section class="brand">
+    <div class="trade-scene" aria-hidden="true">
+      <div class="trade-card shelf">
+        <div class="shelf-line"></div>
+        <div class="bottle-row">
+          <span class="bottle"></span>
+          <span class="bottle"></span>
+          <span class="bottle"></span>
+        </div>
+      </div>
+      <div class="trade-card delivery"></div>
+      <div class="trade-card metric">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+      <div class="route-line"></div>
+    </div>
+    <div class="brand-logo">
+      <span class="brand-mark">XXC</span>
+      <span>贵州鑫向晨商贸工作台</span>
+    </div>
+    <div class="brand-slogan">本地商户酒饮供应链协同工作台</div>
+  </section>
+  <main class="panel">
+    <form method="post">
+      <h2>账号登录</h2>
+      <p class="hint">请输入管理员分配的账号和密码。</p>
+      <div class="error">{{ERROR}}</div>
+      <label for="username">账号</label>
+      <input id="username" name="username" autocomplete="username" required autofocus>
+      <label for="password">密码</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <button type="submit">登录系统</button>
+    </form>
+  </main>
 </body>
 </html>
