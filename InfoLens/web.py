@@ -14,6 +14,7 @@ import hmac
 import io
 import json
 import os
+import queue
 import re
 import secrets
 import threading
@@ -48,6 +49,7 @@ from infolens.extractor import (
     ExtractResult,
     build_image_filename,
     extract_images,
+    parse_visit_url,
     photoid_name_field,
 )
 from infolens.image_library import ImageLibraryStore
@@ -74,8 +76,13 @@ RATE_LOCK = threading.Lock()
 RATE_BUCKETS: dict[str, deque[float]] = defaultdict(deque)
 BATCH_JOBS_LOCK = threading.Lock()
 BATCH_JOBS: dict[str, dict] = {}
+BATCH_QUEUE: queue.Queue[str] = queue.Queue()
+BATCH_WORKER_LOCK = threading.Lock()
+BATCH_WORKER_STARTED = False
 BATCH_JOB_TTL_SECONDS = 6 * 60 * 60
-MAX_BATCH_LINKS = int(os.environ.get("INFOLENS_MAX_BATCH_LINKS", "100"))
+MAX_BATCH_LINKS = int(os.environ.get("INFOLENS_MAX_BATCH_LINKS", "500"))
+BATCH_CHUNK_SIZE = max(1, int(os.environ.get("INFOLENS_BATCH_CHUNK_SIZE", "50")))
+BATCH_LINK_ATTEMPTS = max(1, int(os.environ.get("INFOLENS_BATCH_LINK_ATTEMPTS", "3")))
 MAX_UPLOAD_BYTES = int(os.environ.get("INFOLENS_MAX_UPLOAD_BYTES", str(4 * 1024 * 1024)))
 WECOM_BOT_ENABLED = os.environ.get("WECOM_BOT_ENABLED", "false").strip().lower() in {
     "1",
@@ -166,7 +173,7 @@ def _serialize_result(result: ExtractResult) -> dict:
     }
 
 
-def _parse_excel_links(file_stream) -> tuple[list[tuple[int, str]], int]:
+def _parse_excel_links(file_stream) -> tuple[list[tuple[int, str]], dict[str, int]]:
     """读取首个工作表中唯一的“链接”列。"""
     try:
         payload = file_stream.read(MAX_UPLOAD_BYTES + 1)
@@ -200,6 +207,7 @@ def _parse_excel_links(file_stream) -> tuple[list[tuple[int, str]], int]:
         links: list[tuple[int, str]] = []
         seen: set[str] = set()
         duplicate_count = 0
+        invalid_count = 0
         input_count = 0
         for row_number, row in enumerate(rows, start=2):
             populated = [
@@ -219,25 +227,37 @@ def _parse_excel_links(file_stream) -> tuple[list[tuple[int, str]], int]:
                 duplicate_count += 1
                 continue
             seen.add(link)
+            try:
+                parse_visit_url(link)
+            except ValueError:
+                invalid_count += 1
+                continue
             links.append((row_number, link))
 
         if not links:
-            raise ValueError("Excel 中没有可处理的链接")
-        return links, duplicate_count
+            raise ValueError("Excel 中没有格式有效且可处理的 CRM 链接")
+        return links, {
+            "input_count": input_count,
+            "duplicate_count": duplicate_count,
+            "invalid_count": invalid_count,
+            "rejected_count": duplicate_count + invalid_count,
+        }
     finally:
         workbook.close()
 
 
-def _create_batch_archive(
-    links: list[tuple[int, str]],
-    duplicate_count: int = 0,
-    progress_callback: Callable[[dict], None] | None = None,
+def _build_batch_archive(
+    completed_records: list[dict],
+    errors: list[dict],
+    total: int,
+    input_stats: dict[str, int] | None = None,
+    retry_count: int = 0,
 ) -> dict:
+    input_stats = input_stats or {}
     batch_dir = OUTPUT_ROOT / "_batches"
     batch_dir.mkdir(parents=True, exist_ok=True)
     batch_key = f"{datetime.now():%Y%m%d_%H%M%S}_{secrets.token_hex(4)}"
     archive_path = batch_dir / f".batch_{batch_key}.zip"
-    errors: list[dict] = []
     completed: list[dict] = []
     field_rows: list[dict] = []
     seen_fields: set[str] = set()
@@ -250,80 +270,61 @@ def _create_batch_archive(
         compression=zipfile.ZIP_DEFLATED,
         compresslevel=6,
     ) as archive:
-        for processed, (row_number, link) in enumerate(links, start=1):
-            try:
-                result = extract_images(link, OUTPUT_ROOT)
-                IMAGE_LIBRARY.add_result(result, source_url=link)
-                archived_for_visit = 0
-                for image in result.images:
-                    try:
-                        field = photoid_name_field(image.photoid)
-                    except ValueError:
-                        continue
-                    image_key = (field, result.terminal_name)
-                    group = image_groups.get(image_key)
-                    if group is None:
-                        safe_field = re.sub(r'[\\/:*?"<>|]', "_", field)
-                        safe_terminal = re.sub(
-                            r'[\\/:*?"<>|]',
-                            "_",
-                            result.terminal_name.strip(),
-                        ) or "未知终端"
-                        group = {
-                            "folder": (
-                                f"{len(image_groups) + 1:02d}_"
-                                f"{safe_field}_{safe_terminal}"
-                            ),
-                            "image_count": 0,
-                        }
-                        image_groups[image_key] = group
-
-                    source = Path(result.output_dir) / image.filename
-                    extension = source.suffix.lower() or ".jpg"
-                    group["image_count"] = int(group["image_count"]) + 1
-                    archive_filename = (
-                        f"{group['folder']}/"
-                        f"{int(group['image_count']):02d}{extension}"
-                    )
-                    archive.write(source, archive_filename)
-                    image_count += 1
-                    archived_for_visit += 1
-
-                    if field not in seen_fields:
-                        seen_fields.add(field)
-                        field_rows.append(
-                            {
-                                "row": row_number,
-                                "field": field,
-                            }
-                        )
-                completed.append(
-                    {
-                        "row": row_number,
-                        "terminal_name": result.terminal_name,
-                        "partner_name": result.partner_name,
-                        "image_count": archived_for_visit,
+        for record in completed_records:
+            archived_for_visit = 0
+            row_number = int(record["row"])
+            terminal_name = str(record["terminal_name"])
+            for image in record.get("images", []):
+                field = str(image["field"])
+                image_key = (field, terminal_name)
+                group = image_groups.get(image_key)
+                if group is None:
+                    safe_field = re.sub(r'[\\/:*?"<>|]', "_", field)
+                    safe_terminal = re.sub(
+                        r'[\\/:*?"<>|]',
+                        "_",
+                        terminal_name.strip(),
+                    ) or "未知终端"
+                    group = {
+                        "folder": (
+                            f"{len(image_groups) + 1:02d}_"
+                            f"{safe_field}_{safe_terminal}"
+                        ),
+                        "image_count": 0,
                     }
+                    image_groups[image_key] = group
+
+                source = Path(str(image["source"]))
+                if not source.is_file():
+                    raise ValueError(f"第 {row_number} 行的已提取图片不存在，无法恢复归档")
+                extension = source.suffix.lower() or ".jpg"
+                group["image_count"] = int(group["image_count"]) + 1
+                archive_filename = (
+                    f"{group['folder']}/"
+                    f"{int(group['image_count']):02d}{extension}"
                 )
-            except (ValueError, CrmApiError) as exc:
-                errors.append({"row": row_number, "error": str(exc)})
-            except Exception:
-                errors.append({"row": row_number, "error": "处理失败，请联系管理员"})
-            if progress_callback:
-                progress_callback(
-                    {
-                        "processed": processed,
-                        "total": len(links),
-                        "current_row": row_number,
-                        "succeeded": len(completed),
-                        "failed": len(errors),
-                        "image_count": image_count,
-                    }
-                )
+                archive.write(source, archive_filename)
+                image_count += 1
+                archived_for_visit += 1
+                if field not in seen_fields:
+                    seen_fields.add(field)
+                    field_rows.append({"row": row_number, "field": field})
+            completed.append(
+                {
+                    "row": row_number,
+                    "terminal_name": terminal_name,
+                    "partner_name": record["partner_name"],
+                    "image_count": archived_for_visit,
+                }
+            )
 
         report = {
-            "total": len(links),
-            "duplicate_count": duplicate_count,
+            "total": total,
+            "input_count": input_stats.get("input_count", total),
+            "duplicate_count": input_stats.get("duplicate_count", 0),
+            "invalid_count": input_stats.get("invalid_count", 0),
+            "rejected_count": input_stats.get("rejected_count", 0),
+            "retry_count": retry_count,
             "succeeded": len(completed),
             "failed": len(errors),
             "image_count": image_count,
@@ -341,11 +342,10 @@ def _create_batch_archive(
         first_error = errors[0]["error"] if errors else "没有成功提取任何图片"
         raise ValueError(f"批量提取失败：{first_error}")
 
-    partner_name = completed[0]["partner_name"]
     safe_partner = re.sub(
         r'[\\/:*?"<>|]',
         "_",
-        str(partner_name).strip(),
+        str(completed[0]["partner_name"]).strip(),
     ) or "未知业务员"
     archive_stem = f"{datetime.now():%Y%m%d}_{safe_partner}_{len(seen_fields)}"
     archive_name = f"{archive_stem}.zip"
@@ -356,7 +356,6 @@ def _create_batch_archive(
         final_archive_path = batch_dir / archive_name
         sequence += 1
     archive_path.replace(final_archive_path)
-
     return {
         **report,
         "archive_name": archive_name,
@@ -364,40 +363,173 @@ def _create_batch_archive(
     }
 
 
+def _batch_checkpoint_dir() -> Path:
+    path = OUTPUT_ROOT / "_system" / "batch_jobs"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _batch_checkpoint_path(job_id: str) -> Path:
+    return _batch_checkpoint_dir() / f"{job_id}.json"
+
+
+def _write_batch_checkpoint(job_id: str, job: dict) -> None:
+    path = _batch_checkpoint_path(job_id)
+    temp_path = path.with_suffix(".tmp")
+    temp_path.write_text(
+        json.dumps(job, ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    temp_path.replace(path)
+
+
 def _update_batch_job(job_id: str, **values) -> None:
     with BATCH_JOBS_LOCK:
         job = BATCH_JOBS.get(job_id)
-        if job is not None:
-            job.update(values)
-            job["updated_at"] = time.time()
+        if job is None:
+            return
+        job.update(values)
+        job["updated_at"] = time.time()
+        checkpoint = dict(job)
+    _write_batch_checkpoint(job_id, checkpoint)
 
 
-def _run_batch_job(
-    application: Flask,
-    job_id: str,
-    links: list[tuple[int, str]],
-    duplicate_count: int,
-) -> None:
-    _update_batch_job(job_id, status="running")
+def _register_batch_job(job_id: str, job: dict) -> None:
+    with BATCH_JOBS_LOCK:
+        BATCH_JOBS[job_id] = job
+        checkpoint = dict(job)
+    _write_batch_checkpoint(job_id, checkpoint)
 
-    def report_progress(progress: dict) -> None:
-        _update_batch_job(job_id, **progress)
 
+def _extract_batch_record(row_number: int, link: str) -> dict:
+    result = extract_images(link, OUTPUT_ROOT)
+    IMAGE_LIBRARY.add_result(result, source_url=link)
+    images: list[dict] = []
+    for image in result.images:
+        try:
+            field = photoid_name_field(image.photoid)
+        except ValueError:
+            continue
+        images.append(
+            {
+                "field": field,
+                "source": str(Path(result.output_dir) / image.filename),
+            }
+        )
+    return {
+        "row": row_number,
+        "terminal_name": result.terminal_name,
+        "partner_name": result.partner_name,
+        "images": images,
+    }
+
+
+def _run_batch_job_chunk(application: Flask, job_id: str) -> bool:
+    with BATCH_JOBS_LOCK:
+        current = BATCH_JOBS.get(job_id)
+        if current is None:
+            return False
+        job = dict(current)
+    links = [(int(row), str(link)) for row, link in job.get("links", [])]
+    total = len(links)
+    start = int(job.get("processed", 0))
+    end = min(start + BATCH_CHUNK_SIZE, total)
+    chunk_count = max(1, (total + BATCH_CHUNK_SIZE - 1) // BATCH_CHUNK_SIZE)
+    _update_batch_job(
+        job_id,
+        status="running",
+        chunk_index=min(start // BATCH_CHUNK_SIZE + 1, chunk_count),
+        chunk_count=chunk_count,
+    )
     try:
-        with EXTRACT_LOCK:
-            result = _create_batch_archive(
-                links,
-                duplicate_count,
-                progress_callback=report_progress,
+        for index in range(start, end):
+            row_number, link = links[index]
+            record = None
+            error_message = "处理失败，请联系管理员"
+            attempts_used = 0
+            for attempt in range(1, BATCH_LINK_ATTEMPTS + 1):
+                attempts_used = attempt
+                try:
+                    with EXTRACT_LOCK:
+                        record = _extract_batch_record(row_number, link)
+                    break
+                except (ValueError, CrmApiError) as exc:
+                    error_message = str(exc)
+                except Exception:
+                    application.logger.exception(
+                        "批量任务 %s 第 %s 行第 %s 次提取失败",
+                        job_id,
+                        row_number,
+                        attempt,
+                    )
+                    error_message = "处理失败，请联系管理员"
+                if attempt < BATCH_LINK_ATTEMPTS:
+                    time.sleep(min(0.5 * attempt, 1.5))
+
+            with BATCH_JOBS_LOCK:
+                live_job = BATCH_JOBS[job_id]
+                completed_records = list(live_job.get("completed_records", []))
+                errors = list(live_job.get("errors", []))
+                retry_count = int(live_job.get("retry_count", 0)) + max(
+                    attempts_used - 1,
+                    0,
+                )
+            if record is not None:
+                completed_records.append(record)
+            else:
+                errors.append(
+                    {
+                        "row": row_number,
+                        "error": error_message,
+                        "attempts": attempts_used,
+                    }
+                )
+            _update_batch_job(
+                job_id,
+                processed=index + 1,
+                current_row=row_number,
+                succeeded=len(completed_records),
+                failed=len(errors),
+                image_count=sum(
+                    len(item.get("images", [])) for item in completed_records
+                ),
+                completed_records=completed_records,
+                errors=errors,
+                retry_count=retry_count,
             )
+
+        if end < total:
+            _update_batch_job(job_id, status="queued")
+            return True
+
+        with BATCH_JOBS_LOCK:
+            finished_job = dict(BATCH_JOBS[job_id])
+        input_stats = {
+            key: int(finished_job.get(key, 0))
+            for key in (
+                "input_count",
+                "duplicate_count",
+                "invalid_count",
+                "rejected_count",
+            )
+        }
+        result = _build_batch_archive(
+            list(finished_job.get("completed_records", [])),
+            list(finished_job.get("errors", [])),
+            total,
+            input_stats,
+            int(finished_job.get("retry_count", 0)),
+        )
         _update_batch_job(
             job_id,
             status="completed",
-            processed=len(links),
+            processed=total,
             result=result,
         )
+        return False
     except ValueError as exc:
         _update_batch_job(job_id, status="failed", error=str(exc))
+        return False
     except Exception:
         application.logger.exception("批量提取图片失败")
         _update_batch_job(
@@ -405,6 +537,49 @@ def _run_batch_job(
             status="failed",
             error="批量提取失败，请联系管理员查看服务日志",
         )
+        return False
+
+
+def _batch_worker(application: Flask) -> None:
+    while True:
+        job_id = BATCH_QUEUE.get()
+        try:
+            if _run_batch_job_chunk(application, job_id):
+                BATCH_QUEUE.put(job_id)
+        finally:
+            BATCH_QUEUE.task_done()
+
+
+def _restore_batch_jobs() -> None:
+    for path in _batch_checkpoint_dir().glob("*.json"):
+        try:
+            job = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if str(job.get("status", "")) not in {"queued", "running"}:
+            continue
+        job_id = path.stem
+        job["status"] = "queued"
+        job["resumed"] = True
+        with BATCH_JOBS_LOCK:
+            BATCH_JOBS[job_id] = job
+        _write_batch_checkpoint(job_id, job)
+        BATCH_QUEUE.put(job_id)
+
+
+def _start_batch_worker(application: Flask) -> None:
+    global BATCH_WORKER_STARTED
+    with BATCH_WORKER_LOCK:
+        if BATCH_WORKER_STARTED:
+            return
+        _restore_batch_jobs()
+        threading.Thread(
+            target=_batch_worker,
+            args=(application,),
+            daemon=True,
+            name="batch-worker",
+        ).start()
+        BATCH_WORKER_STARTED = True
 
 
 def _prune_batch_jobs() -> None:
@@ -413,10 +588,12 @@ def _prune_batch_jobs() -> None:
         expired = [
             job_id
             for job_id, job in BATCH_JOBS.items()
-            if job.get("updated_at", 0) < cutoff
+            if job.get("status") in {"completed", "failed"}
+            and job.get("updated_at", 0) < cutoff
         ]
         for job_id in expired:
             BATCH_JOBS.pop(job_id, None)
+            _batch_checkpoint_path(job_id).unlink(missing_ok=True)
 
 
 def _public_batch_job(job: dict) -> dict:
@@ -428,7 +605,14 @@ def _public_batch_job(job: dict) -> dict:
         "succeeded",
         "failed",
         "image_count",
+        "input_count",
         "duplicate_count",
+        "invalid_count",
+        "rejected_count",
+        "retry_count",
+        "chunk_index",
+        "chunk_count",
+        "resumed",
         "result",
         "error",
     )
@@ -1338,6 +1522,8 @@ def create_app() -> Flask:
     @application.get("/output/<path:relative_path>")
     @_login_required
     def output_file(relative_path: str):
+        if Path(relative_path).parts[:1] == ("_system",):
+            abort(404)
         return send_from_directory(OUTPUT_ROOT, relative_path)
 
     @application.post("/api/extract")
@@ -1375,7 +1561,7 @@ def create_app() -> Flask:
             return jsonify({"error": "仅支持 .xlsx 格式的 Excel 文件"}), 400
 
         try:
-            links, duplicate_count = _parse_excel_links(upload.stream)
+            links, input_stats = _parse_excel_links(upload.stream)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         except Exception:
@@ -1385,8 +1571,10 @@ def create_app() -> Flask:
         _prune_batch_jobs()
         job_id = secrets.token_urlsafe(18)
         now = time.time()
-        with BATCH_JOBS_LOCK:
-            BATCH_JOBS[job_id] = {
+        chunk_count = max(1, (len(links) + BATCH_CHUNK_SIZE - 1) // BATCH_CHUNK_SIZE)
+        _register_batch_job(
+            job_id,
+            {
                 "owner": _current_user(),
                 "status": "queued",
                 "processed": 0,
@@ -1395,22 +1583,27 @@ def create_app() -> Flask:
                 "succeeded": 0,
                 "failed": 0,
                 "image_count": 0,
-                "duplicate_count": duplicate_count,
+                "retry_count": 0,
+                "chunk_index": 1,
+                "chunk_count": chunk_count,
+                "links": links,
+                "completed_records": [],
+                "errors": [],
+                **input_stats,
                 "created_at": now,
                 "updated_at": now,
-            }
-        threading.Thread(
-            target=_run_batch_job,
-            args=(application, job_id, links, duplicate_count),
-            daemon=True,
-            name=f"batch-{job_id[:8]}",
-        ).start()
+            },
+        )
+        BATCH_QUEUE.put(job_id)
         return jsonify(
             {
                 "job_id": job_id,
                 "status": "queued",
                 "total": len(links),
-                "duplicate_count": duplicate_count,
+                "retry_count": 0,
+                "chunk_index": 1,
+                "chunk_count": chunk_count,
+                **input_stats,
             }
         ), 202
 
@@ -1434,6 +1627,7 @@ def create_app() -> Flask:
     def handled_error(error):
         return jsonify({"error": error.description}), error.code
 
+    _start_batch_worker(application)
     return application
 
 
@@ -1441,5 +1635,9 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    #app.run(host="127.0.0.1", port=8765, debug=False, threaded=True)
-    app.run(host="0.0.0.0", port=8765, debug=False, threaded=True)
+    app.run(
+        host=os.environ.get("INFOLENS_HOST", "127.0.0.1"),
+        port=int(os.environ.get("INFOLENS_PORT", "8765")),
+        debug=False,
+        threaded=True,
+    )

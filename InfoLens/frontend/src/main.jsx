@@ -28,6 +28,7 @@ const { Header, Content, Sider } = Layout;
 const { Text } = Typography;
 const Option = Select.Option;
 const TabPane = Tabs.TabPane;
+const BATCH_JOB_STORAGE_KEY = "infolens.activeBatchJob";
 
 async function jsonFetch(url, options = {}) {
   const response = await fetch(url, options);
@@ -200,12 +201,51 @@ function BatchExtract({ csrfToken, onRefreshResults }) {
     let job = initialJob;
     while (true) {
       setProgress(job);
-      if (job.status === "completed") return job.result;
-      if (job.status === "failed") throw new Error(job.error || "批量提取失败");
+      if (job.status === "completed") {
+        window.localStorage.removeItem(BATCH_JOB_STORAGE_KEY);
+        return job.result;
+      }
+      if (job.status === "failed") {
+        window.localStorage.removeItem(BATCH_JOB_STORAGE_KEY);
+        throw new Error(job.error || "批量提取失败");
+      }
       await new Promise((resolve) => setTimeout(resolve, 650));
       job = await jsonFetch(`/api/batch-extract/${encodeURIComponent(jobId)}`);
     }
   }
+
+  useEffect(() => {
+    const jobId = window.localStorage.getItem(BATCH_JOB_STORAGE_KEY);
+    if (!jobId) return undefined;
+    let active = true;
+    setBusy(true);
+    setStatus({ type: "info", message: "正在恢复批量任务" });
+    (async () => {
+      try {
+        const initialJob = await jsonFetch(
+          `/api/batch-extract/${encodeURIComponent(jobId)}`,
+        );
+        const data = await waitForJob(jobId, initialJob);
+        if (!active) return;
+        setStatus({
+          type: "success",
+          message: `完成：${data.succeeded}/${data.total}，${data.image_count} 张，重试 ${data.retry_count || 0} 次`,
+        });
+        await onRefreshResults();
+      } catch (error) {
+        if (!active) return;
+        if (String(error.message).includes("不存在或已过期")) {
+          window.localStorage.removeItem(BATCH_JOB_STORAGE_KEY);
+        }
+        setStatus({ type: "error", message: error.message });
+      } finally {
+        if (active) setBusy(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   async function submit() {
     if (!file) return;
@@ -221,10 +261,11 @@ function BatchExtract({ csrfToken, onRefreshResults }) {
         headers: { "X-CSRF-Token": token },
         body: form,
       });
+      window.localStorage.setItem(BATCH_JOB_STORAGE_KEY, started.job_id);
       const data = await waitForJob(started.job_id, started);
       setStatus({
         type: "success",
-        message: `完成：${data.succeeded}/${data.total}，${data.image_count} 张`,
+        message: `完成：${data.succeeded}/${data.total}，${data.image_count} 张，重试 ${data.retry_count || 0} 次`,
       });
       await onRefreshResults();
     } catch (error) {
@@ -235,6 +276,16 @@ function BatchExtract({ csrfToken, onRefreshResults }) {
   }
 
   const percent = progress?.total ? Math.round((Number(progress.processed || 0) / Number(progress.total)) * 100) : 0;
+  const pendingCount = Math.max(
+    0,
+    Number(progress?.total || 0) - Number(progress?.processed || 0),
+  );
+  const batchStats = [
+    { label: "链接数", value: Number(progress?.input_count || progress?.total || 0) },
+    { label: "重复/无效数", value: Number(progress?.rejected_count || 0) },
+    { label: "待提取数", value: pendingCount },
+    { label: "失败数", value: Number(progress?.failed || 0), danger: true },
+  ];
 
   return (
     <div className="extract-pane">
@@ -255,11 +306,24 @@ function BatchExtract({ csrfToken, onRefreshResults }) {
       <Status status={status} />
       {progress ? (
         <Card className="sub-card" bordered>
+          <div className="batch-stats" aria-label="批量提取统计">
+            {batchStats.map((item) => (
+              <div className="batch-stat" key={item.label}>
+                <Text type="secondary">{item.label}</Text>
+                <strong className={item.danger && item.value > 0 ? "is-danger" : ""}>
+                  {item.value}
+                </strong>
+              </div>
+            ))}
+          </div>
           <div className="progress-head">
             <Text>
               已处理 {progress.processed || 0}/{progress.total || 0} 条 · 成功 {progress.succeeded || 0} · 失败 {progress.failed || 0}
             </Text>
-            <Text type="secondary">{percent}%</Text>
+            <Text type="secondary">
+              {progress.status === "queued" ? "排队中" : "处理中"} · 分段 {progress.chunk_index || 1}/{progress.chunk_count || 1} · 重试 {progress.retry_count || 0} 次
+              {progress.resumed ? " · 已恢复" : ""}
+            </Text>
           </div>
           <Progress percent={percent} />
         </Card>
@@ -285,7 +349,12 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
   const [selected, setSelected] = useState(new Set());
   const [status, setStatus] = useState(null);
   const [exporting, setExporting] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(
+    () => Boolean(window.localStorage.getItem(BATCH_JOB_STORAGE_KEY)),
+  );
+  const recoveringBatchJob = Boolean(
+    window.localStorage.getItem(BATCH_JOB_STORAGE_KEY),
+  );
   const [previewImage, setPreviewImage] = useState(null);
 
   async function load(overrides = {}) {
@@ -551,7 +620,7 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
         className="create-modal"
         unmountOnExit
       >
-        <Tabs defaultActiveTab="single">
+        <Tabs defaultActiveTab={recoveringBatchJob ? "batch" : "single"}>
           <TabPane key="single" title="单链接提取">
             <SingleExtract csrfToken={csrfToken} onRefreshResults={load} />
           </TabPane>

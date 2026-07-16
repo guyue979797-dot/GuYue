@@ -506,6 +506,38 @@ body {
   margin-bottom: 20px;
 }
 
+.batch-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 18px;
+  border-bottom: 1px solid #eef1f6;
+}
+
+.batch-stat {
+  min-width: 0;
+  padding: 2px 16px 16px;
+  display: grid;
+  gap: 6px;
+}
+
+.batch-stat:first-child {
+  padding-left: 0;
+}
+
+.batch-stat + .batch-stat {
+  border-left: 1px solid #eef1f6;
+}
+
+.batch-stat strong {
+  color: #1d2738;
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.batch-stat strong.is-danger {
+  color: #d93f3f;
+}
+
 .section-title {
   margin: 0 !important;
 }
@@ -864,6 +896,20 @@ body {
 }
 
 @media (max-width: 640px) {
+  .batch-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .batch-stat:nth-child(3) {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .batch-stat:nth-child(n + 3) {
+    padding-top: 14px;
+    border-top: 1px solid #eef1f6;
+  }
+
   .section-head,
   .record-head,
   .progress-head,

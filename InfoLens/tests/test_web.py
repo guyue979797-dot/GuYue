@@ -168,6 +168,7 @@ class WebSecurityTests(unittest.TestCase):
         worksheet.append([link])
         worksheet.append([link.replace("954187FD1234", "A343379C1234")])
         worksheet.append([link.replace("954187FD1234", "B453379C1234")])
+        worksheet.append(["https://example.com/not-a-crm-link"])
         excel = io.BytesIO()
         workbook.save(excel)
         excel.seek(0)
@@ -222,6 +223,12 @@ class WebSecurityTests(unittest.TestCase):
             started = response.get_json()
             self.assertEqual(started["status"], "queued")
             self.assertEqual(started["total"], 3)
+            self.assertEqual(started["input_count"], 5)
+            self.assertEqual(started["duplicate_count"], 1)
+            self.assertEqual(started["invalid_count"], 1)
+            self.assertEqual(started["rejected_count"], 2)
+            self.assertEqual(started["chunk_index"], 1)
+            self.assertEqual(started["chunk_count"], 1)
 
             for _attempt in range(200):
                 status_response = self.client.get(
@@ -240,7 +247,11 @@ class WebSecurityTests(unittest.TestCase):
         data = job["result"]
         self.assertEqual(extract_images.call_count, 3)
         self.assertEqual(data["total"], 3)
+        self.assertEqual(data["input_count"], 5)
         self.assertEqual(data["duplicate_count"], 1)
+        self.assertEqual(data["invalid_count"], 1)
+        self.assertEqual(data["rejected_count"], 2)
+        self.assertEqual(data["retry_count"], 0)
         self.assertEqual(data["succeeded"], 3)
         self.assertEqual(data["image_count"], 3)
         self.assertRegex(
@@ -273,6 +284,88 @@ class WebSecurityTests(unittest.TestCase):
                 "02_2045678901_测试终端",
             },
         )
+        checkpoint = self.web._batch_checkpoint_path(started["job_id"])
+        self.assertTrue(checkpoint.is_file())
+        checkpoint_data = json.loads(checkpoint.read_text(encoding="utf-8"))
+        self.assertEqual(checkpoint_data["status"], "completed")
+        self.assertEqual(checkpoint_data["processed"], 3)
+
+    def test_batch_excel_accepts_500_links_and_rejects_501(self):
+        def build_excel(count):
+            workbook = Workbook()
+            worksheet = workbook.active
+            worksheet.append(["链接"])
+            for index in range(count):
+                worksheet.append(
+                    [
+                        "https://crm.example/visitDetail"
+                        f"?appuser=u&id={index:012d}&process_type=p"
+                    ]
+                )
+            excel = io.BytesIO()
+            workbook.save(excel)
+            excel.seek(0)
+            return excel
+
+        with patch.object(self.web, "MAX_BATCH_LINKS", 500):
+            links, stats = self.web._parse_excel_links(build_excel(500))
+            self.assertEqual(len(links), 500)
+            self.assertEqual(stats["input_count"], 500)
+            with self.assertRaisesRegex(ValueError, "单次最多处理 500 条链接"):
+                self.web._parse_excel_links(build_excel(501))
+
+    def test_batch_link_retries_and_records_retry_count(self):
+        image_path = Path(self.output.name) / "retry-image.jpg"
+        image_path.write_bytes(b"image")
+        job_id = "retry-job"
+        now = time.time()
+        self.web._register_batch_job(
+            job_id,
+            {
+                "owner": "team",
+                "status": "queued",
+                "processed": 0,
+                "total": 1,
+                "succeeded": 0,
+                "failed": 0,
+                "image_count": 0,
+                "retry_count": 0,
+                "links": [[2, "https://crm.example/visitDetail?appuser=u&id=1&process_type=p"]],
+                "completed_records": [],
+                "errors": [],
+                "input_count": 1,
+                "duplicate_count": 0,
+                "invalid_count": 0,
+                "rejected_count": 0,
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+        record = {
+            "row": 2,
+            "terminal_name": "重试终端",
+            "partner_name": "测试业务员",
+            "images": [{"field": "1000000001", "source": str(image_path)}],
+        }
+        with patch.object(self.web, "BATCH_LINK_ATTEMPTS", 2), patch.object(
+            self.web,
+            "_extract_batch_record",
+            side_effect=[self.web.CrmApiError("临时失败"), record],
+        ) as extract_record:
+            should_continue = self.web._run_batch_job_chunk(self.web.app, job_id)
+
+        self.assertFalse(should_continue)
+        self.assertEqual(extract_record.call_count, 2)
+        job = self.web.BATCH_JOBS[job_id]
+        self.assertEqual(job["status"], "completed")
+        self.assertEqual(job["retry_count"], 1)
+        self.assertEqual(job["result"]["retry_count"], 1)
+
+    def test_system_checkpoints_are_not_downloadable(self):
+        with self.client.session_transaction() as current_session:
+            current_session["user"] = "team"
+        response = self.client.get("/output/_system/batch_jobs/private.json")
+        self.assertEqual(response.status_code, 404)
 
     def test_batch_extract_rejects_wrong_header(self):
         workbook = Workbook()
