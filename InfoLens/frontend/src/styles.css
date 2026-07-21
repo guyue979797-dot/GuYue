@@ -452,6 +452,138 @@ body {
   margin-bottom: 16px;
 }
 
+.export-modal .arco-modal-header,
+.export-records-modal .arco-modal-header {
+  text-align: left;
+}
+
+.export-modal .arco-modal-title,
+.export-records-modal .arco-modal-title {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.export-records-modal {
+  width: min(1080px, calc(100vw - 40px)) !important;
+}
+
+.export-modal {
+  width: min(520px, calc(100vw - 24px)) !important;
+}
+
+.export-form {
+  display: grid;
+  gap: 10px;
+}
+
+.export-form label {
+  color: #435064;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.required-mark {
+  color: #f53f3f;
+}
+
+.export-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 4px 0;
+}
+
+.export-meta-item {
+  min-width: 0;
+  padding: 12px;
+  display: grid;
+  gap: 5px;
+  border: 1px solid #e5e8ef;
+  border-radius: 6px;
+  background: #fafbfc;
+}
+
+.export-meta-item strong {
+  overflow: hidden;
+  color: #1d2738;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.export-field-head,
+.export-record-toolbar,
+.record-fields-cell,
+.record-actions {
+  display: flex;
+  align-items: center;
+}
+
+.export-field-head,
+.export-record-toolbar {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.export-record-toolbar {
+  margin-bottom: 14px;
+}
+
+.export-record-table-wrap {
+  width: 100%;
+  max-height: min(560px, calc(100vh - 240px));
+  overflow: auto;
+  border: 1px solid #e5e8ef;
+  border-radius: 6px;
+}
+
+.export-record-table {
+  width: 100%;
+  min-width: 940px;
+  border-collapse: collapse;
+  color: #1d2738;
+  font-size: 13px;
+}
+
+.export-record-table th,
+.export-record-table td {
+  padding: 11px 10px;
+  border-bottom: 1px solid #eef1f6;
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.export-record-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  color: #5c667a;
+  background: #fbfcfe;
+  font-weight: 600;
+}
+
+.export-record-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.record-description {
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.record-fields-cell,
+.record-actions {
+  gap: 8px;
+}
+
+.record-expiry-cell {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+}
+
 .extract-pane {
   display: grid;
   gap: 14px;
@@ -951,6 +1083,18 @@ body {
   .filter-actions .arco-btn,
   .operation-toolbar > .arco-btn {
     width: 100%;
+  }
+
+  .operation-toolbar > .arco-space {
+    width: 100%;
+  }
+
+  .operation-toolbar > .arco-space .arco-btn {
+    flex: 1 1 auto;
+  }
+
+  .export-meta-grid {
+    grid-template-columns: 1fr;
   }
 
   .crm-page-title {

@@ -55,6 +55,22 @@ function downloadFile(url, filename) {
   link.remove();
 }
 
+function formatDateTime(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
 function Status({ status }) {
   if (!status?.message) return null;
   return (
@@ -349,6 +365,13 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
   const [selected, setSelected] = useState(new Set());
   const [status, setStatus] = useState(null);
   const [exporting, setExporting] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportDescription, setExportDescription] = useState("");
+  const [exportPreview, setExportPreview] = useState(null);
+  const [previewingExport, setPreviewingExport] = useState(false);
+  const [recordsOpen, setRecordsOpen] = useState(false);
+  const [recordsLoading, setRecordsLoading] = useState(false);
+  const [exportRecords, setExportRecords] = useState([]);
   const [createOpen, setCreateOpen] = useState(
     () => Boolean(window.localStorage.getItem(BATCH_JOB_STORAGE_KEY)),
   );
@@ -413,13 +436,16 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
     });
   }
 
-  async function exportSelected() {
+  async function openExport() {
     const imageIds = [...selected];
     if (!imageIds.length) return;
-    setExporting(true);
+    setExportDescription("");
+    setExportPreview(null);
+    setExportOpen(true);
+    setPreviewingExport(true);
     try {
       const token = await latestCsrfToken(csrfToken);
-      const result = await jsonFetch("/api/image-library/export", {
+      const result = await jsonFetch("/api/image-library/export-preview", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -427,13 +453,76 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
         },
         body: JSON.stringify({ image_ids: imageIds, csrf_token: token }),
       });
-      downloadFile(result.archive_url, result.archive_name);
+      setExportPreview(result);
+    } catch (error) {
+      Message.error(error.message);
+      setExportOpen(false);
+    } finally {
+      setPreviewingExport(false);
+    }
+  }
+
+  async function exportSelected() {
+    const imageIds = [...selected];
+    const description = exportDescription.trim();
+    if (!imageIds.length || !description || description.length > 30) return;
+    setExporting(true);
+    try {
+      const token = await latestCsrfToken(csrfToken);
+      const result = await jsonFetch("/api/export-records", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": token,
+        },
+        body: JSON.stringify({
+          image_ids: imageIds,
+          description,
+          csrf_token: token,
+        }),
+      });
+      setExportOpen(false);
+      downloadFile(result.download_url, result.archive_name);
       Message.success(`已导出 ${result.field_count} 个终端编码、${result.image_count} 张照片`);
+      if (recordsOpen) await loadExportRecords();
     } catch (error) {
       Message.error(error.message);
     } finally {
       setExporting(false);
     }
+  }
+
+  async function loadExportRecords() {
+    setRecordsLoading(true);
+    try {
+      const result = await jsonFetch("/api/export-records");
+      setExportRecords(result.items || []);
+    } catch (error) {
+      Message.error(error.message);
+    } finally {
+      setRecordsLoading(false);
+    }
+  }
+
+  async function openExportRecords() {
+    setRecordsOpen(true);
+    await loadExportRecords();
+  }
+
+  async function copyExportFields(fields) {
+    if (!fields?.length) return;
+    try {
+      await navigator.clipboard.writeText(fields.join("\n"));
+      Message.success(`已复制 ${fields.length} 个终端编码`);
+    } catch {
+      Message.error("复制失败，请检查浏览器剪贴板权限");
+    }
+  }
+
+  function downloadExportRecord(record) {
+    if (record.status !== "available" || !record.download_url) return;
+    downloadFile(record.download_url, record.archive_name);
+    window.setTimeout(loadExportRecords, 800);
   }
 
   function selectCurrentPage() {
@@ -539,9 +628,12 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
             <Button onClick={selectCurrentPage}>全选当前结果</Button>
             <Button onClick={() => setSelected(new Set())}>取消选择</Button>
           </Space>
-          <Button type="primary" loading={exporting} disabled={!selected.size} onClick={exportSelected}>
-            导出选中照片{selected.size ? `（${selected.size}）` : ""}
-          </Button>
+          <Space wrap>
+            <Button onClick={openExportRecords}>导出记录</Button>
+            <Button type="primary" disabled={!selected.size} onClick={openExport}>
+              导出选中照片{selected.size ? `（${selected.size}）` : ""}
+            </Button>
+          </Space>
         </div>
         <Status status={status} />
         {!data.items?.length ? (
@@ -611,6 +703,154 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
           </div>
         )}
       </Card>
+
+      <Modal
+        title="确认导出"
+        visible={exportOpen}
+        onCancel={() => !exporting && setExportOpen(false)}
+        onOk={exportSelected}
+        okText="确认导出"
+        cancelText="取消"
+        okButtonProps={{
+          loading: exporting,
+          disabled:
+            previewingExport ||
+            !exportPreview ||
+            !exportDescription.trim() ||
+            exportDescription.trim().length > 30,
+        }}
+        className="export-modal"
+        unmountOnExit
+      >
+        <div className="export-form">
+          <label>
+            导出说明 <span className="required-mark">*</span>
+          </label>
+          <Input
+            value={exportDescription}
+            maxLength={30}
+            showWordLimit
+            disabled={exporting}
+            placeholder="请输入导出说明，最多30个字"
+            onChange={setExportDescription}
+          />
+          <div className="export-meta-grid">
+            <div className="export-meta-item">
+              <Text type="secondary">照片数量</Text>
+              <strong>{previewingExport ? "读取中" : `${exportPreview?.image_count || 0} 张`}</strong>
+            </div>
+            <div className="export-meta-item">
+              <Text type="secondary">终端数量</Text>
+              <strong>{previewingExport ? "读取中" : `${exportPreview?.field_count || 0} 个`}</strong>
+            </div>
+            <div className="export-meta-item">
+              <Text type="secondary">导出时间</Text>
+              <strong>{formatDateTime(exportPreview?.export_time)}</strong>
+            </div>
+          </div>
+          <div className="export-field-head">
+            <label>终端编码（{exportPreview?.field_count || 0}）</label>
+            <Button
+              size="small"
+              disabled={!exportPreview?.fields?.length}
+              onClick={() => copyExportFields(exportPreview?.fields)}
+            >
+              复制到 Excel
+            </Button>
+          </div>
+          <Input.TextArea
+            value={(exportPreview?.fields || []).join("\n")}
+            placeholder={previewingExport ? "正在读取终端编码" : "暂无终端编码"}
+            autoSize={{ minRows: 4, maxRows: 8 }}
+            readOnly
+          />
+        </div>
+      </Modal>
+
+      <Modal
+        title="导出记录"
+        visible={recordsOpen}
+        footer={null}
+        onCancel={() => setRecordsOpen(false)}
+        className="export-records-modal"
+        unmountOnExit
+      >
+        <div className="export-record-toolbar">
+          <Text type="secondary">导出文件保留30天，所有用户均可下载</Text>
+          <Button size="small" loading={recordsLoading} onClick={loadExportRecords}>
+            刷新
+          </Button>
+        </div>
+        {exportRecords.length ? (
+          <div className="export-record-table-wrap">
+            <table className="export-record-table">
+              <thead>
+                <tr>
+                  <th>导出时间</th>
+                  <th>导出说明</th>
+                  <th>照片数量</th>
+                  <th>终端数量</th>
+                  <th>终端编码</th>
+                  <th>导出人</th>
+                  <th>有效期</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {exportRecords.map((record) => {
+                  const available = record.status === "available";
+                  const statusLabel = available
+                    ? "可下载"
+                    : record.status === "expired"
+                      ? "已过期"
+                      : "文件缺失";
+                  return (
+                    <tr key={record.id}>
+                      <td>{formatDateTime(record.created_at)}</td>
+                      <td className="record-description" title={record.description}>
+                        {record.description}
+                      </td>
+                      <td>{record.image_count} 张</td>
+                      <td>{record.field_count} 个</td>
+                      <td>
+                        <div className="record-fields-cell">
+                          <Button size="mini" onClick={() => copyExportFields(record.fields)}>
+                            复制到 Excel
+                          </Button>
+                        </div>
+                      </td>
+                      <td>{record.owner_display_name || record.owner_username || "-"}</td>
+                      <td>
+                        <div className="record-expiry-cell">
+                          <Tag color={available ? "green" : "gray"}>
+                            {statusLabel}
+                          </Tag>
+                          <Text type="secondary">{formatDateTime(record.expires_at)}</Text>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="record-actions">
+                          <Button
+                            size="small"
+                            type="primary"
+                            disabled={!available}
+                            onClick={() => downloadExportRecord(record)}
+                          >
+                            下载
+                          </Button>
+                          <Text type="secondary">{record.download_count} 次</Text>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <EmptyBox text={recordsLoading ? "正在读取导出记录" : "暂无导出记录"} />
+        )}
+      </Modal>
 
       <Modal
         title="新增"

@@ -61,6 +61,7 @@ class LongConnectionBotTests(unittest.IsolatedAsyncioTestCase):
                 calls.append((link, output_root, group_by_partner))
                 output_dir = Path(output_root) / "测试业务员" / "测试终端_A343379C"
                 output_dir.mkdir(parents=True)
+                (output_dir / "image.jpg").write_bytes(b"image")
                 return ExtractResult(
                     visit_id="A343379C",
                     terminal_name="测试终端",
@@ -79,6 +80,7 @@ class LongConnectionBotTests(unittest.IsolatedAsyncioTestCase):
                         )
                     ],
                     metadata_file=str(output_dir / "metadata.json"),
+                    visit_in_time="1782714405357",
                 )
 
             bot = LongConnectionBot(client, output, extractor=fake_extract)

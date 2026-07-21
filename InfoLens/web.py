@@ -22,7 +22,7 @@ import time
 import urllib.parse
 import zipfile
 from collections import defaultdict, deque
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
 from typing import Callable
@@ -35,6 +35,7 @@ from flask import (
     jsonify,
     redirect,
     request,
+    send_file,
     send_from_directory,
     session,
     url_for,
@@ -45,6 +46,13 @@ from werkzeug.security import generate_password_hash
 
 from infolens.crm_client import CrmApiError
 from infolens.distribution import DistributionStore
+from infolens.export_records import (
+    ExportArchiveMissingError,
+    ExportExpiredError,
+    ExportRecordError,
+    ExportRecordStore,
+    to_utc_iso,
+)
 from infolens.extractor import (
     ExtractResult,
     build_image_filename,
@@ -52,7 +60,7 @@ from infolens.extractor import (
     parse_visit_url,
     photoid_name_field,
 )
-from infolens.image_library import ImageLibraryStore
+from infolens.image_library import ImageLibraryStore, LibraryImage
 from infolens.users import UserStore
 from infolens.wecom_bot import (
     MessageDeduplicator,
@@ -102,6 +110,10 @@ IMAGE_LIBRARY = ImageLibraryStore(
     OUTPUT_ROOT,
 )
 USER_STORE = UserStore(OUTPUT_ROOT / "_system" / "users.sqlite3")
+EXPORT_RECORD_STORE = ExportRecordStore(
+    OUTPUT_ROOT / "_system" / "export_records.sqlite3",
+    OUTPUT_ROOT,
+)
 
 
 def _require_production_config() -> None:
@@ -1013,18 +1025,62 @@ def _parse_field_lines(value: str) -> list[str]:
     return fields
 
 
-def _create_image_library_archive(image_ids: list[str]) -> dict:
+def _valid_export_images(image_ids: list[str]) -> list[tuple[LibraryImage, Path]]:
     images = IMAGE_LIBRARY.get_images(image_ids)
-    if not images:
-        raise ValueError("请先选择可导出的照片")
+    valid_images: list[tuple[LibraryImage, Path]] = []
+    for image in images:
+        source = (OUTPUT_ROOT / image.file_path).resolve()
+        try:
+            source.relative_to(OUTPUT_ROOT)
+        except ValueError:
+            continue
+        if source.is_file():
+            valid_images.append((image, source))
+    if not valid_images:
+        raise ValueError("选中的照片文件不存在，无法导出")
+    return valid_images
+
+
+def _preview_image_library_archive(image_ids: list[str]) -> dict:
+    valid_images = _valid_export_images(image_ids)
+    fields = sorted({image.field for image, _source in valid_images})
+    return {
+        "image_count": len(valid_images),
+        "field_count": len(fields),
+        "fields": fields,
+        "export_time": to_utc_iso(datetime.now(timezone.utc)),
+    }
+
+
+def _create_image_library_archive(
+    image_ids: list[str],
+    *,
+    description: str,
+    owner_username: str,
+    owner_display_name: str,
+) -> dict:
+    description = description.strip()
+    if not description:
+        raise ValueError("请填写导出说明")
+    if len(description) > 30:
+        raise ValueError("导出说明不能超过30个字")
+
+    valid_images = _valid_export_images(image_ids)
+    exported_at = datetime.now(timezone.utc)
+    record_id = secrets.token_hex(16)
 
     export_root = OUTPUT_ROOT / "_image_exports"
     export_root.mkdir(parents=True, exist_ok=True)
-    archive_key = f"{datetime.now():%Y%m%d_%H%M%S}_{secrets.token_hex(3)}"
-    temp_path = export_root / f".{archive_key}.zip"
+    archive_name = (
+        f"{datetime.now():%Y%m%d_%H%M%S}_选中照片_"
+        f"{len(valid_images)}张_{record_id[:6]}.zip"
+    )
+    archive_path = export_root / archive_name
+    temp_path = export_root / f".{record_id}.zip"
     groups: dict[tuple[str, str, str], int] = {}
     fields: set[str] = set()
     archived_images = 0
+    image_items: list[tuple[str, str]] = []
 
     with zipfile.ZipFile(
         temp_path,
@@ -1032,14 +1088,7 @@ def _create_image_library_archive(image_ids: list[str]) -> dict:
         compression=zipfile.ZIP_DEFLATED,
         compresslevel=6,
     ) as archive:
-        for image in images:
-            source = (OUTPUT_ROOT / image.file_path).resolve()
-            try:
-                source.relative_to(OUTPUT_ROOT)
-            except ValueError:
-                continue
-            if not source.is_file():
-                continue
+        for image, source in valid_images:
             group_key = (image.field, image.customer_name, image.business)
             groups[group_key] = groups.get(group_key, 0) + 1
             sequence = groups[group_key]
@@ -1050,13 +1099,16 @@ def _create_image_library_archive(image_ids: list[str]) -> dict:
             extension = source.suffix.lower() or ".jpg"
             archive.write(source, f"{folder}/{sequence:02d}{extension}")
             fields.add(image.field)
+            image_items.append((image.id, image.field))
             archived_images += 1
 
         report = {
+            "record_id": record_id,
+            "description": description,
             "field_count": len(fields),
             "fields": sorted(fields),
             "image_count": archived_images,
-            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "created_at": to_utc_iso(exported_at),
         }
         archive.writestr(
             "图片库导出结果.json",
@@ -1067,26 +1119,28 @@ def _create_image_library_archive(image_ids: list[str]) -> dict:
         temp_path.unlink(missing_ok=True)
         raise ValueError("选中的照片文件不存在，无法导出")
 
-    archive_name = f"{datetime.now():%Y%m%d}_选中照片_{archived_images}张.zip"
-    archive_path = export_root / archive_name
-    sequence = 2
-    while archive_path.exists():
-        archive_name = (
-            f"{datetime.now():%Y%m%d}_选中照片_{archived_images}张_{sequence:02d}.zip"
-        )
-        archive_path = export_root / archive_name
-        sequence += 1
     temp_path.replace(archive_path)
-    return {
-        "archive_name": archive_name,
-        "archive_url": _image_url("_image_exports", archive_name),
-        **report,
-    }
+    try:
+        return EXPORT_RECORD_STORE.create_record(
+            record_id=record_id,
+            description=description,
+            owner_username=owner_username,
+            owner_display_name=owner_display_name,
+            archive_name=archive_name,
+            archive_path=archive_path.relative_to(OUTPUT_ROOT).as_posix(),
+            image_items=image_items,
+            archive_size_bytes=archive_path.stat().st_size,
+            created_at=exported_at,
+        )
+    except Exception:
+        archive_path.unlink(missing_ok=True)
+        raise
 
 
 def create_app() -> Flask:
     _require_production_config()
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+    EXPORT_RECORD_STORE.expire_records()
     _ensure_super_admin()
     if os.environ.get("INFOLENS_DISTRIBUTION_IMPORT_EXISTING", "").lower() in {
         "1",
@@ -1501,7 +1555,23 @@ def create_app() -> Flask:
             }
         )
 
+    @application.post("/api/image-library/export-preview")
+    @_login_required
+    def preview_library_export():
+        _check_csrf()
+        payload = request.get_json(silent=True) or {}
+        image_ids = [
+            str(item)
+            for item in payload.get("image_ids") or []
+            if str(item).strip()
+        ]
+        try:
+            return jsonify(_preview_image_library_archive(image_ids))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
     @application.post("/api/image-library/export")
+    @application.post("/api/export-records")
     @_login_required
     def export_library_images():
         _check_csrf()
@@ -1512,17 +1582,48 @@ def create_app() -> Flask:
             if str(item).strip()
         ]
         try:
-            return jsonify(_create_image_library_archive(image_ids))
+            return jsonify(
+                _create_image_library_archive(
+                    image_ids,
+                    description=str(payload.get("description") or ""),
+                    owner_username=_current_user() or "",
+                    owner_display_name=str(
+                        session.get("display_name") or _current_user() or ""
+                    ),
+                )
+            )
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         except Exception:
             application.logger.exception("图片库导出失败")
             return jsonify({"error": "导出失败，请联系管理员"}), 500
 
+    @application.get("/api/export-records")
+    @_login_required
+    def list_export_records():
+        return jsonify({"items": EXPORT_RECORD_STORE.list_records()})
+
+    @application.get("/api/export-records/<record_id>/download")
+    @_login_required
+    def download_export_record(record_id: str):
+        try:
+            record, archive_path = EXPORT_RECORD_STORE.archive_for_download(record_id)
+        except ExportExpiredError as exc:
+            return jsonify({"error": str(exc)}), 410
+        except (ExportRecordError, ExportArchiveMissingError) as exc:
+            return jsonify({"error": str(exc)}), 404
+        EXPORT_RECORD_STORE.mark_downloaded(record_id)
+        return send_file(
+            archive_path,
+            as_attachment=True,
+            download_name=record["archive_name"],
+            mimetype="application/zip",
+        )
+
     @application.get("/output/<path:relative_path>")
     @_login_required
     def output_file(relative_path: str):
-        if Path(relative_path).parts[:1] == ("_system",):
+        if Path(relative_path).parts[:1] in {("_system",), ("_image_exports",)}:
             abort(404)
         return send_from_directory(OUTPUT_ROOT, relative_path)
 

@@ -134,7 +134,7 @@ class LongConnectionBot:
                         self._stop_worker.wait(),
                         timeout=poll_interval,
                     )
-                except TimeoutError:
+                except asyncio.TimeoutError:
                     pass
                 continue
             try:

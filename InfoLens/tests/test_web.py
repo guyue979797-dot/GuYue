@@ -6,6 +6,7 @@ import tempfile
 import time
 import unittest
 import zipfile
+from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,6 +14,7 @@ from openpyxl import Workbook
 from werkzeug.security import generate_password_hash
 
 from infolens.extractor import ExtractResult, SavedImage
+from infolens.export_records import parse_utc_iso
 
 
 class WebSecurityTests(unittest.TestCase):
@@ -547,16 +549,41 @@ class WebSecurityTests(unittest.TestCase):
 
         missing_csrf = self.client.post(
             "/api/image-library/export",
-            json={"image_ids": [image_id]},
+            json={"image_ids": [image_id], "description": "月度照片"},
         )
         self.assertEqual(missing_csrf.status_code, 403)
-        export = self.client.post(
-            "/api/image-library/export",
+        preview = self.client.post(
+            "/api/image-library/export-preview",
             json={"image_ids": [image_id]},
+            headers={"X-CSRF-Token": "test-token"},
+        )
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(preview.get_json()["image_count"], 1)
+        self.assertEqual(preview.get_json()["fields"], ["1023275022"])
+
+        missing_description = self.client.post(
+            "/api/export-records",
+            json={"image_ids": [image_id]},
+            headers={"X-CSRF-Token": "test-token"},
+        )
+        self.assertEqual(missing_description.status_code, 400)
+        long_description = self.client.post(
+            "/api/export-records",
+            json={"image_ids": [image_id], "description": "超" * 31},
+            headers={"X-CSRF-Token": "test-token"},
+        )
+        self.assertEqual(long_description.status_code, 400)
+
+        export = self.client.post(
+            "/api/export-records",
+            json={"image_ids": [image_id], "description": "月度照片"},
             headers={"X-CSRF-Token": "test-token"},
         )
         self.assertEqual(export.status_code, 200)
         export_data = export.get_json()
+        self.assertEqual(export_data["description"], "月度照片")
+        self.assertEqual(export_data["fields"], ["1023275022"])
+        self.assertEqual(export_data["download_count"], 0)
         archive_path = (
             Path(self.output.name) / "_image_exports" / export_data["archive_name"]
         )
@@ -565,6 +592,36 @@ class WebSecurityTests(unittest.TestCase):
             names = archive.namelist()
         self.assertIn("图片库导出结果.json", names)
         self.assertIn("1023275022_测试终端_测试业务员/01.jpeg", names)
+
+        records = self.client.get("/api/export-records")
+        self.assertEqual(records.status_code, 200)
+        self.assertEqual(len(records.get_json()["items"]), 1)
+
+        first_download = self.client.get(export_data["download_url"])
+        second_download = self.client.get(export_data["download_url"])
+        self.assertEqual(first_download.status_code, 200)
+        self.assertEqual(second_download.status_code, 200)
+        first_download.close()
+        second_download.close()
+        self.assertEqual(
+            self.client.get("/api/export-records").get_json()["items"][0][
+                "download_count"
+            ],
+            2,
+        )
+        self.assertEqual(
+            self.client.get(f"/output/_image_exports/{export_data['archive_name']}").status_code,
+            404,
+        )
+
+        self.web.EXPORT_RECORD_STORE.expire_records(
+            now=parse_utc_iso(export_data["created_at"]) + timedelta(days=31)
+        )
+        expired_record = self.client.get("/api/export-records").get_json()["items"][0]
+        self.assertEqual(expired_record["status"], "expired")
+        self.assertEqual(expired_record["download_url"], "")
+        self.assertFalse(archive_path.exists())
+        self.assertEqual(self.client.get(export_data["download_url"]).status_code, 410)
 
         refreshed = self.client.get(
             "/api/image-library?fields=1023275022&month=2026-06"
