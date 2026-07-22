@@ -480,14 +480,30 @@ body {
   margin-bottom: 16px;
 }
 
-.library-scroll-region {
+.library-content-shell {
+  position: relative;
   flex: 1 1 auto;
+  min-height: 0;
+}
+
+.library-scroll-region {
+  height: 100%;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   padding-right: 8px;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+}
+
+.library-loading-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.68);
+  backdrop-filter: blur(1px);
 }
 
 .library-scroll-region::-webkit-scrollbar {
@@ -509,18 +525,24 @@ body {
 }
 
 .export-modal .arco-modal-header,
-.export-records-modal .arco-modal-header {
+.export-records-modal .arco-modal-header,
+.field-details-modal .arco-modal-header {
   text-align: left;
 }
 
 .export-modal .arco-modal-title,
-.export-records-modal .arco-modal-title {
+.export-records-modal .arco-modal-title,
+.field-details-modal .arco-modal-title {
   justify-content: flex-start;
   text-align: left;
 }
 
 .export-records-modal {
   width: min(1080px, calc(100vw - 40px)) !important;
+}
+
+.field-details-modal {
+  width: min(620px, calc(100vw - 32px)) !important;
 }
 
 .export-modal {
@@ -565,6 +587,38 @@ body {
   font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.manual-copy-textarea {
+  width: 100%;
+  min-height: 128px;
+  max-height: min(320px, 40vh);
+  padding: 10px 12px;
+  overflow: auto;
+  resize: vertical;
+  border: 1px solid #c9cdd4;
+  border-radius: 4px;
+  outline: none;
+  background: #fff;
+  color: #1d2738;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.7;
+  letter-spacing: 0;
+  box-sizing: border-box;
+}
+
+.manual-copy-textarea:focus {
+  border-color: #165dff;
+  box-shadow: 0 0 0 2px rgba(22, 93, 255, 0.12);
+}
+
+.field-details-meta {
+  grid-template-columns: minmax(0, 2fr) minmax(120px, 1fr);
+}
+
+.record-fields-textarea {
+  min-height: 280px;
 }
 
 .export-field-head,

@@ -19,6 +19,7 @@ const {
   Progress,
   Select,
   Space,
+  Spin,
   Tag,
   Tabs,
   Typography,
@@ -419,7 +420,8 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
   const [recordsOpen, setRecordsOpen] = useState(false);
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [exportRecords, setExportRecords] = useState([]);
-  const [copyFeedback, setCopyFeedback] = useState(null);
+  const [fieldDetailsOpen, setFieldDetailsOpen] = useState(false);
+  const [fieldDetailsRecord, setFieldDetailsRecord] = useState(null);
   const [createOpen, setCreateOpen] = useState(
     () => Boolean(window.localStorage.getItem(BATCH_JOB_STORAGE_KEY)),
   );
@@ -428,6 +430,58 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
   );
   const [previewImage, setPreviewImage] = useState(null);
   const libraryScrollRef = useRef(null);
+  const exportPreviewFieldsRef = useRef(null);
+  const recordFieldsRef = useRef(null);
+  const libraryCacheRef = useRef(new Map());
+  const loadRequestRef = useRef(0);
+
+  function libraryCacheKey(query) {
+    return JSON.stringify([
+      query.month,
+      query.business,
+      query.fields.trim(),
+      query.customerName.trim(),
+      query.page,
+      query.pageSize,
+    ]);
+  }
+
+  async function requestLibrary(query, { force = false } = {}) {
+    const key = libraryCacheKey(query);
+    if (!force && libraryCacheRef.current.has(key)) {
+      return libraryCacheRef.current.get(key);
+    }
+    const next = await jsonFetch("/api/image-library/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        month: query.month,
+        business: query.business,
+        fields: query.fields,
+        customer_name: query.customerName,
+        page: query.page,
+        page_size: query.pageSize,
+      }),
+    });
+    if (libraryCacheRef.current.size >= 24) {
+      libraryCacheRef.current.delete(libraryCacheRef.current.keys().next().value);
+    }
+    libraryCacheRef.current.set(key, next);
+    return next;
+  }
+
+  function prefetchAdjacentPages(query, response) {
+    const pages = [query.page - 1, query.page + 1].filter(
+      (page) => page >= 1 && page <= response.pagination.total_pages,
+    );
+    if (!pages.length) return;
+    const schedule = window.requestIdleCallback || ((callback) => window.setTimeout(callback, 200));
+    schedule(() => {
+      pages.forEach((page) => {
+        requestLibrary({ ...query, page }).catch(() => undefined);
+      });
+    });
+  }
 
   async function load(overrides = {}) {
     const query = {
@@ -438,35 +492,37 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
       page: overrides.page ?? data.pagination?.page ?? 1,
       pageSize: overrides.pageSize ?? data.pagination?.page_size ?? 12,
     };
-    const params = new URLSearchParams();
-    if (query.month) params.set("month", query.month);
-    if (query.business) params.set("business", query.business);
-    if (query.fields.trim()) params.set("fields", query.fields.trim());
-    if (query.customerName.trim()) params.set("customer_name", query.customerName.trim());
-    params.set("page", String(query.page));
-    params.set("page_size", String(query.pageSize));
+    const requestId = ++loadRequestRef.current;
     setLoading(true);
     try {
-      const next = await jsonFetch(`/api/image-library?${params.toString()}`);
+      const next = await requestLibrary(query, { force: Boolean(overrides.force) });
+      if (requestId !== loadRequestRef.current) return null;
       setData(next);
       onMonthsChange?.(next.months || []);
       setQueriedFields(query.fields);
       setStatus(null);
+      prefetchAdjacentPages(query, next);
+      return next;
     } catch (error) {
-      setStatus({ type: "error", message: error.message });
+      if (requestId === loadRequestRef.current) {
+        setStatus({ type: "error", message: error.message });
+      }
+      return null;
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestRef.current) setLoading(false);
     }
   }
 
   function runSearch(overrides = {}) {
     setSelected(new Set());
-    return load({ ...overrides, page: 1 });
+    libraryCacheRef.current.clear();
+    return load({ ...overrides, page: 1, force: true });
   }
 
   useEffect(() => {
     setSelected(new Set());
-    load({ month: activeMonth || "", page: 1 });
+    libraryCacheRef.current.clear();
+    load({ month: activeMonth || "", page: 1, force: true });
   }, [activeMonth]);
 
   useEffect(() => {
@@ -571,26 +627,17 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
     await loadExportRecords();
   }
 
-  async function copyExportFields(fields) {
-    if (!fields?.length) return;
-    const text = fields.join("\n");
-    const feedbackId = Date.now();
-    try {
-      const copied = await copyText(text);
-      if (!copied) throw new Error("copy failed");
-      setCopyFeedback({ id: feedbackId, key: text, ok: true });
-    } catch {
-      setCopyFeedback({ id: feedbackId, key: text, ok: false });
-    }
-    window.setTimeout(() => {
-      setCopyFeedback((current) => (current?.id === feedbackId ? null : current));
-    }, 2000);
+  function selectAllFields(textareaRef) {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.focus();
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
   }
 
-  function copyExportLabel(fields) {
-    const key = fields?.join("\n") || "";
-    if (!key || copyFeedback?.key !== key) return "复制到 Excel";
-    return copyFeedback.ok ? "已复制" : "复制失败";
+  function openFieldDetails(record) {
+    setFieldDetailsRecord(record);
+    setFieldDetailsOpen(true);
   }
 
   function downloadExportRecord(record) {
@@ -605,9 +652,20 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
     setSelected(next);
   }
 
-  function changePage(page) {
-    libraryScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
-    load({ page });
+  async function changePage(page) {
+    if (loading || page === data.pagination.page) return;
+    const next = await load({ page });
+    if (!next) return;
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        libraryScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
+      });
+    });
+  }
+
+  function refreshLibrary() {
+    libraryCacheRef.current.clear();
+    return load({ force: true });
   }
 
   async function copyMissingFields() {
@@ -716,12 +774,13 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
           </Space>
         </div>
         <Status status={status} />
-        <div className="library-scroll-region" ref={libraryScrollRef}>
-          {!data.items?.length ? (
-            <EmptyBox text="没有查询到符合条件的图片" />
-          ) : (
-            <div className="library-list">
-              {data.items.map((group, groupIndex) => {
+        <div className="library-content-shell">
+          <div className="library-scroll-region" ref={libraryScrollRef}>
+            {!data.items?.length ? (
+              <EmptyBox text="没有查询到符合条件的图片" />
+            ) : (
+              <div className="library-list">
+                {data.items.map((group, groupIndex) => {
                 const selectedCount = group.images.filter((image) => selected.has(image.id)).length;
                 const allSelected = selectedCount === group.images.length && group.images.length > 0;
                 const indeterminate = selectedCount > 0 && !allSelected;
@@ -785,21 +844,28 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
                     </div>
                   </Card>
                 );
-              })}
-            </div>
-          )}
-          {data.pagination?.total_groups > 0 ? (
-            <div className="library-pagination">
-              <Text type="secondary">
-                共 {data.pagination.total_groups} 个终端，第 {data.pagination.page} / {data.pagination.total_pages} 页
-              </Text>
-              <Pagination
-                current={data.pagination.page}
-                pageSize={data.pagination.page_size}
-                total={data.pagination.total_groups}
-                size="small"
-                onChange={changePage}
-              />
+                })}
+              </div>
+            )}
+            {data.pagination?.total_groups > 0 ? (
+              <div className="library-pagination">
+                <Text type="secondary">
+                  共 {data.pagination.total_groups} 个终端，第 {data.pagination.page} / {data.pagination.total_pages} 页
+                </Text>
+                <Pagination
+                  current={data.pagination.page}
+                  pageSize={data.pagination.page_size}
+                  total={data.pagination.total_groups}
+                  size="small"
+                  disabled={loading}
+                  onChange={changePage}
+                />
+              </div>
+            ) : null}
+          </div>
+          {loading ? (
+            <div className="library-loading-mask" aria-label="正在加载分页数据">
+              <Spin size={32} />
             </div>
           ) : null}
         </div>
@@ -854,15 +920,16 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
             <Button
               size="small"
               disabled={!exportPreview?.fields?.length}
-              onClick={() => copyExportFields(exportPreview?.fields)}
+              onClick={() => selectAllFields(exportPreviewFieldsRef)}
             >
-              {copyExportLabel(exportPreview?.fields)}
+              全部选中
             </Button>
           </div>
-          <Input.TextArea
+          <textarea
+            ref={exportPreviewFieldsRef}
+            className="manual-copy-textarea"
             value={(exportPreview?.fields || []).join("\n")}
             placeholder={previewingExport ? "正在读取终端编码" : "暂无终端编码"}
-            autoSize={{ minRows: 4, maxRows: 8 }}
             readOnly
           />
         </div>
@@ -915,8 +982,12 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
                       <td>{record.field_count} 个</td>
                       <td>
                         <div className="record-fields-cell">
-                          <Button size="mini" onClick={() => copyExportFields(record.fields)}>
-                            {copyExportLabel(record.fields)}
+                          <Button
+                            size="mini"
+                            disabled={!record.fields?.length}
+                            onClick={() => openFieldDetails(record)}
+                          >
+                            查看终端编码
                           </Button>
                         </div>
                       </td>
@@ -954,6 +1025,45 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
       </Modal>
 
       <Modal
+        title="终端编码"
+        visible={fieldDetailsOpen}
+        footer={null}
+        onCancel={() => setFieldDetailsOpen(false)}
+        className="field-details-modal"
+        unmountOnExit
+      >
+        <div className="export-form">
+          <div className="export-meta-grid field-details-meta">
+            <div className="export-meta-item">
+              <Text type="secondary">导出说明</Text>
+              <strong>{fieldDetailsRecord?.description || "-"}</strong>
+            </div>
+            <div className="export-meta-item">
+              <Text type="secondary">终端数量</Text>
+              <strong>{fieldDetailsRecord?.field_count || 0} 个</strong>
+            </div>
+          </div>
+          <div className="export-field-head">
+            <label>终端编码</label>
+            <Button
+              size="small"
+              disabled={!fieldDetailsRecord?.fields?.length}
+              onClick={() => selectAllFields(recordFieldsRef)}
+            >
+              全部选中
+            </Button>
+          </div>
+          <textarea
+            ref={recordFieldsRef}
+            className="manual-copy-textarea record-fields-textarea"
+            value={(fieldDetailsRecord?.fields || []).join("\n")}
+            placeholder="暂无终端编码"
+            readOnly
+          />
+        </div>
+      </Modal>
+
+      <Modal
         title="新增"
         visible={createOpen}
         footer={null}
@@ -963,10 +1073,10 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
       >
         <Tabs defaultActiveTab={recoveringBatchJob ? "batch" : "single"}>
           <TabPane key="single" title="单链接提取">
-            <SingleExtract csrfToken={csrfToken} onRefreshResults={load} />
+            <SingleExtract csrfToken={csrfToken} onRefreshResults={refreshLibrary} />
           </TabPane>
           <TabPane key="batch" title="批量提取">
-            <BatchExtract csrfToken={csrfToken} onRefreshResults={load} />
+            <BatchExtract csrfToken={csrfToken} onRefreshResults={refreshLibrary} />
           </TabPane>
         </Tabs>
       </Modal>
