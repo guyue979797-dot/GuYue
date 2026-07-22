@@ -545,7 +545,41 @@ class WebSecurityTests(unittest.TestCase):
         self.assertEqual(data["field_count"], 1)
         self.assertEqual(data["image_count"], 1)
         self.assertEqual(data["missing_fields"], ["9999999999"])
-        image_id = data["items"][0]["images"][0]["id"]
+        self.assertEqual(data["pagination"]["page"], 1)
+        self.assertEqual(data["pagination"]["total_groups"], 1)
+        image_data = data["items"][0]["images"][0]
+        image_id = image_data["id"]
+        thumbnail = self.client.get(image_data["thumbnail_url"])
+        self.assertEqual(thumbnail.status_code, 200)
+        self.assertIn("private", thumbnail.headers["Cache-Control"])
+        self.assertIn("immutable", thumbnail.headers["Cache-Control"])
+        thumbnail.close()
+
+        with patch.object(self.web, "X_ACCEL_ENABLED", True):
+            accelerated_thumbnail = self.client.get(image_data["thumbnail_url"])
+            self.assertEqual(accelerated_thumbnail.status_code, 200)
+            self.assertTrue(
+                accelerated_thumbnail.headers["X-Accel-Redirect"].startswith(
+                    "/_protected_media/"
+                )
+            )
+            self.assertEqual(
+                accelerated_thumbnail.headers["X-Accel-Expires"],
+                str(self.web.IMAGE_CACHE_SECONDS),
+            )
+            self.assertEqual(accelerated_thumbnail.get_data(), b"")
+
+            accelerated_original = self.client.get(image_data["url"])
+            self.assertEqual(accelerated_original.status_code, 200)
+            self.assertTrue(
+                accelerated_original.headers["X-Accel-Redirect"].startswith(
+                    "/_protected_media/_image_library/"
+                )
+            )
+            self.assertIn("private", accelerated_original.headers["Cache-Control"])
+
+        bad_pagination = self.client.get("/api/image-library?page=invalid")
+        self.assertEqual(bad_pagination.status_code, 400)
 
         missing_csrf = self.client.post(
             "/api/image-library/export",

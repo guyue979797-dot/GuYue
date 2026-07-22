@@ -1,7 +1,7 @@
 import "./styles.css";
 
 const React = window.React;
-const { useEffect, useState } = React;
+const { useEffect, useRef, useState } = React;
 const { createRoot } = window.ReactDOMClient;
 const {
   Alert,
@@ -15,6 +15,7 @@ const {
   Layout,
   Message,
   Modal,
+  Pagination,
   Progress,
   Select,
   Space,
@@ -398,8 +399,17 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
     field_count: 0,
     image_count: 0,
     missing_fields: [],
+    pagination: {
+      page: 1,
+      page_size: 12,
+      total_groups: 0,
+      total_pages: 1,
+      has_previous: false,
+      has_next: false,
+    },
   });
   const [selected, setSelected] = useState(new Set());
+  const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState(null);
   const [exporting, setExporting] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -417,6 +427,7 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
     window.localStorage.getItem(BATCH_JOB_STORAGE_KEY),
   );
   const [previewImage, setPreviewImage] = useState(null);
+  const libraryScrollRef = useRef(null);
 
   async function load(overrides = {}) {
     const query = {
@@ -424,12 +435,17 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
       business: overrides.business ?? business,
       fields: overrides.fields ?? fields,
       customerName: overrides.customerName ?? customerName,
+      page: overrides.page ?? data.pagination?.page ?? 1,
+      pageSize: overrides.pageSize ?? data.pagination?.page_size ?? 12,
     };
     const params = new URLSearchParams();
     if (query.month) params.set("month", query.month);
     if (query.business) params.set("business", query.business);
     if (query.fields.trim()) params.set("fields", query.fields.trim());
     if (query.customerName.trim()) params.set("customer_name", query.customerName.trim());
+    params.set("page", String(query.page));
+    params.set("page_size", String(query.pageSize));
+    setLoading(true);
     try {
       const next = await jsonFetch(`/api/image-library?${params.toString()}`);
       setData(next);
@@ -438,11 +454,19 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
       setStatus(null);
     } catch (error) {
       setStatus({ type: "error", message: error.message });
+    } finally {
+      setLoading(false);
     }
   }
 
+  function runSearch(overrides = {}) {
+    setSelected(new Set());
+    return load({ ...overrides, page: 1 });
+  }
+
   useEffect(() => {
-    load({ month: activeMonth || "" });
+    setSelected(new Set());
+    load({ month: activeMonth || "", page: 1 });
   }, [activeMonth]);
 
   useEffect(() => {
@@ -581,6 +605,11 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
     setSelected(next);
   }
 
+  function changePage(page) {
+    libraryScrollRef.current?.scrollTo({ top: 0, behavior: "auto" });
+    load({ page });
+  }
+
   async function copyMissingFields() {
     if (!missingFields.length) return;
     try {
@@ -612,7 +641,7 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
               value={fields}
               onChange={setFields}
               placeholder="批量终端编码"
-              onPressEnter={() => load()}
+              onPressEnter={() => runSearch()}
             />
             <Select
               placeholder="客户名字"
@@ -633,7 +662,7 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
               ))}
             </Select>
             <div className="filter-actions">
-              <Button type="primary" onClick={() => load()}>
+              <Button type="primary" loading={loading} onClick={() => runSearch()}>
                 查询
               </Button>
               <Button
@@ -641,8 +670,7 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
                   setBusiness("");
                   setFields("");
                   setCustomerName("");
-                  setSelected(new Set());
-                  load({ business: "", fields: "", customerName: "" });
+                  runSearch({ business: "", fields: "", customerName: "" });
                 }}
               >
                 清空
@@ -676,8 +704,9 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
       <Card bordered className="crm-operation-module">
         <div className="operation-toolbar">
           <Space wrap>
-            <Button onClick={selectCurrentPage}>全选当前结果</Button>
+            <Button onClick={selectCurrentPage}>全选本页</Button>
             <Button onClick={() => setSelected(new Set())}>取消选择</Button>
+            <Text type="secondary">已选择 {selected.size} 张</Text>
           </Space>
           <Space wrap>
             <Button onClick={openExportRecords}>导出记录</Button>
@@ -687,72 +716,93 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
           </Space>
         </div>
         <Status status={status} />
-        {!data.items?.length ? (
-          <EmptyBox text="没有查询到符合条件的图片" />
-        ) : (
-          <div className="library-list">
-            {data.items.map((group) => {
-              const selectedCount = group.images.filter((image) => selected.has(image.id)).length;
-              const allSelected = selectedCount === group.images.length && group.images.length > 0;
-              const indeterminate = selectedCount > 0 && !allSelected;
-              return (
-                <Card
-                  key={`${group.month}-${group.field}-${group.business}-${group.customer_name}`}
-                  bordered
-                  className="terminal-card"
-                  title={
-                    <FieldSummary
-                      fields={[
-                        { label: "终端编码", value: group.field },
-                        { label: "客户名字", value: group.customer_name },
-                        { label: "业务", value: group.business },
-                        { label: "数量", value: `${group.images.length} 张` },
-                      ]}
-                    />
-                  }
-                  extra={
-                    <Checkbox
-                      checked={allSelected}
-                      indeterminate={indeterminate}
-                      onChange={(checked) => setGroupSelected(group, checked)}
-                    >
-                      全选
-                    </Checkbox>
-                  }
-                >
-                  <div className="responsive-image-grid library-grid">
-                    {group.images.map((image) => {
-                      const isSelected = selected.has(image.id);
-                      return (
-                        <div key={image.id}>
-                          <Card
-                            bordered
-                            className={isSelected ? "image-card selected" : "image-card"}
-                            bodyStyle={{ padding: 0 }}
-                          >
-                            <Image
-                              src={image.url}
-                              width="100%"
-                              height="100%"
-                              fit="contain"
-                              preview={false}
-                              onClick={() => setPreviewImage(image)}
-                            />
-                            <div className="image-actions">
-                              <Button type={isSelected ? "primary" : "secondary"} long onClick={() => toggleImage(image.id)}>
-                                {isSelected ? "已选中" : "选择"}
-                              </Button>
-                            </div>
-                          </Card>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
-        )}
+        <div className="library-scroll-region" ref={libraryScrollRef}>
+          {!data.items?.length ? (
+            <EmptyBox text="没有查询到符合条件的图片" />
+          ) : (
+            <div className="library-list">
+              {data.items.map((group, groupIndex) => {
+                const selectedCount = group.images.filter((image) => selected.has(image.id)).length;
+                const allSelected = selectedCount === group.images.length && group.images.length > 0;
+                const indeterminate = selectedCount > 0 && !allSelected;
+                const terminalIndex =
+                  (data.pagination.page - 1) * data.pagination.page_size + groupIndex + 1;
+                return (
+                  <Card
+                    key={`${group.month}-${group.field}-${group.business}-${group.customer_name}`}
+                    bordered
+                    className="terminal-card"
+                    title={
+                      <FieldSummary
+                        fields={[
+                          { label: "序号", value: String(terminalIndex) },
+                          { label: "终端编码", value: group.field },
+                          { label: "客户名字", value: group.customer_name },
+                          { label: "业务", value: group.business },
+                          { label: "数量", value: `${group.images.length} 张` },
+                        ]}
+                      />
+                    }
+                    extra={
+                      <Checkbox
+                        checked={allSelected}
+                        indeterminate={indeterminate}
+                        onChange={(checked) => setGroupSelected(group, checked)}
+                      >
+                        全选
+                      </Checkbox>
+                    }
+                  >
+                    <div className="responsive-image-grid library-grid">
+                      {group.images.map((image) => {
+                        const isSelected = selected.has(image.id);
+                        return (
+                          <div key={image.id}>
+                            <Card
+                              bordered
+                              className={isSelected ? "image-card selected" : "image-card"}
+                              bodyStyle={{ padding: 0 }}
+                            >
+                              <Image
+                                src={image.thumbnail_url || image.url}
+                                width="100%"
+                                height="100%"
+                                fit="contain"
+                                loading="lazy"
+                                lazyload
+                                preview={false}
+                                onClick={() => setPreviewImage(image)}
+                              />
+                              <div className="image-actions">
+                                <Button type={isSelected ? "primary" : "secondary"} long onClick={() => toggleImage(image.id)}>
+                                  {isSelected ? "已选中" : "选择"}
+                                </Button>
+                              </div>
+                            </Card>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
+          {data.pagination?.total_groups > 0 ? (
+            <div className="library-pagination">
+              <Text type="secondary">
+                共 {data.pagination.total_groups} 个终端，第 {data.pagination.page} / {data.pagination.total_pages} 页
+              </Text>
+              <Pagination
+                current={data.pagination.page}
+                pageSize={data.pagination.page_size}
+                total={data.pagination.total_groups}
+                size="small"
+                onChange={changePage}
+              />
+            </div>
+          ) : null}
+        </div>
       </Card>
 
       <Modal
@@ -1294,7 +1344,7 @@ function App() {
               </Space>
             </div>
           </Header>
-          <Content className="app-content">
+          <Content className={activePage === "users" ? "app-content" : "app-content library-content"}>
             {activePage === "users" ? (
               <UserManagement csrfToken={session.csrf_token} />
             ) : (

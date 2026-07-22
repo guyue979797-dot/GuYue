@@ -13,6 +13,7 @@ from __future__ import annotations
 import hmac
 import io
 import json
+import mimetypes
 import os
 import queue
 import re
@@ -31,6 +32,7 @@ from openpyxl import load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
 from flask import (
     Flask,
+    Response,
     abort,
     jsonify,
     redirect,
@@ -92,6 +94,18 @@ MAX_BATCH_LINKS = int(os.environ.get("INFOLENS_MAX_BATCH_LINKS", "500"))
 BATCH_CHUNK_SIZE = max(1, int(os.environ.get("INFOLENS_BATCH_CHUNK_SIZE", "50")))
 BATCH_LINK_ATTEMPTS = max(1, int(os.environ.get("INFOLENS_BATCH_LINK_ATTEMPTS", "3")))
 MAX_UPLOAD_BYTES = int(os.environ.get("INFOLENS_MAX_UPLOAD_BYTES", str(4 * 1024 * 1024)))
+IMAGE_LIBRARY_PAGE_SIZE = max(
+    1,
+    min(50, int(os.environ.get("INFOLENS_IMAGE_LIBRARY_PAGE_SIZE", "12"))),
+)
+IMAGE_CACHE_SECONDS = 30 * 24 * 60 * 60
+X_ACCEL_ENABLED = os.environ.get("INFOLENS_X_ACCEL_ENABLED", "false").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+X_ACCEL_PREFIX = "/_protected_media"
 WECOM_BOT_ENABLED = os.environ.get("WECOM_BOT_ENABLED", "false").strip().lower() in {
     "1",
     "true",
@@ -1025,6 +1039,70 @@ def _parse_field_lines(value: str) -> list[str]:
     return fields
 
 
+def _parse_pagination(page_value, page_size_value) -> tuple[int, int]:
+    try:
+        page = int(page_value or 1)
+        page_size = int(page_size_value or IMAGE_LIBRARY_PAGE_SIZE)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("分页参数必须是整数") from exc
+    if page < 1 or page_size < 1:
+        raise ValueError("分页参数必须大于 0")
+    return page, min(page_size, 50)
+
+
+def _private_image_cache(response):
+    response.cache_control.public = False
+    response.cache_control.private = True
+    response.cache_control.max_age = IMAGE_CACHE_SECONDS
+    response.cache_control.immutable = True
+    return response
+
+
+def _serve_output_file(
+    path: Path,
+    *,
+    cache: bool = False,
+    as_attachment: bool = False,
+    download_name: str | None = None,
+    mimetype: str | None = None,
+):
+    resolved = path.resolve()
+    try:
+        relative = resolved.relative_to(OUTPUT_ROOT)
+    except ValueError:
+        abort(404)
+    if not resolved.is_file():
+        abort(404)
+
+    guessed_type = mimetype or mimetypes.guess_type(resolved.name)[0]
+    if X_ACCEL_ENABLED:
+        response = Response(status=200, mimetype=guessed_type or "application/octet-stream")
+        encoded_path = "/".join(
+            urllib.parse.quote(part, safe="") for part in relative.parts
+        )
+        response.headers["X-Accel-Redirect"] = f"{X_ACCEL_PREFIX}/{encoded_path}"
+        response.headers["X-Accel-Expires"] = (
+            str(IMAGE_CACHE_SECONDS) if cache else "0"
+        )
+        if as_attachment:
+            safe_download_name = download_name or resolved.name
+            response.headers.set(
+                "Content-Disposition",
+                "attachment",
+                filename=safe_download_name,
+            )
+    else:
+        response = send_file(
+            resolved,
+            conditional=True,
+            max_age=IMAGE_CACHE_SECONDS if cache else None,
+            as_attachment=as_attachment,
+            download_name=download_name,
+            mimetype=guessed_type,
+        )
+    return _private_image_cache(response) if cache else response
+
+
 def _valid_export_images(image_ids: list[str]) -> list[tuple[LibraryImage, Path]]:
     images = IMAGE_LIBRARY.get_images(image_ids)
     valid_images: list[tuple[LibraryImage, Path]] = []
@@ -1204,7 +1282,11 @@ def create_app() -> Flask:
             "base-uri 'none'; "
             "form-action 'self'"
         )
-        response.headers["Cache-Control"] = "no-store"
+        if not (
+            response.cache_control.private
+            and response.cache_control.max_age == IMAGE_CACHE_SECONDS
+        ):
+            response.headers["Cache-Control"] = "no-store"
         return response
 
     @application.get("/healthz")
@@ -1514,6 +1596,13 @@ def create_app() -> Flask:
         business = request.args.get("business", "").strip()
         customer_name = request.args.get("customer_name", "").strip()
         fields = _parse_field_lines(request.args.get("fields", ""))
+        try:
+            page, page_size = _parse_pagination(
+                request.args.get("page"),
+                request.args.get("page_size"),
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
         return jsonify(
             {
                 **IMAGE_LIBRARY.query(
@@ -1521,6 +1610,8 @@ def create_app() -> Flask:
                     month=month,
                     business=business,
                     customer_name=customer_name,
+                    page=page,
+                    page_size=page_size,
                 ),
                 "months": IMAGE_LIBRARY.months(),
                 "businesses": IMAGE_LIBRARY.businesses(),
@@ -1541,6 +1632,13 @@ def create_app() -> Flask:
             ]
         else:
             fields = _parse_field_lines(str(raw_fields))
+        try:
+            page, page_size = _parse_pagination(
+                payload.get("page"),
+                payload.get("page_size"),
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
         return jsonify(
             {
                 **IMAGE_LIBRARY.query(
@@ -1548,12 +1646,22 @@ def create_app() -> Flask:
                     month=str(payload.get("month") or "").strip(),
                     business=str(payload.get("business") or "").strip(),
                     customer_name=str(payload.get("customer_name") or "").strip(),
+                    page=page,
+                    page_size=page_size,
                 ),
                 "months": IMAGE_LIBRARY.months(),
                 "businesses": IMAGE_LIBRARY.businesses(),
                 "customer_names": IMAGE_LIBRARY.customer_names(),
             }
         )
+
+    @application.get("/api/image-library/images/<image_id>/thumbnail")
+    @_login_required
+    def image_library_thumbnail(image_id: str):
+        thumbnail = IMAGE_LIBRARY.thumbnail_for(image_id)
+        if thumbnail is None:
+            abort(404)
+        return _serve_output_file(thumbnail, cache=True)
 
     @application.post("/api/image-library/export-preview")
     @_login_required
@@ -1623,9 +1731,17 @@ def create_app() -> Flask:
     @application.get("/output/<path:relative_path>")
     @_login_required
     def output_file(relative_path: str):
-        if Path(relative_path).parts[:1] in {("_system",), ("_image_exports",)}:
+        first_part = Path(relative_path).parts[:1]
+        if first_part in {
+            ("_system",),
+            ("_image_exports",),
+            ("_image_thumbnails",),
+        }:
             abort(404)
-        return send_from_directory(OUTPUT_ROOT, relative_path)
+        return _serve_output_file(
+            OUTPUT_ROOT / relative_path,
+            cache=first_part == ("_image_library",),
+        )
 
     @application.post("/api/extract")
     @_login_required

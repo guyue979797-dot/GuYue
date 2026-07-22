@@ -8,6 +8,7 @@ services:
     environment:
       INFOLENS_ENV: production
       INFOLENS_OUTPUT_ROOT: /data/output
+      INFOLENS_X_ACCEL_ENABLED: "true"
     expose:
       - "8000"
     volumes:
@@ -22,6 +23,29 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    expose:
+      - "8080"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - infolens_output:/data/output:ro
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - -q
+        - --spider
+        - http://127.0.0.1:8080/healthz
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   wecom-bot:
     build:
@@ -40,11 +64,31 @@ services:
     volumes:
       - infolens_output:/data/output
 
+  maintenance:
+    build:
+      context: .
+    profiles:
+      - maintenance
+    env_file:
+      - .env
+    environment:
+      INFOLENS_OUTPUT_ROOT: /data/output
+      INFOLENS_BACKUP_ROOT: /data/backups
+    entrypoint:
+      - python
+      - -m
+      - infolens.maintenance
+    command:
+      - thumbnails
+    volumes:
+      - infolens_output:/data/output
+      - infolens_backups:/data/backups
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
     depends_on:
-      app:
+      nginx:
         condition: service_healthy
     environment:
       INFOLENS_DOMAIN: ${INFOLENS_DOMAIN}
@@ -59,5 +103,6 @@ services:
 
 volumes:
   infolens_output:
+  infolens_backups:
   caddy_data:
   caddy_config:

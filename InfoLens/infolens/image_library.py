@@ -13,7 +13,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from PIL import Image, ImageOps, UnidentifiedImageError
+
 from infolens.extractor import ExtractResult, SavedImage, photoid_name_field
+
+
+THUMBNAIL_SIZE = (480, 640)
+THUMBNAIL_QUALITY = 76
 
 
 def _safe_name(value: str) -> str:
@@ -73,8 +79,10 @@ class ImageLibraryStore:
         self.database_path = Path(database_path)
         self.output_root = Path(output_root)
         self.library_root = self.output_root / "_image_library"
+        self.thumbnail_root = self.output_root / "_image_thumbnails"
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self.library_root.mkdir(parents=True, exist_ok=True)
+        self.thumbnail_root.mkdir(parents=True, exist_ok=True)
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
@@ -126,12 +134,118 @@ class ImageLibraryStore:
             )
             connection.execute(
                 """
+                CREATE INDEX IF NOT EXISTS idx_extracted_images_library_query
+                ON extracted_images(
+                    deleted_at, month, business, field, customer_name,
+                    created_at, id
+                )
+                """
+            )
+            connection.execute(
+                """
                 CREATE TABLE IF NOT EXISTS image_library_metadata (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL DEFAULT ''
                 )
                 """
             )
+
+    def _thumbnail_path(self, month: str, image_id: str) -> Path:
+        return self.thumbnail_root / month / f"{image_id}.webp"
+
+    def _source_path(self, image: LibraryImage) -> Path | None:
+        source = Path(image.file_path)
+        if not source.is_absolute():
+            source = self.output_root / source
+        source = source.resolve()
+        try:
+            source.relative_to(self.output_root.resolve())
+        except ValueError:
+            return None
+        return source if source.is_file() else None
+
+    @staticmethod
+    def _build_thumbnail(source: Path, target: Path) -> bool:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_name(f".{target.stem}.{secrets.token_hex(4)}.tmp")
+        try:
+            with Image.open(source) as opened:
+                prepared = ImageOps.exif_transpose(opened)
+                if prepared.mode in {"RGBA", "LA"} or (
+                    prepared.mode == "P" and "transparency" in prepared.info
+                ):
+                    rgba = prepared.convert("RGBA")
+                    background = Image.new("RGB", rgba.size, "white")
+                    background.paste(rgba, mask=rgba.getchannel("A"))
+                    prepared = background
+                elif prepared.mode != "RGB":
+                    prepared = prepared.convert("RGB")
+                prepared.thumbnail(THUMBNAIL_SIZE, Image.Resampling.LANCZOS)
+                prepared.save(
+                    temporary,
+                    format="WEBP",
+                    quality=THUMBNAIL_QUALITY,
+                    method=4,
+                )
+            temporary.replace(target)
+            return True
+        except (OSError, ValueError, UnidentifiedImageError):
+            temporary.unlink(missing_ok=True)
+            return False
+
+    def thumbnail_for(self, image_id: str) -> Path | None:
+        image = self.get_image(image_id)
+        if image is None:
+            return None
+        source = self._source_path(image)
+        if source is None:
+            return None
+        thumbnail = self._thumbnail_path(image.month, image.id)
+        if thumbnail.is_file() and thumbnail.stat().st_mtime >= source.stat().st_mtime:
+            return thumbnail
+        return thumbnail if self._build_thumbnail(source, thumbnail) else source
+
+    def ensure_thumbnails(self, *, limit: int = 0) -> dict[str, int]:
+        """补全缺失或过期缩略图，供服务器定时维护任务调用。"""
+        normalized_limit = max(int(limit), 0)
+        sql = """
+            SELECT * FROM extracted_images
+            WHERE deleted_at = ''
+            ORDER BY created_at, id
+        """
+        params: tuple[int, ...] = ()
+        if normalized_limit:
+            sql += " LIMIT ?"
+            params = (normalized_limit,)
+        with self._connect() as connection:
+            rows = connection.execute(sql, params).fetchall()
+
+        stats = {
+            "scanned": 0,
+            "current": 0,
+            "generated": 0,
+            "missing_source": 0,
+            "failed": 0,
+        }
+        for row in rows:
+            stats["scanned"] += 1
+            image = self._row_to_image(row)
+            source = self._source_path(image)
+            if source is None:
+                stats["missing_source"] += 1
+                continue
+            thumbnail = self._thumbnail_path(image.month, image.id)
+            if (
+                thumbnail.is_file()
+                and thumbnail.stat().st_mtime >= source.stat().st_mtime
+            ):
+                stats["current"] += 1
+                continue
+            if self._build_thumbnail(source, thumbnail):
+                stats["generated"] += 1
+            else:
+                stats["failed"] += 1
+        return stats
 
     def add_result(
         self,
@@ -147,6 +261,7 @@ class ImageLibraryStore:
         if not month:
             raise ValueError("无法识别 visit_in_time，图片未入库，避免按提取时间错误归类")
         added = 0
+        pending_thumbnails: list[tuple[Path, Path]] = []
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             for image in result.images:
@@ -211,8 +326,13 @@ class ImageLibraryStore:
                         timestamp,
                     ),
                 )
+                pending_thumbnails.append(
+                    (target, self._thumbnail_path(month, image_id))
+                )
                 added += 1
             connection.execute("COMMIT")
+        for source, thumbnail in pending_thumbnails:
+            self._build_thumbnail(source, thumbnail)
         return added
 
     def import_existing_outputs(self) -> int:
@@ -274,6 +394,8 @@ class ImageLibraryStore:
         month: str = "",
         business: str = "",
         customer_name: str = "",
+        page: int = 1,
+        page_size: int = 12,
     ) -> dict[str, Any]:
         conditions = ["deleted_at = ''"]
         params: list[Any] = []
@@ -296,12 +418,64 @@ class ImageLibraryStore:
             conditions.append("customer_name LIKE ?")
             params.append(f"%{customer_name}%")
         where = " AND ".join(conditions)
+        normalized_page_size = min(max(int(page_size), 1), 50)
         with self._connect() as connection:
+            summary = connection.execute(
+                f"""
+                SELECT
+                    COUNT(*) AS image_count,
+                    COUNT(DISTINCT field) AS field_count
+                FROM extracted_images
+                WHERE {where}
+                """,
+                params,
+            ).fetchone()
+            total_groups = int(
+                connection.execute(
+                    f"""
+                    SELECT COUNT(*) AS count FROM (
+                        SELECT 1 FROM extracted_images
+                        WHERE {where}
+                        GROUP BY month, field, business, customer_name
+                    )
+                    """,
+                    params,
+                ).fetchone()["count"]
+            )
+            total_pages = max(
+                1,
+                (total_groups + normalized_page_size - 1)
+                // normalized_page_size,
+            )
+            normalized_page = min(max(int(page), 1), total_pages)
+            offset = (normalized_page - 1) * normalized_page_size
             rows = connection.execute(
                 f"""
-                SELECT * FROM extracted_images
+                WITH selected_groups AS (
+                    SELECT month, field, business, customer_name
+                    FROM extracted_images
+                    WHERE {where}
+                    GROUP BY month, field, business, customer_name
+                    ORDER BY month DESC, field, customer_name, business
+                    LIMIT ? OFFSET ?
+                )
+                SELECT image.* FROM extracted_images AS image
+                JOIN selected_groups AS selected
+                  ON image.month = selected.month
+                 AND image.field = selected.field
+                 AND image.business = selected.business
+                 AND image.customer_name = selected.customer_name
+                WHERE image.deleted_at = ''
+                ORDER BY image.month DESC, image.field, image.customer_name,
+                         image.business, image.created_at, image.id
+                """,
+                [*params, normalized_page_size, offset],
+            ).fetchall()
+            matched_rows = connection.execute(
+                f"""
+                SELECT DISTINCT field FROM extracted_images
                 WHERE {where}
-                ORDER BY month DESC, field, customer_name, business, created_at, id
+                ORDER BY field
                 """,
                 params,
             ).fetchall()
@@ -326,16 +500,25 @@ class ImageLibraryStore:
             )
             group["images"].append(self._public_image(image))
 
-        matched_fields = sorted({image.field for image in images})
+        matched_fields = [row["field"] for row in matched_rows]
         requested = sorted(set(normalized_fields))
         return {
             "items": list(groups.values()),
-            "image_count": len(images),
-            "field_count": len(matched_fields),
+            "image_count": int(summary["image_count"] or 0),
+            "page_image_count": len(images),
+            "field_count": int(summary["field_count"] or 0),
             "matched_fields": matched_fields,
             "missing_fields": [
                 field for field in requested if field not in matched_fields
             ],
+            "pagination": {
+                "page": normalized_page,
+                "page_size": normalized_page_size,
+                "total_groups": total_groups,
+                "total_pages": total_pages,
+                "has_previous": normalized_page > 1,
+                "has_next": normalized_page < total_pages,
+            },
         }
 
     def months(self) -> list[str]:
@@ -387,6 +570,20 @@ class ImageLibraryStore:
             ).fetchall()
         return [self._row_to_image(row) for row in rows]
 
+    def get_image(self, image_id: str) -> LibraryImage | None:
+        normalized = image_id.strip()
+        if not normalized:
+            return None
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM extracted_images
+                WHERE deleted_at = '' AND id = ?
+                """,
+                (normalized,),
+            ).fetchone()
+        return self._row_to_image(row) if row is not None else None
+
     def _public_image(self, image: LibraryImage) -> dict[str, Any]:
         return {
             "id": image.id,
@@ -396,6 +593,7 @@ class ImageLibraryStore:
             "month": image.month,
             "filename": image.filename,
             "size_bytes": image.size_bytes,
+            "thumbnail_url": f"/api/image-library/images/{image.id}/thumbnail",
             "url": "/output/" + "/".join(
                 urllib.parse.quote(part) for part in image.file_path.split("/")
             ),
