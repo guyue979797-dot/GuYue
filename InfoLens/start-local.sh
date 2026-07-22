@@ -27,4 +27,11 @@ if [[ -z "${INFOLENS_CRM_SECRET_KEY:-}" ]]; then
 fi
 
 export INFOLENS_AUTH_MODE="${INFOLENS_AUTH_MODE:-off}"
-exec "${PYTHON_BIN:-python3}" web.py
+if [[ -n "${PYTHON_BIN:-}" ]]; then
+  RUNTIME="$PYTHON_BIN"
+elif [[ -x .venv/bin/python ]]; then
+  RUNTIME=".venv/bin/python"
+else
+  RUNTIME="python3"
+fi
+exec "$RUNTIME" web.py
