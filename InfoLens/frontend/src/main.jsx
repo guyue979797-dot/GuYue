@@ -55,6 +55,43 @@ function downloadFile(url, filename) {
   link.remove();
 }
 
+function legacyCopyText(text) {
+  const textarea = document.createElement("textarea");
+  const activeElement = document.activeElement;
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } finally {
+    textarea.remove();
+    activeElement?.focus?.();
+  }
+  return copied;
+}
+
+async function copyText(text) {
+  if (!text) return false;
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (_error) {
+      // HTTP deployments and restricted browser permissions require the fallback below.
+    }
+  }
+  return legacyCopyText(text);
+}
+
 function formatDateTime(value) {
   if (!value) return "-";
   const date = new Date(value);
@@ -372,6 +409,7 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
   const [recordsOpen, setRecordsOpen] = useState(false);
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [exportRecords, setExportRecords] = useState([]);
+  const [copyFeedback, setCopyFeedback] = useState(null);
   const [createOpen, setCreateOpen] = useState(
     () => Boolean(window.localStorage.getItem(BATCH_JOB_STORAGE_KEY)),
   );
@@ -511,12 +549,24 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
 
   async function copyExportFields(fields) {
     if (!fields?.length) return;
+    const text = fields.join("\n");
+    const feedbackId = Date.now();
     try {
-      await navigator.clipboard.writeText(fields.join("\n"));
-      Message.success(`已复制 ${fields.length} 个终端编码`);
+      const copied = await copyText(text);
+      if (!copied) throw new Error("copy failed");
+      setCopyFeedback({ id: feedbackId, key: text, ok: true });
     } catch {
-      Message.error("复制失败，请检查浏览器剪贴板权限");
+      setCopyFeedback({ id: feedbackId, key: text, ok: false });
     }
+    window.setTimeout(() => {
+      setCopyFeedback((current) => (current?.id === feedbackId ? null : current));
+    }, 2000);
+  }
+
+  function copyExportLabel(fields) {
+    const key = fields?.join("\n") || "";
+    if (!key || copyFeedback?.key !== key) return "复制到 Excel";
+    return copyFeedback.ok ? "已复制" : "复制失败";
   }
 
   function downloadExportRecord(record) {
@@ -534,10 +584,11 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
   async function copyMissingFields() {
     if (!missingFields.length) return;
     try {
-      await navigator.clipboard.writeText(missingFields.join("\n"));
-      Message.success("已复制全部未找到终端编码");
+      const copied = await copyText(missingFields.join("\n"));
+      if (!copied) throw new Error("copy failed");
+      setStatus({ type: "success", message: "已复制全部未找到终端编码" });
     } catch {
-      Message.error("复制失败，请手动选择标签内容");
+      setStatus({ type: "error", message: "复制失败，请手动选择标签内容" });
     }
   }
 
@@ -755,7 +806,7 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
               disabled={!exportPreview?.fields?.length}
               onClick={() => copyExportFields(exportPreview?.fields)}
             >
-              复制到 Excel
+              {copyExportLabel(exportPreview?.fields)}
             </Button>
           </div>
           <Input.TextArea
@@ -815,7 +866,7 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
                       <td>
                         <div className="record-fields-cell">
                           <Button size="mini" onClick={() => copyExportFields(record.fields)}>
-                            复制到 Excel
+                            {copyExportLabel(record.fields)}
                           </Button>
                         </div>
                       </td>
