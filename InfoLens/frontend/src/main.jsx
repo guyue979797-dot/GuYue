@@ -410,6 +410,8 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
     },
   });
   const [selected, setSelected] = useState(new Set());
+  const [selectedImageFields, setSelectedImageFields] = useState(new Map());
+  const [missingFieldsCollapsed, setMissingFieldsCollapsed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState(null);
   const [exporting, setExporting] = useState(false);
@@ -422,6 +424,11 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
   const [exportRecords, setExportRecords] = useState([]);
   const [fieldDetailsOpen, setFieldDetailsOpen] = useState(false);
   const [fieldDetailsRecord, setFieldDetailsRecord] = useState(null);
+  const [extractionRecordsOpen, setExtractionRecordsOpen] = useState(false);
+  const [extractionRecordsLoading, setExtractionRecordsLoading] = useState(false);
+  const [extractionRecords, setExtractionRecords] = useState([]);
+  const [extractionErrorOpen, setExtractionErrorOpen] = useState(false);
+  const [extractionError, setExtractionError] = useState("");
   const [createOpen, setCreateOpen] = useState(
     () => Boolean(window.localStorage.getItem(BATCH_JOB_STORAGE_KEY)),
   );
@@ -515,12 +522,16 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
 
   function runSearch(overrides = {}) {
     setSelected(new Set());
+    setSelectedImageFields(new Map());
+    setMissingFieldsCollapsed(false);
     libraryCacheRef.current.clear();
     return load({ ...overrides, page: 1, force: true });
   }
 
   useEffect(() => {
     setSelected(new Set());
+    setSelectedImageFields(new Map());
+    setMissingFieldsCollapsed(false);
     libraryCacheRef.current.clear();
     load({ month: activeMonth || "", page: 1, force: true });
   }, [activeMonth]);
@@ -534,11 +545,17 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [previewImage]);
 
-  function toggleImage(imageId) {
+  function toggleImage(image, field) {
     setSelected((current) => {
       const next = new Set(current);
-      if (next.has(imageId)) next.delete(imageId);
-      else next.add(imageId);
+      if (next.has(image.id)) next.delete(image.id);
+      else next.add(image.id);
+      return next;
+    });
+    setSelectedImageFields((current) => {
+      const next = new Map(current);
+      if (next.has(image.id)) next.delete(image.id);
+      else next.set(image.id, field);
       return next;
     });
   }
@@ -548,6 +565,14 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
       const next = new Set(current);
       group.images.forEach((image) => {
         if (checked) next.add(image.id);
+        else next.delete(image.id);
+      });
+      return next;
+    });
+    setSelectedImageFields((current) => {
+      const next = new Map(current);
+      group.images.forEach((image) => {
+        if (checked) next.set(image.id, group.field);
         else next.delete(image.id);
       });
       return next;
@@ -627,6 +652,28 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
     await loadExportRecords();
   }
 
+  async function loadExtractionRecords() {
+    setExtractionRecordsLoading(true);
+    try {
+      const result = await jsonFetch("/api/extraction-records");
+      setExtractionRecords(result.items || []);
+    } catch (error) {
+      Message.error(error.message);
+    } finally {
+      setExtractionRecordsLoading(false);
+    }
+  }
+
+  async function openExtractionRecords() {
+    setExtractionRecordsOpen(true);
+    await loadExtractionRecords();
+  }
+
+  function openExtractionError(message) {
+    setExtractionError(message || "");
+    setExtractionErrorOpen(true);
+  }
+
   function selectAllFields(textareaRef) {
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -650,6 +697,11 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
     const next = new Set(selected);
     (data.items || []).forEach((group) => group.images.forEach((image) => next.add(image.id)));
     setSelected(next);
+    const nextImageFields = new Map(selectedImageFields);
+    (data.items || []).forEach((group) => {
+      group.images.forEach((image) => nextImageFields.set(image.id, group.field));
+    });
+    setSelectedImageFields(nextImageFields);
   }
 
   async function changePage(page) {
@@ -668,6 +720,11 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
     return load({ force: true });
   }
 
+  async function refreshAfterExtraction() {
+    await refreshLibrary();
+    if (extractionRecordsOpen) await loadExtractionRecords();
+  }
+
   async function copyMissingFields() {
     if (!missingFields.length) return;
     try {
@@ -682,6 +739,7 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
   const hasFieldQuery = Boolean(queriedFields.trim());
   const missingFields = hasFieldQuery ? data.missing_fields || [] : [];
   const shouldShowMissingFields = missingFields.length > 0;
+  const selectedTerminalCount = new Set(selectedImageFields.values()).size;
 
   return (
     <div className="crm-page">
@@ -733,27 +791,41 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
               >
                 清空
               </Button>
-              <Button className="add-button" onClick={() => setCreateOpen(true)}>
-                新增
-              </Button>
             </div>
           </div>
           {shouldShowMissingFields ? (
             <div className="query-result-panel">
-              <div className="query-result-row">
-                <Text type="secondary">未找到</Text>
-                <Text bold>{missingFields.length} 家</Text>
-                <div className="query-tags">
+              <div className="query-result-head">
+                <div className="query-result-summary">
+                  <Text type="secondary">未找到</Text>
+                  <Text bold>{missingFields.length} 家</Text>
+                </div>
+                <Space size={8}>
+                  <Button size="small" type="secondary" onClick={copyMissingFields}>
+                    复制全部
+                  </Button>
+                  <Button
+                    size="small"
+                    type="text"
+                    aria-expanded={!missingFieldsCollapsed}
+                    onClick={() => setMissingFieldsCollapsed((value) => !value)}
+                  >
+                    {missingFieldsCollapsed ? "展开" : "收起"}
+                    <span className="collapse-indicator" aria-hidden="true">
+                      {missingFieldsCollapsed ? "⌄" : "⌃"}
+                    </span>
+                  </Button>
+                </Space>
+              </div>
+              {!missingFieldsCollapsed ? (
+                <div className="query-tags query-result-tags">
                   {missingFields.map((field) => (
                     <Tag key={field} color="orangered">
                       {field}
                     </Tag>
                   ))}
                 </div>
-                <Button size="small" type="secondary" onClick={copyMissingFields}>
-                  复制全部
-                </Button>
-              </div>
+              ) : null}
             </div>
           ) : null}
         </Card>
@@ -763,15 +835,31 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
         <div className="operation-toolbar">
           <Space wrap>
             <Button onClick={selectCurrentPage}>全选本页</Button>
-            <Button onClick={() => setSelected(new Set())}>取消选择</Button>
-            <Text type="secondary">已选择 {selected.size} 张</Text>
-          </Space>
-          <Space wrap>
-            <Button onClick={openExportRecords}>导出记录</Button>
-            <Button type="primary" disabled={!selected.size} onClick={openExport}>
-              导出选中照片{selected.size ? `（${selected.size}）` : ""}
+            <Button
+              onClick={() => {
+                setSelected(new Set());
+                setSelectedImageFields(new Map());
+              }}
+            >
+              取消选择
             </Button>
+            <Text type="secondary">已选择 {selected.size} 张</Text>
+            <Text type="secondary">已选择终端 {selectedTerminalCount} 家</Text>
           </Space>
+          <div className="business-action-groups">
+            <div className="business-action-group">
+              <Button className="add-button" onClick={() => setCreateOpen(true)}>
+                新增
+              </Button>
+              <Button onClick={openExtractionRecords}>新增记录</Button>
+            </div>
+            <div className="business-action-group">
+              <Button type="primary" disabled={!selected.size} onClick={openExport}>
+                导出选中照片{selected.size ? `（${selected.size}）` : ""}
+              </Button>
+              <Button onClick={openExportRecords}>导出记录</Button>
+            </div>
+          </div>
         </div>
         <Status status={status} />
         <div className="library-content-shell">
@@ -833,7 +921,11 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
                                 onClick={() => setPreviewImage(image)}
                               />
                               <div className="image-actions">
-                                <Button type={isSelected ? "primary" : "secondary"} long onClick={() => toggleImage(image.id)}>
+                                <Button
+                                  type={isSelected ? "primary" : "secondary"}
+                                  long
+                                  onClick={() => toggleImage(image, group.field)}
+                                >
                                   {isSelected ? "已选中" : "选择"}
                                 </Button>
                               </div>
@@ -1025,6 +1117,109 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
       </Modal>
 
       <Modal
+        title="新增记录"
+        visible={extractionRecordsOpen}
+        footer={null}
+        onCancel={() => setExtractionRecordsOpen(false)}
+        className="extraction-records-modal"
+        unmountOnExit
+      >
+        <div className="export-record-toolbar">
+          <Text type="secondary">记录保留30天，报错信息所有用户可查看</Text>
+          <Button
+            size="small"
+            loading={extractionRecordsLoading}
+            onClick={loadExtractionRecords}
+          >
+            刷新
+          </Button>
+        </div>
+        {extractionRecords.length ? (
+          <div className="export-record-table-wrap">
+            <table className="export-record-table extraction-record-table">
+              <thead>
+                <tr>
+                  <th>时间</th>
+                  <th>操作人</th>
+                  <th>方式</th>
+                  <th>状态</th>
+                  <th>照片数量</th>
+                  <th>终端数量</th>
+                  <th>报错信息</th>
+                </tr>
+              </thead>
+              <tbody>
+                {extractionRecords.map((record) => {
+                  const methodLabel =
+                    record.method === "batch" ? "批量提取" : "单链接提取";
+                  const statusMap = {
+                    processing: { label: "处理中", color: "blue" },
+                    success: { label: "成功", color: "green" },
+                    partial_success: { label: "部分成功", color: "orange" },
+                    failed: { label: "失败", color: "red" },
+                  };
+                  const currentStatus =
+                    statusMap[record.status] || {
+                      label: record.status || "-",
+                      color: "gray",
+                    };
+                  return (
+                    <tr key={record.id}>
+                      <td>{formatDateTime(record.created_at)}</td>
+                      <td>
+                        {record.owner_display_name ||
+                          record.owner_username ||
+                          "-"}
+                      </td>
+                      <td>{methodLabel}</td>
+                      <td>
+                        <Tag color={currentStatus.color}>
+                          {currentStatus.label}
+                        </Tag>
+                      </td>
+                      <td>{record.image_count} 张</td>
+                      <td>{record.terminal_count} 个</td>
+                      <td>
+                        {record.error_information ? (
+                          <Button
+                            size="mini"
+                            onClick={() =>
+                              openExtractionError(record.error_information)
+                            }
+                          >
+                            查看报错
+                          </Button>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <EmptyBox
+            text={extractionRecordsLoading ? "正在读取新增记录" : "暂无新增记录"}
+          />
+        )}
+      </Modal>
+
+      <Modal
+        title="报错信息"
+        visible={extractionErrorOpen}
+        footer={null}
+        onCancel={() => setExtractionErrorOpen(false)}
+        className="extraction-error-modal"
+        unmountOnExit
+      >
+        <pre className="extraction-error-content">
+          {extractionError || "暂无报错信息"}
+        </pre>
+      </Modal>
+
+      <Modal
         title="终端编码"
         visible={fieldDetailsOpen}
         footer={null}
@@ -1073,10 +1268,16 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
       >
         <Tabs defaultActiveTab={recoveringBatchJob ? "batch" : "single"}>
           <TabPane key="single" title="单链接提取">
-            <SingleExtract csrfToken={csrfToken} onRefreshResults={refreshLibrary} />
+            <SingleExtract
+              csrfToken={csrfToken}
+              onRefreshResults={refreshAfterExtraction}
+            />
           </TabPane>
           <TabPane key="batch" title="批量提取">
-            <BatchExtract csrfToken={csrfToken} onRefreshResults={refreshLibrary} />
+            <BatchExtract
+              csrfToken={csrfToken}
+              onRefreshResults={refreshAfterExtraction}
+            />
           </TabPane>
         </Tabs>
       </Modal>
@@ -1378,7 +1579,7 @@ function App() {
   return (
     <ConfigProvider>
       <Layout className="app-shell">
-        <Sider className={collapsed ? "app-sider collapsed" : "app-sider"} width={244}>
+        <Sider className={collapsed ? "app-sider collapsed" : "app-sider"} width={220}>
           <div className="sider-brand">
             <BrandMark />
             {!collapsed ? (

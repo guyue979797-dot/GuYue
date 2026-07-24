@@ -48,6 +48,7 @@ from werkzeug.security import generate_password_hash
 
 from infolens.crm_client import CrmApiError
 from infolens.distribution import DistributionStore
+from infolens.extraction_records import ExtractionRecordStore
 from infolens.export_records import (
     ExportArchiveMissingError,
     ExportExpiredError,
@@ -128,6 +129,53 @@ EXPORT_RECORD_STORE = ExportRecordStore(
     OUTPUT_ROOT / "_system" / "export_records.sqlite3",
     OUTPUT_ROOT,
 )
+EXTRACTION_RECORD_STORE = ExtractionRecordStore(
+    OUTPUT_ROOT / "_system" / "extraction_records.sqlite3"
+)
+
+
+def _safe_record_error(message: str, *, max_length: int = 4000) -> str:
+    text = re.sub(r"https?://\S+", "[链接已隐藏]", str(message or ""))
+    text = re.sub(
+        r"(?i)(token|access_token|authorization|cookie)=([^\s&]+)",
+        r"\1=[已隐藏]",
+        text,
+    )
+    text = " ".join(text.split()) if "\n" not in text else "\n".join(
+        " ".join(line.split()) for line in text.splitlines() if line.strip()
+    )
+    return text[:max_length]
+
+
+def _record_owner() -> tuple[str, str]:
+    username = _current_user() or ""
+    display_name = str(session.get("display_name") or username)
+    return username, display_name
+
+
+def _complete_extraction_record(
+    application: Flask,
+    record_id: str,
+    *,
+    status: str,
+    image_count: int = 0,
+    terminal_count: int = 0,
+    error_information: str = "",
+) -> None:
+    try:
+        EXTRACTION_RECORD_STORE.complete_record(
+            record_id,
+            status=status,
+            image_count=image_count,
+            terminal_count=terminal_count,
+            error_information=_safe_record_error(error_information),
+        )
+    except ValueError as exc:
+        if str(exc) == "新增记录不存在":
+            return
+        application.logger.exception("更新新增记录失败：%s", record_id)
+    except Exception:
+        application.logger.exception("更新新增记录失败：%s", record_id)
 
 
 def _require_production_config() -> None:
@@ -429,13 +477,15 @@ def _register_batch_job(job_id: str, job: dict) -> None:
 
 def _extract_batch_record(row_number: int, link: str) -> dict:
     result = extract_images(link, OUTPUT_ROOT)
-    IMAGE_LIBRARY.add_result(result, source_url=link)
+    added_image_count = IMAGE_LIBRARY.add_result(result, source_url=link)
     images: list[dict] = []
+    fields: set[str] = set()
     for image in result.images:
         try:
             field = photoid_name_field(image.photoid)
         except ValueError:
             continue
+        fields.add(field)
         images.append(
             {
                 "field": field,
@@ -447,7 +497,31 @@ def _extract_batch_record(row_number: int, link: str) -> dict:
         "terminal_name": result.terminal_name,
         "partner_name": result.partner_name,
         "images": images,
+        "added_image_count": added_image_count,
+        "added_fields": sorted(fields) if added_image_count else [],
     }
+
+
+def _batch_record_metrics(records: list[dict]) -> tuple[int, int]:
+    image_count = sum(int(record.get("added_image_count", 0)) for record in records)
+    fields = {
+        str(field)
+        for record in records
+        for field in record.get("added_fields", [])
+        if str(field)
+    }
+    return image_count, len(fields)
+
+
+def _batch_error_information(job: dict) -> str:
+    messages = [
+        f"第 {item.get('row', '-')} 行：{item.get('error', '处理失败')}"
+        for item in job.get("errors", [])
+    ]
+    invalid_count = int(job.get("invalid_count", 0))
+    if invalid_count:
+        messages.insert(0, f"无效链接 {invalid_count} 条")
+    return "\n".join(messages)
 
 
 def _run_batch_job_chunk(application: Flask, job_id: str) -> bool:
@@ -552,9 +626,40 @@ def _run_batch_job_chunk(application: Flask, job_id: str) -> bool:
             processed=total,
             result=result,
         )
+        record_image_count, record_terminal_count = _batch_record_metrics(
+            list(finished_job.get("completed_records", []))
+        )
+        has_errors = bool(finished_job.get("errors")) or int(
+            finished_job.get("invalid_count", 0)
+        ) > 0
+        _complete_extraction_record(
+            application,
+            str(finished_job.get("record_id") or job_id),
+            status="partial_success" if has_errors else "success",
+            image_count=record_image_count,
+            terminal_count=record_terminal_count,
+            error_information=_batch_error_information(finished_job),
+        )
         return False
     except ValueError as exc:
         _update_batch_job(job_id, status="failed", error=str(exc))
+        with BATCH_JOBS_LOCK:
+            failed_job = dict(BATCH_JOBS.get(job_id) or job)
+        record_image_count, record_terminal_count = _batch_record_metrics(
+            list(failed_job.get("completed_records", []))
+        )
+        _complete_extraction_record(
+            application,
+            str(failed_job.get("record_id") or job_id),
+            status="failed",
+            image_count=record_image_count,
+            terminal_count=record_terminal_count,
+            error_information="\n".join(
+                item
+                for item in (_batch_error_information(failed_job), str(exc))
+                if item
+            ),
+        )
         return False
     except Exception:
         application.logger.exception("批量提取图片失败")
@@ -562,6 +667,19 @@ def _run_batch_job_chunk(application: Flask, job_id: str) -> bool:
             job_id,
             status="failed",
             error="批量提取失败，请联系管理员查看服务日志",
+        )
+        with BATCH_JOBS_LOCK:
+            failed_job = dict(BATCH_JOBS.get(job_id) or job)
+        record_image_count, record_terminal_count = _batch_record_metrics(
+            list(failed_job.get("completed_records", []))
+        )
+        _complete_extraction_record(
+            application,
+            str(failed_job.get("record_id") or job_id),
+            status="failed",
+            image_count=record_image_count,
+            terminal_count=record_terminal_count,
+            error_information="批量提取失败，请联系管理员查看服务日志",
         )
         return False
 
@@ -1219,6 +1337,7 @@ def create_app() -> Flask:
     _require_production_config()
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
     EXPORT_RECORD_STORE.expire_records()
+    EXTRACTION_RECORD_STORE.prune_expired()
     _ensure_super_admin()
     if os.environ.get("INFOLENS_DISTRIBUTION_IMPORT_EXISTING", "").lower() in {
         "1",
@@ -1711,6 +1830,11 @@ def create_app() -> Flask:
     def list_export_records():
         return jsonify({"items": EXPORT_RECORD_STORE.list_records()})
 
+    @application.get("/api/extraction-records")
+    @_login_required
+    def list_extraction_records():
+        return jsonify({"items": EXTRACTION_RECORD_STORE.list_records()})
+
     @application.get("/api/export-records/<record_id>/download")
     @_login_required
     def download_export_record(record_id: str):
@@ -1755,16 +1879,52 @@ def create_app() -> Flask:
         if len(url) > 4096:
             return jsonify({"error": "链接过长"}), 400
 
+        record_id = secrets.token_hex(16)
+        owner_username, owner_display_name = _record_owner()
+        EXTRACTION_RECORD_STORE.start_record(
+            record_id=record_id,
+            owner_username=owner_username,
+            owner_display_name=owner_display_name,
+            method="single_link",
+        )
         try:
             with EXTRACT_LOCK:
                 result = extract_images(url, OUTPUT_ROOT)
-                IMAGE_LIBRARY.add_result(result, source_url=url)
+                added_image_count = IMAGE_LIBRARY.add_result(result, source_url=url)
         except (ValueError, CrmApiError) as exc:
+            _complete_extraction_record(
+                application,
+                record_id,
+                status="failed",
+                error_information=str(exc),
+            )
             return jsonify({"error": str(exc)}), 400
         except Exception:
             application.logger.exception("提取图片失败")
+            _complete_extraction_record(
+                application,
+                record_id,
+                status="failed",
+                error_information="提取失败，请联系管理员查看服务日志",
+            )
             return jsonify({"error": "提取失败，请联系管理员查看服务日志"}), 500
-        return jsonify(_serialize_result(result))
+        terminal_fields: set[str] = set()
+        for image in result.images:
+            try:
+                terminal_fields.add(photoid_name_field(image.photoid))
+            except ValueError:
+                continue
+        _complete_extraction_record(
+            application,
+            record_id,
+            status="success",
+            image_count=added_image_count,
+            terminal_count=len(terminal_fields) if added_image_count else 0,
+        )
+        response = _serialize_result(result)
+        response["record_id"] = record_id
+        response["added_image_count"] = added_image_count
+        return jsonify(response)
 
     @application.post("/api/batch-extract")
     @_login_required
@@ -1777,22 +1937,42 @@ def create_app() -> Flask:
         if Path(upload.filename).suffix.lower() != ".xlsx":
             return jsonify({"error": "仅支持 .xlsx 格式的 Excel 文件"}), 400
 
+        job_id = secrets.token_urlsafe(18)
+        owner_username, owner_display_name = _record_owner()
+        EXTRACTION_RECORD_STORE.start_record(
+            record_id=job_id,
+            owner_username=owner_username,
+            owner_display_name=owner_display_name,
+            method="batch",
+        )
         try:
             links, input_stats = _parse_excel_links(upload.stream)
         except ValueError as exc:
+            _complete_extraction_record(
+                application,
+                job_id,
+                status="failed",
+                error_information=str(exc),
+            )
             return jsonify({"error": str(exc)}), 400
         except Exception:
             application.logger.exception("批量提取图片失败")
+            _complete_extraction_record(
+                application,
+                job_id,
+                status="failed",
+                error_information="批量提取失败，请联系管理员查看服务日志",
+            )
             return jsonify({"error": "批量提取失败，请联系管理员查看服务日志"}), 500
 
         _prune_batch_jobs()
-        job_id = secrets.token_urlsafe(18)
         now = time.time()
         chunk_count = max(1, (len(links) + BATCH_CHUNK_SIZE - 1) // BATCH_CHUNK_SIZE)
         _register_batch_job(
             job_id,
             {
                 "owner": _current_user(),
+                "record_id": job_id,
                 "status": "queued",
                 "processed": 0,
                 "total": len(links),

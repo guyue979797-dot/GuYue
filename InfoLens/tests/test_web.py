@@ -49,6 +49,7 @@ class WebSecurityTests(unittest.TestCase):
         self.assertEqual(self.client.get("/").status_code, 302)
         self.assertEqual(self.client.get("/api/results").status_code, 401)
         self.assertEqual(self.client.get("/api/distributions").status_code, 401)
+        self.assertEqual(self.client.get("/api/extraction-records").status_code, 401)
         self.assertEqual(self.client.delete("/api/distributions").status_code, 401)
         self.assertEqual(self.client.post("/api/batch-extract").status_code, 401)
         self.assertEqual(
@@ -144,6 +145,78 @@ class WebSecurityTests(unittest.TestCase):
         )
         self.assertEqual(deleted.status_code, 200)
 
+    def test_single_extract_creates_success_and_failure_records(self):
+        with self.client.session_transaction() as current_session:
+            current_session["user"] = "team"
+            current_session["display_name"] = "测试管理员"
+            current_session["csrf_token"] = "test-token"
+
+        output_dir = Path(self.output.name) / "单链接终端"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        image_path = output_dir / "1000000001_单链接终端_业务员_01.jpg"
+        image_path.write_bytes(b"image")
+        result = ExtractResult(
+            visit_id="SINGLE-VISIT-1",
+            terminal_name="单链接终端",
+            partner_name="业务员",
+            output_dir=str(output_dir),
+            images=[
+                SavedImage(
+                    index=1,
+                    photoid=(
+                        "private/TCOS/Z0019/O50002488/20260710/"
+                        "1000000001/source.jpeg"
+                    ),
+                    filename=image_path.name,
+                    url="",
+                    size_bytes=5,
+                )
+            ],
+            metadata_file=str(output_dir / "metadata.json"),
+            visit_in_time="1783660800000",
+        )
+        with patch.object(
+            self.web,
+            "extract_images",
+            return_value=result,
+        ), patch.object(
+            self.web.IMAGE_LIBRARY,
+            "add_result",
+            return_value=1,
+        ):
+            response = self.client.post(
+                "/api/extract",
+                json={"url": "https://crm.example/visit?id=1"},
+                headers={"X-CSRF-Token": "test-token"},
+            )
+        self.assertEqual(response.status_code, 200)
+        success = self.client.get("/api/extraction-records").get_json()["items"][0]
+        self.assertEqual(success["owner_display_name"], "测试管理员")
+        self.assertEqual(success["method"], "single_link")
+        self.assertEqual(success["status"], "success")
+        self.assertEqual(success["image_count"], 1)
+        self.assertEqual(success["terminal_count"], 1)
+
+        with patch.object(
+            self.web,
+            "extract_images",
+            side_effect=self.web.CrmApiError(
+                "接口失败 https://crm.example/visit?token=secret"
+            ),
+        ):
+            failed_response = self.client.post(
+                "/api/extract",
+                json={"url": "https://crm.example/visit?id=2"},
+                headers={"X-CSRF-Token": "test-token"},
+            )
+        self.assertEqual(failed_response.status_code, 400)
+        failed = self.client.get("/api/extraction-records").get_json()["items"][0]
+        self.assertEqual(failed["status"], "failed")
+        self.assertEqual(failed["image_count"], 0)
+        self.assertEqual(failed["terminal_count"], 0)
+        self.assertNotIn("secret", failed["error_information"])
+        self.assertIn("[链接已隐藏]", failed["error_information"])
+
     def test_user_management_requires_admin_role(self):
         with self.client.session_transaction() as current_session:
             current_session["user"] = "worker"
@@ -214,7 +287,11 @@ class WebSecurityTests(unittest.TestCase):
             self.web,
             "extract_images",
             side_effect=fake_extract,
-        ) as extract_images:
+        ) as extract_images, patch.object(
+            self.web.IMAGE_LIBRARY,
+            "add_result",
+            side_effect=[1, 0, 1],
+        ):
             response = self.client.post(
                 "/api/batch-extract",
                 data={"file": (excel, "links.xlsx")},
@@ -291,6 +368,14 @@ class WebSecurityTests(unittest.TestCase):
         checkpoint_data = json.loads(checkpoint.read_text(encoding="utf-8"))
         self.assertEqual(checkpoint_data["status"], "completed")
         self.assertEqual(checkpoint_data["processed"], 3)
+        extraction_record = self.client.get("/api/extraction-records").get_json()[
+            "items"
+        ][0]
+        self.assertEqual(extraction_record["method"], "batch")
+        self.assertEqual(extraction_record["status"], "partial_success")
+        self.assertEqual(extraction_record["image_count"], 2)
+        self.assertEqual(extraction_record["terminal_count"], 2)
+        self.assertIn("无效链接 1 条", extraction_record["error_information"])
 
     def test_batch_excel_accepts_500_links_and_rejects_501(self):
         def build_excel(count):
@@ -388,6 +473,9 @@ class WebSecurityTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("字段名为“链接”", response.get_json()["error"])
+        record = self.client.get("/api/extraction-records").get_json()["items"][0]
+        self.assertEqual(record["status"], "failed")
+        self.assertIn("字段名为“链接”", record["error_information"])
 
     def test_distribution_summary_and_business_archive(self):
         output_dir = (

@@ -42,17 +42,17 @@ body {
 
 .sider-brand {
   height: 72px;
-  padding: 0 18px;
+  padding: 0 14px;
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   border-bottom: 1px solid #eef1f6;
 }
 
 .brand-mark {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -63,8 +63,8 @@ body {
 }
 
 .brand-mark svg {
-  width: 35px;
-  height: 35px;
+  width: 32px;
+  height: 32px;
 }
 
 .brand-mark .mark-bg {
@@ -254,7 +254,7 @@ body {
 
 .header-inner {
   height: 72px;
-  padding: 0 28px;
+  padding: 0 20px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -275,18 +275,18 @@ body {
   width: 100%;
   height: calc(100vh - 72px);
   overflow: auto;
-  padding: 24px 28px 48px;
+  padding: 12px 16px 24px;
   box-sizing: border-box;
 }
 
 .library-content {
   overflow: hidden;
-  padding-bottom: 24px;
+  padding-bottom: 16px;
 }
 
 .crm-page {
   display: grid;
-  gap: 16px;
+  gap: 10px;
   width: 100%;
   min-width: 0;
 }
@@ -448,18 +448,35 @@ body {
 
 .query-result-panel {
   display: grid;
-  gap: 10px;
-  margin-top: 14px;
-  padding-top: 14px;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
   border-top: 1px solid #eef1f6;
 }
 
-.query-result-row {
-  display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto;
-  gap: 10px;
-  align-items: start;
+.query-result-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   min-height: 24px;
+}
+
+.query-result-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.query-result-tags {
+  padding-right: 4px;
+}
+
+.collapse-indicator {
+  margin-left: 5px;
+  font-size: 16px;
+  line-height: 1;
 }
 
 .query-tags {
@@ -478,6 +495,24 @@ body {
   gap: 16px;
   align-items: center;
   margin-bottom: 16px;
+}
+
+.business-action-groups,
+.business-action-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.business-action-groups {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.business-action-group + .business-action-group {
+  margin-left: 6px;
+  padding-left: 14px;
+  border-left: 1px solid #e5e8ef;
 }
 
 .library-content-shell {
@@ -526,19 +561,31 @@ body {
 
 .export-modal .arco-modal-header,
 .export-records-modal .arco-modal-header,
-.field-details-modal .arco-modal-header {
+.field-details-modal .arco-modal-header,
+.extraction-records-modal .arco-modal-header,
+.extraction-error-modal .arco-modal-header {
   text-align: left;
 }
 
 .export-modal .arco-modal-title,
 .export-records-modal .arco-modal-title,
-.field-details-modal .arco-modal-title {
+.field-details-modal .arco-modal-title,
+.extraction-records-modal .arco-modal-title,
+.extraction-error-modal .arco-modal-title {
   justify-content: flex-start;
   text-align: left;
 }
 
 .export-records-modal {
   width: min(1080px, calc(100vw - 40px)) !important;
+}
+
+.extraction-records-modal {
+  width: min(1040px, calc(100vw - 40px)) !important;
+}
+
+.extraction-error-modal {
+  width: min(620px, calc(100vw - 32px)) !important;
 }
 
 .field-details-modal {
@@ -619,6 +666,28 @@ body {
 
 .record-fields-textarea {
   min-height: 280px;
+}
+
+.extraction-record-table {
+  min-width: 860px;
+}
+
+.extraction-error-content {
+  max-height: min(420px, 55vh);
+  margin: 0;
+  padding: 14px;
+  overflow: auto;
+  border: 1px solid #e5e8ef;
+  border-left: 3px solid #f53f3f;
+  border-radius: 4px;
+  background: #fafbfc;
+  color: #1d2738;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.65;
+  letter-spacing: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .export-field-head,
@@ -1137,6 +1206,11 @@ body {
     flex-direction: column;
   }
 
+  .business-action-groups {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
   .responsive-image-grid,
   .library-grid {
     grid-template-columns: repeat(auto-fill, 240px);
@@ -1187,17 +1261,16 @@ body {
     align-items: stretch;
   }
 
-  .query-result-row {
-    grid-template-columns: auto auto;
+  .query-result-head {
+    align-items: flex-start;
   }
 
-  .query-tags {
-    grid-column: 1 / -1;
+  .query-result-head > .arco-space {
+    flex: 0 0 auto;
   }
 
-  .query-result-row > .arco-btn {
-    grid-column: 1 / -1;
-    width: 100%;
+  .query-result-tags {
+    padding-right: 0;
   }
 
   .filter-actions .arco-btn,
@@ -1211,6 +1284,27 @@ body {
 
   .operation-toolbar > .arco-space .arco-btn {
     flex: 1 1 auto;
+  }
+
+  .business-action-groups {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .business-action-group {
+    width: 100%;
+  }
+
+  .business-action-group + .business-action-group {
+    margin-left: 0;
+    padding-top: 8px;
+    padding-left: 0;
+    border-top: 1px solid #e5e8ef;
+    border-left: 0;
+  }
+
+  .business-action-group .arco-btn {
+    flex: 1 1 0;
   }
 
   .library-pagination {
