@@ -6,17 +6,13 @@ import tempfile
 import time
 import unittest
 import zipfile
-from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from werkzeug.security import generate_password_hash
 
 from infolens.extractor import ExtractResult, SavedImage
-from infolens.export_records import parse_utc_iso
-
-
 class WebSecurityTests(unittest.TestCase):
     def setUp(self):
         self.output = tempfile.TemporaryDirectory()
@@ -144,6 +140,262 @@ class WebSecurityTests(unittest.TestCase):
             headers={"X-CSRF-Token": csrf_token},
         )
         self.assertEqual(deleted.status_code, 200)
+
+    def test_customer_crud_union_query_import_and_permissions(self):
+        self.client.post(
+            "/login",
+            data={"username": "team", "password": "correct horse"},
+        )
+        session_data = self.client.get("/api/session").get_json()
+        csrf_token = session_data["csrf_token"]
+        base = {
+            "status": "运营",
+            "route": "一号线路",
+            "salesperson": "黄春梅",
+            "snow_salesperson": "陈家利",
+            "contact": "",
+            "address": "",
+            "phone": "",
+            "remark": "",
+        }
+        first = self.client.post(
+            "/api/customers",
+            json={
+                **base,
+                "terminal_code": "1000000001",
+                "customer_name": "甲客户",
+            },
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        self.assertEqual(first.status_code, 201)
+        first_data = first.get_json()
+        second = self.client.post(
+            "/api/customers",
+            json={
+                **base,
+                "terminal_code": "1000000002",
+                "customer_name": "乙客户",
+                "route": "二号线路",
+                "salesperson": "罗伟",
+            },
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        self.assertEqual(second.status_code, 201)
+
+        union = self.client.get(
+            "/api/customers?terminal_code=1000000001&salesperson=罗伟"
+        ).get_json()
+        self.assertEqual(union["total"], 2)
+        route_filtered = self.client.get(
+            "/api/customers?route=二号线路"
+        ).get_json()
+        self.assertEqual(route_filtered["total"], 1)
+        self.assertEqual(
+            route_filtered["items"][0]["terminal_code"],
+            "1000000002",
+        )
+        options = self.client.get("/api/customers/options").get_json()
+        self.assertEqual(options["routes"], ["一号线路", "二号线路"])
+        updated = self.client.patch(
+            f"/api/customers/{first_data['id']}",
+            json={
+                **base,
+                "terminal_code": "1000000001",
+                "customer_name": "甲客户（修改）",
+                "version": first_data["version"],
+            },
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        self.assertEqual(updated.status_code, 200)
+        logs = self.client.get(
+            f"/api/customers/{first_data['id']}/logs"
+        ).get_json()["items"]
+        self.assertEqual([item["action_type"] for item in logs], ["update", "create"])
+
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.append(
+            [
+                "终端编码",
+                "客户全名",
+                "状态",
+                "线路归属",
+                "业务员",
+                "雪花业务员",
+                "客户联系人",
+                "客户地址",
+                "客户手机",
+                "备注",
+            ]
+        )
+        worksheet.append(
+            ["1000000003", "丙客户", "", "二号线路", "韦春云", "陈俊杰", "", "", "", ""]
+        )
+        worksheet.append(
+            ["1000000004", "错误客户", "运营", "二号线路", "名单外", "陈俊杰", "", "", "", ""]
+        )
+        worksheet.append(
+            ["1000000003", "重复客户", "运营", "二号线路", "韦春云", "陈俊杰", "", "", "", ""]
+        )
+        excel = io.BytesIO()
+        workbook.save(excel)
+        excel.seek(0)
+        imported = self.client.post(
+            "/api/customers/import",
+            data={"file": (excel, "customers.xlsx")},
+            headers={"X-CSRF-Token": csrf_token},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(imported.status_code, 200)
+        imported_data = imported.get_json()
+        self.assertEqual(imported_data["success_count"], 1)
+        self.assertEqual(imported_data["failed_count"], 2)
+        report = self.client.get(imported_data["error_report_url"])
+        self.assertEqual(report.status_code, 200)
+
+        with self.client.session_transaction() as current_session:
+            current_session["role"] = "user"
+        forbidden_delete = self.client.delete(
+            f"/api/customers/{first_data['id']}",
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        self.assertEqual(forbidden_delete.status_code, 403)
+        forbidden_import = self.client.post(
+            "/api/customers/import",
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        self.assertEqual(forbidden_import.status_code, 403)
+
+    def test_regular_user_can_preview_and_import_snow_outbound(self):
+        self.client.post(
+            "/login",
+            data={"username": "team", "password": "correct horse"},
+        )
+        session_data = self.client.get("/api/session").get_json()
+        csrf_token = session_data["csrf_token"]
+        with self.client.session_transaction() as current_session:
+            current_session["role"] = "user"
+
+        policy = self.client.post(
+            "/api/snow-outbound/policies",
+            json={
+                "name": "旺季套餐",
+                "outbound_code": "PLX260001001939",
+                "explanation": "旺季套餐陈列政策",
+                "requires_photo": True,
+                "set_limit": 10,
+                "month_target": 30,
+                "year": 2026,
+                "month": 7,
+                "conditions": [
+                    {
+                        "field": "outbound_remark",
+                        "operator": "contains",
+                        "value": "PLX260001001939",
+                    }
+                ],
+            },
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        self.assertEqual(policy.status_code, 201)
+        policy_data = policy.get_json()
+        self.assertEqual(policy_data["display_name"], "7月-旺季套餐")
+        self.assertEqual(policy_data["month_target"], 30)
+        forbidden_delete = self.client.delete(
+            f"/api/snow-outbound/policies/{policy_data['id']}",
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        self.assertEqual(forbidden_delete.status_code, 403)
+
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.append(
+            [
+                "票号",
+                "开票日期",
+                "业务员",
+                "对象编码",
+                "对象名称",
+                "地址",
+                "电话号码",
+                "折合箱数",
+                "售卖类型",
+                "出库单备注",
+            ]
+        )
+        worksheet.append(
+            [
+                "XH-1",
+                "2026-07-20",
+                "陈俊杰",
+                "1000000099",
+                "自动创建客户",
+                "测试地址",
+                "13800000099",
+                8,
+                "正常",
+                "前缀PLX260001001939后缀",
+            ]
+        )
+        excel = io.BytesIO()
+        workbook.save(excel)
+        excel.seek(0)
+        preview = self.client.post(
+            "/api/snow-outbound/preview",
+            data={
+                "file": (excel, "snow-outbound.xlsx"),
+                "update_policy": "true",
+            },
+            headers={"X-CSRF-Token": csrf_token},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(preview.status_code, 200)
+        preview_data = preview.get_json()
+        self.assertEqual(preview_data["auto_customer_count"], 1)
+        self.assertEqual(preview_data["tag_count"], 1)
+
+        imported = self.client.post(
+            "/api/snow-outbound/import",
+            json={"preview_id": preview_data["preview_id"]},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        self.assertEqual(imported.status_code, 200)
+        self.assertEqual(imported.get_json()["auto_customer_count"], 1)
+
+        customer_data = self.client.get(
+            "/api/customers?terminal_code=1000000099&policy_month=2026-07"
+        ).get_json()
+        self.assertEqual(customer_data["total"], 1)
+        customer = customer_data["items"][0]
+        self.assertEqual(customer["salesperson"], "")
+        self.assertEqual(customer["snow_salesperson"], "陈俊杰")
+        self.assertEqual(customer["remark"], "由系统创建")
+        self.assertEqual(customer["policy_tags"], ["7月-旺季套餐"])
+        self.assertEqual(
+            customer["policy_tag_details"][0]["policy_id"],
+            policy_data["id"],
+        )
+        policy_options = self.client.get(
+            "/api/customers/policy-options?month=2026-07"
+        )
+        self.assertEqual(policy_options.status_code, 200)
+        self.assertIn(
+            "7月-旺季套餐",
+            policy_options.get_json()["items"],
+        )
+        filtered_customers = self.client.get(
+            "/api/customers?policy_month=2026-07"
+            "&policy_tag=7月-旺季套餐"
+        ).get_json()
+        self.assertEqual(filtered_customers["total"], 1)
+        self.assertEqual(
+            filtered_customers["items"][0]["terminal_code"],
+            "1000000099",
+        )
+        empty_policy_filter = self.client.get(
+            "/api/customers?policy_month=2026-07&policy_tag=不存在"
+        ).get_json()
+        self.assertEqual(empty_policy_filter["total"], 0)
 
     def test_single_extract_creates_success_and_failure_records(self):
         with self.client.session_transaction() as current_session:
@@ -590,7 +842,7 @@ class WebSecurityTests(unittest.TestCase):
             [],
         )
 
-    def test_image_library_search_delete_and_export(self):
+    def test_image_library_search_archive_and_policy_export(self):
         output_dir = Path(self.output.name) / "测试终端_VISITLIB"
         output_dir.mkdir(parents=True)
         photoid = (
@@ -669,81 +921,348 @@ class WebSecurityTests(unittest.TestCase):
         bad_pagination = self.client.get("/api/image-library?page=invalid")
         self.assertEqual(bad_pagination.status_code, 400)
 
+        policy = self.web.SNOW_OUTBOUND_STORE.create_policy(
+            {
+                "name": "测试陈列",
+                "outbound_code": "PLX260000000001",
+                "explanation": "测试照片归档",
+                "requires_photo": True,
+                "set_limit": 1,
+                "month_target": 2,
+                "year": 2026,
+                "month": 6,
+                "conditions": [
+                    {
+                        "field": "outbound_remark",
+                        "operator": "equals",
+                        "value": "PLX260000000001",
+                    }
+                ],
+            },
+            operator="team",
+            operator_name="测试用户",
+        )
+        customer_payload = {
+            "status": "运营",
+            "route": "",
+            "salesperson": "",
+            "snow_salesperson": "",
+            "contact": "",
+            "address": "",
+            "phone": "",
+            "remark": "",
+        }
+        self.web.CUSTOMER_STORE.create_customer(
+            {
+                **customer_payload,
+                "terminal_code": "1023275022",
+                "customer_name": "测试终端",
+            },
+            operator="team",
+            operator_name="测试用户",
+        )
+        self.web.CUSTOMER_STORE.create_customer(
+            {
+                **customer_payload,
+                "terminal_code": "1023275023",
+                "customer_name": "缺失终端",
+                "salesperson": "韦春云",
+            },
+            operator="team",
+            operator_name="测试用户",
+        )
+        with self.web.SNOW_OUTBOUND_STORE._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO snow_outbound_imports (
+                    id, filename, operator, operator_name, rules_json,
+                    months_json, row_count, ticket_count, terminal_count,
+                    tag_count, auto_customer_count, created_at
+                ) VALUES (
+                    'IMPORT-ARCHIVE', 'archive.xlsx', 'team', '测试用户', '{}',
+                    '["2026-06"]', 2, 2, 2, 2, 0, '2026-06-30T10:00:00'
+                )
+                """
+            )
+            for terminal_code in ("1023275022", "1023275023"):
+                connection.execute(
+                    """
+                    INSERT INTO customer_policy_tags (
+                        month, terminal_code, tag, matched_ticket_no,
+                        matched_row_number, import_id, created_at,
+                        policy_id, color, rule_snapshot_json
+                    ) VALUES (
+                        '2026-06', ?, '测试陈列', ?, 1, 'IMPORT-ARCHIVE',
+                        '2026-06-30T10:00:00', ?, 'blue', '{}'
+                    )
+                    """,
+                    (terminal_code, f"T-{terminal_code}", policy["id"]),
+                )
+
+        pending_filename = "1023275099_待出库终端_测试业务员_01.jpeg"
+        (output_dir / pending_filename).write_bytes(b"pending-image")
+        self.web.IMAGE_LIBRARY.add_result(
+            ExtractResult(
+                visit_id="VISIT-PENDING",
+                terminal_name="待出库终端",
+                partner_name="测试业务员",
+                output_dir=str(output_dir),
+                images=[
+                    SavedImage(
+                        index=1,
+                        photoid=(
+                            "private/TCOS/Z0019/O50002488/20260610/"
+                            "1023275099/source.jpeg"
+                        ),
+                        filename=pending_filename,
+                        url="",
+                        size_bytes=13,
+                    )
+                ],
+                metadata_file=str(output_dir / "pending-metadata.json"),
+                visit_in_time="1782714405357",
+            ),
+            created_at="2026-07-07T09:30:00",
+        )
+        pending_image_id = self.web.IMAGE_LIBRARY.query(
+            fields=["1023275099"],
+            month="2026-06",
+        )["items"][0]["images"][0]["id"]
+
+        options = self.client.get(
+            "/api/photo-archive/options?month=2026-06"
+        ).get_json()["items"]
+        self.assertEqual([item["id"] for item in options], [policy["id"]])
+
+        policy_search = self.client.post(
+            "/api/image-library/search",
+            json={
+                "month": "2026-06",
+                "policy_ids": [policy["id"]],
+                "businesses": ["测试业务员", "不存在的业务员"],
+            },
+        )
+        self.assertEqual(policy_search.status_code, 200)
+        policy_search_data = policy_search.get_json()
+        self.assertEqual(policy_search_data["image_count"], 1)
+        self.assertEqual(
+            policy_search_data["items"][0]["policy_tags"],
+            [
+                {
+                    "color": "blue",
+                    "policy_id": policy["id"],
+                    "tag": "测试陈列",
+                }
+            ],
+        )
+        self.assertEqual(
+            [item["id"] for item in policy_search_data["policy_options"]],
+            [policy["id"]],
+        )
+        invalid_policy_search = self.client.post(
+            "/api/image-library/search",
+            json={"month": "2026-06", "policy_ids": ["POL-NOT-FOUND"]},
+        )
+        self.assertEqual(invalid_policy_search.status_code, 400)
+
         missing_csrf = self.client.post(
-            "/api/image-library/export",
-            json={"image_ids": [image_id], "description": "月度照片"},
+            "/api/photo-archive",
+            json={
+                "image_ids": [image_id],
+                "policy_id": policy["id"],
+                "month": "2026-06",
+            },
         )
         self.assertEqual(missing_csrf.status_code, 403)
-        preview = self.client.post(
-            "/api/image-library/export-preview",
-            json={"image_ids": [image_id]},
+
+        archived = self.client.post(
+            "/api/photo-archive",
+            json={
+                "image_ids": [image_id],
+                "policy_id": policy["id"],
+                "month": "2026-06",
+            },
             headers={"X-CSRF-Token": "test-token"},
         )
-        self.assertEqual(preview.status_code, 200)
-        self.assertEqual(preview.get_json()["image_count"], 1)
-        self.assertEqual(preview.get_json()["fields"], ["1023275022"])
+        self.assertEqual(archived.status_code, 200)
+        self.assertEqual(archived.get_json()["archived_count"], 1)
+        self.assertEqual(archived.get_json()["skipped_count"], 0)
 
-        missing_description = self.client.post(
-            "/api/export-records",
-            json={"image_ids": [image_id]},
+        pending_archived = self.client.post(
+            "/api/photo-archive",
+            json={
+                "image_ids": [pending_image_id],
+                "policy_id": policy["id"],
+                "month": "2026-06",
+            },
             headers={"X-CSRF-Token": "test-token"},
         )
-        self.assertEqual(missing_description.status_code, 400)
-        long_description = self.client.post(
-            "/api/export-records",
-            json={"image_ids": [image_id], "description": "超" * 31},
-            headers={"X-CSRF-Token": "test-token"},
-        )
-        self.assertEqual(long_description.status_code, 400)
+        self.assertEqual(pending_archived.status_code, 200)
+        self.assertEqual(pending_archived.get_json()["archived_count"], 1)
 
-        export = self.client.post(
-            "/api/export-records",
-            json={"image_ids": [image_id], "description": "月度照片"},
-            headers={"X-CSRF-Token": "test-token"},
+        archived_search = self.client.post(
+            "/api/image-library/search",
+            json={
+                "fields": ["1023275022", "1023275099"],
+                "month": "2026-06",
+            },
         )
-        self.assertEqual(export.status_code, 200)
-        export_data = export.get_json()
-        self.assertEqual(export_data["description"], "月度照片")
-        self.assertEqual(export_data["fields"], ["1023275022"])
-        self.assertEqual(export_data["download_count"], 0)
-        archive_path = (
-            Path(self.output.name) / "_image_exports" / export_data["archive_name"]
-        )
-        self.assertTrue(archive_path.is_file())
-        with zipfile.ZipFile(archive_path) as archive:
-            names = archive.namelist()
-        self.assertIn("图片库导出结果.json", names)
-        self.assertIn("1023275022_测试终端_测试业务员/01.jpeg", names)
-
-        records = self.client.get("/api/export-records")
-        self.assertEqual(records.status_code, 200)
-        self.assertEqual(len(records.get_json()["items"]), 1)
-
-        first_download = self.client.get(export_data["download_url"])
-        second_download = self.client.get(export_data["download_url"])
-        self.assertEqual(first_download.status_code, 200)
-        self.assertEqual(second_download.status_code, 200)
-        first_download.close()
-        second_download.close()
+        self.assertEqual(archived_search.status_code, 200)
+        archived_images = {
+            item["field"]: item["images"][0]
+            for item in archived_search.get_json()["items"]
+        }
+        expected_archive_tag = [
+            {
+                "color": policy["color"],
+                "policy_id": policy["id"],
+                "tag": "6月-测试陈列",
+            }
+        ]
         self.assertEqual(
-            self.client.get("/api/export-records").get_json()["items"][0][
-                "download_count"
-            ],
+            archived_images["1023275022"]["archive_tags"],
+            expected_archive_tag,
+        )
+        self.assertEqual(
+            archived_images["1023275099"]["archive_tags"],
+            expected_archive_tag,
+        )
+
+        duplicate = self.client.post(
+            "/api/photo-archive",
+            json={
+                "image_ids": [image_id],
+                "policy_id": policy["id"],
+                "month": "2026-06",
+            },
+            headers={"X-CSRF-Token": "test-token"},
+        )
+        self.assertEqual(duplicate.status_code, 200)
+        self.assertEqual(duplicate.get_json()["archived_count"], 0)
+        self.assertEqual(duplicate.get_json()["skipped_count"], 1)
+
+        archives = self.client.get(
+            "/api/photo-archive/policies?month=2026-06&page=1&page_size=20"
+        )
+        self.assertEqual(archives.status_code, 200)
+        archive_data = archives.get_json()
+        self.assertEqual(archive_data["total"], 1)
+        archive_item = archive_data["items"][0]
+        self.assertEqual(archive_item["shipped_count"], 2)
+        self.assertEqual(archive_item["photographed_count"], 2)
+        self.assertEqual(archive_item["missing_count"], 1)
+        self.assertEqual(archive_item["photo_count"], 2)
+        self.assertEqual(archive_item["latest_operation"]["action_type"], "archive")
+
+        policy_list = self.client.get(
+            "/api/snow-outbound/policies?year=2026&month=6"
+        )
+        self.assertEqual(policy_list.status_code, 200)
+        self.assertEqual(
+            policy_list.get_json()["items"][0]["photographed_count"],
             2,
         )
         self.assertEqual(
-            self.client.get(f"/output/_image_exports/{export_data['archive_name']}").status_code,
+            policy_list.get_json()["items"][0]["pending_outbound_count"],
+            1,
+        )
+        shipped = self.client.get(
+            f"/api/snow-outbound/policies/{policy['id']}/shipped-terminals"
+        )
+        self.assertEqual(shipped.status_code, 200)
+        self.assertEqual(shipped.get_json()["total"], 2)
+        self.assertEqual(
+            {
+                item["terminal_code"]
+                for item in shipped.get_json()["items"]
+            },
+            {"1023275022", "1023275023"},
+        )
+        photographed = self.client.get(
+            f"/api/snow-outbound/policies/{policy['id']}/photographed-terminals"
+        )
+        self.assertEqual(photographed.status_code, 200)
+        self.assertEqual(photographed.get_json()["total"], 2)
+        self.assertEqual(
+            {
+                item["terminal_code"]
+                for item in photographed.get_json()["items"]
+            },
+            {"1023275022", "1023275099"},
+        )
+        pending = self.client.get(
+            f"/api/snow-outbound/policies/{policy['id']}/pending-outbound"
+        )
+        self.assertEqual(pending.status_code, 200)
+        self.assertEqual(
+            pending.get_json()["items"],
+            [
+                {
+                    "customer_name": "待出库终端",
+                    "salesperson": "测试业务员",
+                    "terminal_code": "1023275099",
+                }
+            ],
+        )
+
+        missing = self.client.get(
+            f"/api/photo-archive/policies/{policy['id']}/missing"
+        )
+        self.assertEqual(missing.status_code, 200)
+        self.assertEqual(
+            missing.get_json()["items"],
+            [
+                {
+                    "customer_name": "缺失终端",
+                    "salesperson": "韦春云",
+                    "terminal_code": "1023275023",
+                }
+            ],
+        )
+
+        first_export = self.client.post(
+            f"/api/photo-archive/policies/{policy['id']}/export",
+            headers={"X-CSRF-Token": "test-token"},
+        )
+        self.assertEqual(first_export.status_code, 200)
+        self.assertEqual(first_export.mimetype, "application/zip")
+        with zipfile.ZipFile(io.BytesIO(first_export.data)) as archive:
+            names = archive.namelist()
+            detail_bytes = archive.read("照片档案明细.xlsx")
+        first_export.close()
+        self.assertTrue(
+            any(name.startswith("1023275022_测试终端/") for name in names)
+        )
+        self.assertGreater(len(detail_bytes), 100)
+        detail_workbook = load_workbook(io.BytesIO(detail_bytes), read_only=True)
+        detail_headers = [
+            cell.value for cell in next(detail_workbook.active.iter_rows())
+        ]
+        self.assertIn("终端照片数量", detail_headers)
+        detail_workbook.close()
+
+        second_export = self.client.post(
+            f"/api/photo-archive/policies/{policy['id']}/export",
+            headers={"X-CSRF-Token": "test-token"},
+        )
+        self.assertEqual(second_export.status_code, 200)
+        second_export.close()
+        self.assertEqual(self.client.get("/api/export-records").status_code, 404)
+        self.assertEqual(
+            self.client.post(
+                "/api/image-library/export",
+                headers={"X-CSRF-Token": "test-token"},
+            ).status_code,
             404,
         )
 
-        self.web.EXPORT_RECORD_STORE.expire_records(
-            now=parse_utc_iso(export_data["created_at"]) + timedelta(days=31)
+        refreshed_archive = self.client.get(
+            "/api/photo-archive/policies?month=2026-06"
+        ).get_json()["items"][0]
+        self.assertEqual(
+            refreshed_archive["latest_operation"]["action_type"],
+            "export",
         )
-        expired_record = self.client.get("/api/export-records").get_json()["items"][0]
-        self.assertEqual(expired_record["status"], "expired")
-        self.assertEqual(expired_record["download_url"], "")
-        self.assertFalse(archive_path.exists())
-        self.assertEqual(self.client.get(export_data["download_url"]).status_code, 410)
 
         refreshed = self.client.get(
             "/api/image-library?fields=1023275022&month=2026-06"

@@ -20,8 +20,10 @@ const {
   Select,
   Space,
   Spin,
+  Switch,
   Tag,
   Tabs,
+  Tooltip,
   Typography,
   Upload,
 } = window.arco;
@@ -55,6 +57,27 @@ function downloadFile(url, filename) {
   document.body.appendChild(link);
   link.click();
   link.remove();
+}
+
+async function downloadPostFile(url, csrfToken) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "X-CSRF-Token": csrfToken },
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || "下载失败");
+  }
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const encodedMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  const plainMatch = disposition.match(/filename=\"?([^\";]+)\"?/i);
+  const filename = encodedMatch
+    ? decodeURIComponent(encodedMatch[1])
+    : plainMatch?.[1] || "照片档案.zip";
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  downloadFile(objectUrl, filename);
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
 }
 
 function legacyCopyText(text) {
@@ -110,6 +133,27 @@ function formatDateTime(value) {
   }).format(date);
 }
 
+function formatCompactDateTime(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function getDateParts(value) {
+  if (!value) return null;
+  const [year, month, day] = String(value).slice(0, 10).split("-");
+  if (!year || !month || !day) return null;
+  return { year, month, day };
+}
+
 function Status({ status }) {
   if (!status?.message) return null;
   return (
@@ -139,6 +183,16 @@ function BrandMark() {
 }
 
 function NavIcon({ type }) {
+  if (type === "customers") {
+    return (
+      <span className="nav-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24">
+          <path d="M5 4h14v16H5z" />
+          <path d="M8 8h8M8 12h8M8 16h5" />
+        </svg>
+      </span>
+    );
+  }
   if (type === "users") {
     return (
       <span className="nav-icon" aria-hidden="true">
@@ -170,7 +224,7 @@ function EmptyBox({ text }) {
   );
 }
 
-function FieldSummary({ fields }) {
+function FieldSummary({ fields, policyTags = [] }) {
   return (
     <div className="field-summary">
       {fields.map((field) => (
@@ -181,7 +235,236 @@ function FieldSummary({ fields }) {
           </span>
         </div>
       ))}
+      {policyTags.length ? (
+        <div className="field-item field-policy-item">
+          <Text className="field-label">政策标签：</Text>
+          <div className="field-policy-tags">
+            {policyTags.map((policy) => (
+              <Tag
+                key={policy.policy_id || policy.tag}
+                color={policy.color || "arcoblue"}
+              >
+                {policy.tag}
+              </Tag>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function TableEllipsis({
+  value,
+  children,
+  className = "",
+  maxWidth = 180,
+  tooltip,
+}) {
+  const normalized = value == null || value === "" ? "-" : String(value);
+  const tooltipContent = tooltip || normalized;
+  return (
+    <Tooltip content={tooltipContent} disabled={!tooltipContent || tooltipContent === "-"}>
+      <span
+        className={`table-ellipsis ${className}`.trim()}
+        style={{ maxWidth }}
+      >
+        {children ?? normalized}
+      </span>
+    </Tooltip>
+  );
+}
+
+function TablePolicyTags({ tags = [], limit = 2 }) {
+  if (!tags.length) return "-";
+  const visible = tags.slice(0, limit);
+  const hiddenCount = tags.length - visible.length;
+  const content = (
+    <div className="table-policy-tooltip">
+      {tags.map((tag) => (
+        <span
+          className={`policy-tag ${policyColorClass(tag.color)}`}
+          key={`${tag.policy_id}-${tag.name}`}
+        >
+          {tag.name}
+        </span>
+      ))}
+    </div>
+  );
+  return (
+    <Tooltip content={content}>
+      <span className="policy-tags-cell policy-tags-cell-compact">
+        {visible.map((tag) => (
+          <span
+            className={`policy-tag ${policyColorClass(tag.color)}`}
+            key={`${tag.policy_id}-${tag.name}`}
+          >
+            {tag.name}
+          </span>
+        ))}
+        {hiddenCount > 0 ? (
+          <span className="table-tag-more">+{hiddenCount}</span>
+        ) : null}
+      </span>
+    </Tooltip>
+  );
+}
+
+function ImageArchiveBadges({ tags = [], expanded = false }) {
+  const seen = new Set();
+  const normalized = tags.filter((tag) => {
+    const key = tag.policy_id || tag.tag;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  if (!normalized.length) return null;
+
+  const visibleTags = expanded ? normalized : normalized.slice(0, 2);
+  const hiddenCount = normalized.length - visibleTags.length;
+  const content = (
+    <div className="image-archive-tooltip">
+      <strong>归档标签</strong>
+      <div>
+        {normalized.map((tag) => (
+          <Tag key={tag.policy_id || tag.tag} color={tag.color || "arcoblue"}>
+            {tag.tag}
+          </Tag>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <Tooltip content={content} position="top">
+      <div
+        className={
+          expanded
+            ? "image-archive-badges image-archive-badges-expanded"
+            : "image-archive-badges"
+        }
+        aria-label={`归档标签：${normalized.map((tag) => tag.tag).join("、")}`}
+        onClick={(event) => event.stopPropagation()}
+      >
+        {visibleTags.map((tag) => (
+          <Tag
+            key={tag.policy_id || tag.tag}
+            color={tag.color || "arcoblue"}
+            className="image-archive-badge"
+          >
+            {tag.tag}
+          </Tag>
+        ))}
+        {hiddenCount > 0 ? (
+          <span className="image-archive-more">+{hiddenCount}</span>
+        ) : null}
+      </div>
+    </Tooltip>
+  );
+}
+
+function TerminalListModal({
+  visible,
+  title,
+  terminals = [],
+  loading = false,
+  summaryLabel = "家终端",
+  emptyText = "暂无终端",
+  onClose,
+}) {
+  const [business, setBusiness] = useState("");
+
+  useEffect(() => {
+    if (visible) setBusiness("");
+  }, [visible, title]);
+
+  const businesses = [...new Set(
+    terminals.map((item) => item.salesperson || "").filter(Boolean)
+  )].sort((left, right) => left.localeCompare(right, "zh-CN"));
+  const filtered = business
+    ? terminals.filter((item) => item.salesperson === business)
+    : terminals;
+
+  async function copyTerminalCodes() {
+    const text = filtered.map((item) => item.terminal_code).join("\n");
+    try {
+      if (!(await copyText(text))) throw new Error("copy failed");
+      Message.success(`已复制 ${filtered.length} 个终端编码`);
+    } catch (_error) {
+      Message.error("复制失败，请稍后重试");
+    }
+  }
+
+  return (
+    <Modal
+      title={title}
+      visible={visible}
+      footer={null}
+      onCancel={onClose}
+      className="missing-terminals-modal"
+      unmountOnExit
+    >
+      <div className="missing-terminals-toolbar">
+        <div className="missing-terminals-summary">
+          <Text type="secondary">
+            共 <strong>{filtered.length}</strong> {summaryLabel}
+            {business ? `（全部 ${terminals.length} 家）` : ""}
+          </Text>
+          <Select
+            value={business || undefined}
+            placeholder="业务员筛选"
+            allowClear
+            onChange={(value) => setBusiness(value || "")}
+          >
+            {businesses.map((name) => (
+              <Option key={name} value={name}>{name}</Option>
+            ))}
+          </Select>
+        </div>
+        <Button
+          size="small"
+          disabled={!filtered.length}
+          onClick={copyTerminalCodes}
+        >
+          复制全部终端编码
+        </Button>
+      </div>
+      {filtered.length ? (
+        <div className="missing-terminals-table-wrap">
+          <table className="missing-terminals-table">
+            <thead>
+              <tr>
+                <th>终端编码</th>
+                <th>客户全名</th>
+                <th>业务员</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((terminal) => (
+                <tr key={terminal.terminal_code}>
+                  <td><code>{terminal.terminal_code}</code></td>
+                  <td>
+                    <TableEllipsis
+                      value={terminal.customer_name}
+                      className="missing-customer-name"
+                      maxWidth="100%"
+                    />
+                  </td>
+                  <td>
+                    <TableEllipsis
+                      value={terminal.salesperson}
+                      maxWidth={90}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <EmptyBox text={loading ? "正在读取终端明细" : emptyText} />
+      )}
+    </Modal>
   );
 }
 
@@ -388,15 +671,17 @@ function BatchExtract({ csrfToken, onRefreshResults }) {
 }
 
 function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
-  const [business, setBusiness] = useState("");
+  const [businesses, setBusinesses] = useState([]);
   const [fields, setFields] = useState("");
   const [queriedFields, setQueriedFields] = useState("");
   const [customerName, setCustomerName] = useState("");
+  const [policyIds, setPolicyIds] = useState([]);
   const [data, setData] = useState({
     items: [],
     months: [],
     businesses: [],
     customer_names: [],
+    policy_options: [],
     field_count: 0,
     image_count: 0,
     missing_fields: [],
@@ -414,16 +699,24 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
   const [missingFieldsCollapsed, setMissingFieldsCollapsed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState(null);
-  const [exporting, setExporting] = useState(false);
-  const [exportOpen, setExportOpen] = useState(false);
-  const [exportDescription, setExportDescription] = useState("");
-  const [exportPreview, setExportPreview] = useState(null);
-  const [previewingExport, setPreviewingExport] = useState(false);
-  const [recordsOpen, setRecordsOpen] = useState(false);
-  const [recordsLoading, setRecordsLoading] = useState(false);
-  const [exportRecords, setExportRecords] = useState([]);
-  const [fieldDetailsOpen, setFieldDetailsOpen] = useState(false);
-  const [fieldDetailsRecord, setFieldDetailsRecord] = useState(null);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archiveOptions, setArchiveOptions] = useState([]);
+  const [archivePolicyId, setArchivePolicyId] = useState("");
+  const [archiveOptionsLoading, setArchiveOptionsLoading] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const [photoArchiveOpen, setPhotoArchiveOpen] = useState(false);
+  const [photoArchiveMonth, setPhotoArchiveMonth] = useState("");
+  const [photoArchiveMonths, setPhotoArchiveMonths] = useState([]);
+  const [photoArchiveItems, setPhotoArchiveItems] = useState([]);
+  const [photoArchiveTotal, setPhotoArchiveTotal] = useState(0);
+  const [photoArchivePage, setPhotoArchivePage] = useState(1);
+  const [photoArchivePageSize, setPhotoArchivePageSize] = useState(20);
+  const [photoArchiveLoading, setPhotoArchiveLoading] = useState(false);
+  const [archiveExportingId, setArchiveExportingId] = useState("");
+  const [missingOpen, setMissingOpen] = useState(false);
+  const [missingLoading, setMissingLoading] = useState(false);
+  const [missingPolicy, setMissingPolicy] = useState(null);
+  const [missingTerminals, setMissingTerminals] = useState([]);
   const [extractionRecordsOpen, setExtractionRecordsOpen] = useState(false);
   const [extractionRecordsLoading, setExtractionRecordsLoading] = useState(false);
   const [extractionRecords, setExtractionRecords] = useState([]);
@@ -437,17 +730,16 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
   );
   const [previewImage, setPreviewImage] = useState(null);
   const libraryScrollRef = useRef(null);
-  const exportPreviewFieldsRef = useRef(null);
-  const recordFieldsRef = useRef(null);
   const libraryCacheRef = useRef(new Map());
   const loadRequestRef = useRef(0);
 
   function libraryCacheKey(query) {
     return JSON.stringify([
       query.month,
-      query.business,
+      query.businesses,
       query.fields.trim(),
       query.customerName.trim(),
+      query.policyIds,
       query.page,
       query.pageSize,
     ]);
@@ -463,9 +755,10 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         month: query.month,
-        business: query.business,
+        businesses: query.businesses,
         fields: query.fields,
         customer_name: query.customerName,
+        policy_ids: query.policyIds,
         page: query.page,
         page_size: query.pageSize,
       }),
@@ -493,9 +786,10 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
   async function load(overrides = {}) {
     const query = {
       month: overrides.month ?? activeMonth,
-      business: overrides.business ?? business,
+      businesses: overrides.businesses ?? businesses,
       fields: overrides.fields ?? fields,
       customerName: overrides.customerName ?? customerName,
+      policyIds: overrides.policyIds ?? policyIds,
       page: overrides.page ?? data.pagination?.page ?? 1,
       pageSize: overrides.pageSize ?? data.pagination?.page_size ?? 12,
     };
@@ -532,8 +826,20 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
     setSelected(new Set());
     setSelectedImageFields(new Map());
     setMissingFieldsCollapsed(false);
+    setArchiveOpen(false);
+    setArchivePolicyId("");
+    setPhotoArchiveOpen(false);
+    setMissingOpen(false);
+    setBusinesses([]);
+    setPolicyIds([]);
     libraryCacheRef.current.clear();
-    load({ month: activeMonth || "", page: 1, force: true });
+    load({
+      month: activeMonth || "",
+      businesses: [],
+      policyIds: [],
+      page: 1,
+      force: true,
+    });
   }, [activeMonth]);
 
   useEffect(() => {
@@ -560,96 +866,137 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
     });
   }
 
-  function setGroupSelected(group, checked) {
-    setSelected((current) => {
-      const next = new Set(current);
-      group.images.forEach((image) => {
-        if (checked) next.add(image.id);
-        else next.delete(image.id);
-      });
-      return next;
-    });
-    setSelectedImageFields((current) => {
-      const next = new Map(current);
-      group.images.forEach((image) => {
-        if (checked) next.set(image.id, group.field);
-        else next.delete(image.id);
-      });
-      return next;
-    });
-  }
-
-  async function openExport() {
-    const imageIds = [...selected];
-    if (!imageIds.length) return;
-    setExportDescription("");
-    setExportPreview(null);
-    setExportOpen(true);
-    setPreviewingExport(true);
+  async function openArchive() {
+    if (!selected.size || !activeMonth) return;
+    setArchiveOpen(true);
+    setArchivePolicyId("");
+    setArchiveOptions([]);
+    setArchiveOptionsLoading(true);
     try {
-      const token = await latestCsrfToken(csrfToken);
-      const result = await jsonFetch("/api/image-library/export-preview", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRF-Token": token,
-        },
-        body: JSON.stringify({ image_ids: imageIds, csrf_token: token }),
-      });
-      setExportPreview(result);
+      const result = await jsonFetch(
+        `/api/photo-archive/options?month=${encodeURIComponent(activeMonth)}`
+      );
+      setArchiveOptions(result.items || []);
     } catch (error) {
       Message.error(error.message);
-      setExportOpen(false);
+      setArchiveOpen(false);
     } finally {
-      setPreviewingExport(false);
+      setArchiveOptionsLoading(false);
     }
   }
 
-  async function exportSelected() {
-    const imageIds = [...selected];
-    const description = exportDescription.trim();
-    if (!imageIds.length || !description || description.length > 30) return;
-    setExporting(true);
+  async function archiveSelected() {
+    if (!selected.size || !archivePolicyId || !activeMonth) return;
+    setArchiving(true);
     try {
       const token = await latestCsrfToken(csrfToken);
-      const result = await jsonFetch("/api/export-records", {
+      const result = await jsonFetch("/api/photo-archive", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "X-CSRF-Token": token,
         },
         body: JSON.stringify({
-          image_ids: imageIds,
-          description,
+          image_ids: [...selected],
+          policy_id: archivePolicyId,
+          month: activeMonth,
           csrf_token: token,
         }),
       });
-      setExportOpen(false);
-      downloadFile(result.download_url, result.archive_name);
-      Message.success(`已导出 ${result.field_count} 个终端编码、${result.image_count} 张照片`);
-      if (recordsOpen) await loadExportRecords();
+      setArchiveOpen(false);
+      setArchivePolicyId("");
+      setSelected(new Set());
+      setSelectedImageFields(new Map());
+      Message.success(
+        `归档完成：新增${result.archived_count}张，重复跳过${result.skipped_count}张，涉及${result.terminal_count}家终端`
+      );
+      await refreshLibrary();
     } catch (error) {
       Message.error(error.message);
     } finally {
-      setExporting(false);
+      setArchiving(false);
     }
   }
 
-  async function loadExportRecords() {
-    setRecordsLoading(true);
+  async function loadPhotoArchives({
+    month = photoArchiveMonth,
+    page = photoArchivePage,
+    pageSize = photoArchivePageSize,
+  } = {}) {
+    if (!month) return;
+    setPhotoArchiveLoading(true);
     try {
-      const result = await jsonFetch("/api/export-records");
-      setExportRecords(result.items || []);
+      const params = new URLSearchParams({
+        month,
+        page: String(page),
+        page_size: String(pageSize),
+      });
+      const result = await jsonFetch(`/api/photo-archive/policies?${params}`);
+      setPhotoArchiveItems(result.items || []);
+      setPhotoArchiveMonths(result.months || []);
+      setPhotoArchiveTotal(result.total || 0);
+      setPhotoArchivePage(result.page || page);
+      setPhotoArchivePageSize(result.page_size || pageSize);
     } catch (error) {
       Message.error(error.message);
     } finally {
-      setRecordsLoading(false);
+      setPhotoArchiveLoading(false);
     }
   }
 
-  async function openExportRecords() {
-    setRecordsOpen(true);
-    await loadExportRecords();
+  async function openPhotoArchive() {
+    const month = activeMonth || data.months?.[0] || "";
+    if (!month) {
+      Message.warning("暂无可查看的照片月份");
+      return;
+    }
+    setPhotoArchiveMonth(month);
+    setPhotoArchivePage(1);
+    setPhotoArchiveOpen(true);
+    await loadPhotoArchives({ month, page: 1, pageSize: photoArchivePageSize });
+  }
+
+  async function changePhotoArchiveMonth(month) {
+    setPhotoArchiveMonth(month);
+    setPhotoArchivePage(1);
+    await loadPhotoArchives({ month, page: 1, pageSize: photoArchivePageSize });
+  }
+
+  async function openMissingTerminals(policy) {
+    if (!policy.missing_count) return;
+    setMissingPolicy(policy);
+    setMissingTerminals([]);
+    setMissingOpen(true);
+    setMissingLoading(true);
+    try {
+      const result = await jsonFetch(
+        `/api/photo-archive/policies/${encodeURIComponent(policy.policy_id)}/missing`
+      );
+      setMissingTerminals(result.items || []);
+    } catch (error) {
+      Message.error(error.message);
+      setMissingOpen(false);
+    } finally {
+      setMissingLoading(false);
+    }
+  }
+
+  async function exportPolicyArchive(policy) {
+    if (!policy.photo_count) return;
+    setArchiveExportingId(policy.policy_id);
+    try {
+      const token = await latestCsrfToken(csrfToken);
+      await downloadPostFile(
+        `/api/photo-archive/policies/${encodeURIComponent(policy.policy_id)}/export`,
+        token
+      );
+      Message.success(`“${policy.display_name}”照片档案已导出`);
+      await loadPhotoArchives();
+    } catch (error) {
+      Message.error(error.message);
+    } finally {
+      setArchiveExportingId("");
+    }
   }
 
   async function loadExtractionRecords() {
@@ -672,36 +1019,6 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
   function openExtractionError(message) {
     setExtractionError(message || "");
     setExtractionErrorOpen(true);
-  }
-
-  function selectAllFields(textareaRef) {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-    textarea.focus();
-    textarea.select();
-    textarea.setSelectionRange(0, textarea.value.length);
-  }
-
-  function openFieldDetails(record) {
-    setFieldDetailsRecord(record);
-    setFieldDetailsOpen(true);
-  }
-
-  function downloadExportRecord(record) {
-    if (record.status !== "available" || !record.download_url) return;
-    downloadFile(record.download_url, record.archive_name);
-    window.setTimeout(loadExportRecords, 800);
-  }
-
-  function selectCurrentPage() {
-    const next = new Set(selected);
-    (data.items || []).forEach((group) => group.images.forEach((image) => next.add(image.id)));
-    setSelected(next);
-    const nextImageFields = new Map(selectedImageFields);
-    (data.items || []).forEach((group) => {
-      group.images.forEach((image) => nextImageFields.set(image.id, group.field));
-    });
-    setSelectedImageFields(nextImageFields);
   }
 
   async function changePage(page) {
@@ -746,10 +1063,31 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
       <div className="crm-header-layout">
         <Card bordered className="filter-module">
           <div className="filter-grid">
-            <Select placeholder="业务" value={business || undefined} allowClear onChange={(value) => setBusiness(value || "")}>
+            <Select
+              mode="multiple"
+              placeholder="业务"
+              value={businesses}
+              allowClear
+              maxTagCount={1}
+              onChange={(value) => setBusinesses(value || [])}
+            >
               {(data.businesses || []).map((value) => (
                 <Option key={value} value={value}>
                   {value}
+                </Option>
+              ))}
+            </Select>
+            <Select
+              placeholder="政策终端"
+              mode="multiple"
+              value={policyIds}
+              allowClear
+              maxTagCount={1}
+              onChange={(value) => setPolicyIds(value || [])}
+            >
+              {(data.policy_options || []).map((policy) => (
+                <Option key={policy.id} value={policy.id}>
+                  {policy.display_name}
                 </Option>
               ))}
             </Select>
@@ -783,10 +1121,16 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
               </Button>
               <Button
                 onClick={() => {
-                  setBusiness("");
+                  setBusinesses([]);
                   setFields("");
                   setCustomerName("");
-                  runSearch({ business: "", fields: "", customerName: "" });
+                  setPolicyIds([]);
+                  runSearch({
+                    businesses: [],
+                    fields: "",
+                    customerName: "",
+                    policyIds: [],
+                  });
                 }}
               >
                 清空
@@ -833,9 +1177,30 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
 
       <Card bordered className="crm-operation-module">
         <div className="operation-toolbar">
-          <Space wrap>
-            <Button onClick={selectCurrentPage}>全选本页</Button>
+          <div className="business-action-group toolbar-primary-actions">
+            <Button className="add-button" onClick={() => setCreateOpen(true)}>
+              新增照片
+            </Button>
+            <Button onClick={openExtractionRecords}>新增记录</Button>
+          </div>
+          <div className="selection-summary">
+            <div className="selection-metric">
+              <Text type="secondary">已选择照片</Text>
+              <Tag color="arcoblue">{selected.size}</Tag>
+              <Text type="secondary">张</Text>
+            </div>
+            <Text type="secondary" className="selection-separator">
+              ，
+            </Text>
+            <div className="selection-metric">
+              <Text type="secondary">终端</Text>
+              <Tag color="arcoblue">{selectedTerminalCount}</Tag>
+              <Text type="secondary">家</Text>
+            </div>
             <Button
+              type="text"
+              className="cancel-selection-button"
+              disabled={!selected.size}
               onClick={() => {
                 setSelected(new Set());
                 setSelectedImageFields(new Map());
@@ -843,22 +1208,12 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
             >
               取消选择
             </Button>
-            <Text type="secondary">已选择 {selected.size} 张</Text>
-            <Text type="secondary">已选择终端 {selectedTerminalCount} 家</Text>
-          </Space>
-          <div className="business-action-groups">
-            <div className="business-action-group">
-              <Button className="add-button" onClick={() => setCreateOpen(true)}>
-                新增
-              </Button>
-              <Button onClick={openExtractionRecords}>新增记录</Button>
-            </div>
-            <div className="business-action-group">
-              <Button type="primary" disabled={!selected.size} onClick={openExport}>
-                导出选中照片{selected.size ? `（${selected.size}）` : ""}
-              </Button>
-              <Button onClick={openExportRecords}>导出记录</Button>
-            </div>
+          </div>
+          <div className="business-action-group toolbar-archive-actions">
+            <Button type="primary" disabled={!selected.size} onClick={openArchive}>
+              归档
+            </Button>
+            <Button onClick={openPhotoArchive}>照片档案</Button>
           </div>
         </div>
         <Status status={status} />
@@ -869,9 +1224,6 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
             ) : (
               <div className="library-list">
                 {data.items.map((group, groupIndex) => {
-                const selectedCount = group.images.filter((image) => selected.has(image.id)).length;
-                const allSelected = selectedCount === group.images.length && group.images.length > 0;
-                const indeterminate = selectedCount > 0 && !allSelected;
                 const terminalIndex =
                   (data.pagination.page - 1) * data.pagination.page_size + groupIndex + 1;
                 return (
@@ -886,18 +1238,17 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
                           { label: "终端编码", value: group.field },
                           { label: "客户名字", value: group.customer_name },
                           { label: "业务", value: group.business },
-                          { label: "数量", value: `${group.images.length} 张` },
                         ]}
+                        policyTags={group.policy_tags || []}
                       />
                     }
                     extra={
-                      <Checkbox
-                        checked={allSelected}
-                        indeterminate={indeterminate}
-                        onChange={(checked) => setGroupSelected(group, checked)}
+                      <span
+                        className="group-image-count"
+                        title={`该终端共 ${group.images.length} 张照片`}
                       >
-                        全选
-                      </Checkbox>
+                        {group.images.length} 张
+                      </span>
                     }
                   >
                     <div className="responsive-image-grid library-grid">
@@ -910,6 +1261,7 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
                               className={isSelected ? "image-card selected" : "image-card"}
                               bodyStyle={{ padding: 0 }}
                             >
+                              <ImageArchiveBadges tags={image.archive_tags || []} />
                               <Image
                                 src={image.thumbnail_url || image.url}
                                 width="100%"
@@ -964,157 +1316,221 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
       </Card>
 
       <Modal
-        title="确认导出"
-        visible={exportOpen}
-        onCancel={() => !exporting && setExportOpen(false)}
-        onOk={exportSelected}
-        okText="确认导出"
+        title="照片归档"
+        visible={archiveOpen}
+        onCancel={() => !archiving && setArchiveOpen(false)}
+        onOk={archiveSelected}
+        okText="归档"
         cancelText="取消"
         okButtonProps={{
-          loading: exporting,
-          disabled:
-            previewingExport ||
-            !exportPreview ||
-            !exportDescription.trim() ||
-            exportDescription.trim().length > 30,
+          loading: archiving,
+          disabled: archiveOptionsLoading || !archivePolicyId,
         }}
-        className="export-modal"
+        cancelButtonProps={{ disabled: archiving }}
+        className="photo-archive-action-modal"
         unmountOnExit
       >
-        <div className="export-form">
-          <label>
-            导出说明 <span className="required-mark">*</span>
-          </label>
-          <Input
-            value={exportDescription}
-            maxLength={30}
-            showWordLimit
-            disabled={exporting}
-            placeholder="请输入导出说明，最多30个字"
-            onChange={setExportDescription}
-          />
-          <div className="export-meta-grid">
-            <div className="export-meta-item">
-              <Text type="secondary">照片数量</Text>
-              <strong>{previewingExport ? "读取中" : `${exportPreview?.image_count || 0} 张`}</strong>
-            </div>
-            <div className="export-meta-item">
-              <Text type="secondary">终端数量</Text>
-              <strong>{previewingExport ? "读取中" : `${exportPreview?.field_count || 0} 个`}</strong>
-            </div>
-            <div className="export-meta-item">
-              <Text type="secondary">导出时间</Text>
-              <strong>{formatDateTime(exportPreview?.export_time)}</strong>
-            </div>
-          </div>
-          <div className="export-field-head">
-            <label>终端编码（{exportPreview?.field_count || 0}）</label>
-            <Button
-              size="small"
-              disabled={!exportPreview?.fields?.length}
-              onClick={() => selectAllFields(exportPreviewFieldsRef)}
+        <div className="photo-archive-action-form">
+          <div className="photo-archive-field">
+            <label>
+              归类标签 <span className="required-mark">*</span>
+            </label>
+            <Select
+              value={archivePolicyId || undefined}
+              placeholder={
+                archiveOptionsLoading
+                  ? "正在读取当前月份政策标签"
+                  : "请选择一个已启用的雪花政策标签"
+              }
+              loading={archiveOptionsLoading}
+              disabled={archiveOptionsLoading || !archiveOptions.length}
+              onChange={(value) => setArchivePolicyId(value || "")}
             >
-              全部选中
-            </Button>
+              {archiveOptions.map((policy) => (
+                <Option key={policy.id} value={policy.id}>
+                  {policy.display_name}
+                </Option>
+              ))}
+            </Select>
+            {!archiveOptionsLoading && !archiveOptions.length ? (
+              <Alert
+                type="warning"
+                showIcon
+                content={`${activeMonth} 暂无已启用的雪花政策标签`}
+              />
+            ) : null}
           </div>
-          <textarea
-            ref={exportPreviewFieldsRef}
-            className="manual-copy-textarea"
-            value={(exportPreview?.fields || []).join("\n")}
-            placeholder={previewingExport ? "正在读取终端编码" : "暂无终端编码"}
-            readOnly
-          />
+          <div className="photo-archive-selection-summary">
+            <div>
+              <span>本轮选择照片</span>
+              <Tag color="arcoblue">{selected.size}</Tag>
+              <em>张</em>
+            </div>
+            <div>
+              <span>本轮选择终端</span>
+              <Tag color="arcoblue">{selectedTerminalCount}</Tag>
+              <em>家</em>
+            </div>
+          </div>
         </div>
       </Modal>
 
       <Modal
-        title="导出记录"
-        visible={recordsOpen}
+        title="照片档案"
+        visible={photoArchiveOpen}
         footer={null}
-        onCancel={() => setRecordsOpen(false)}
-        className="export-records-modal"
+        onCancel={() => setPhotoArchiveOpen(false)}
+        className="photo-archive-list-modal"
         unmountOnExit
       >
-        <div className="export-record-toolbar">
-          <Text type="secondary">导出文件保留30天，所有用户均可下载</Text>
-          <Button size="small" loading={recordsLoading} onClick={loadExportRecords}>
+        <div className="photo-archive-toolbar">
+          <div>
+            <Select
+              value={photoArchiveMonth || undefined}
+              placeholder="选择月份"
+              onChange={changePhotoArchiveMonth}
+            >
+              {photoArchiveMonths.map((month) => (
+                <Option key={month} value={month}>
+                  {month}
+                </Option>
+              ))}
+            </Select>
+            <Text type="secondary">共 {photoArchiveTotal} 个政策标签</Text>
+          </div>
+          <Button
+            size="small"
+            loading={photoArchiveLoading}
+            onClick={() => loadPhotoArchives()}
+          >
             刷新
           </Button>
         </div>
-        {exportRecords.length ? (
-          <div className="export-record-table-wrap">
-            <table className="export-record-table">
+        <div className="photo-archive-table-shell">
+          {photoArchiveItems.length ? (
+            <div className="photo-archive-table-wrap">
+              <table className="photo-archive-table">
               <thead>
                 <tr>
-                  <th>导出时间</th>
-                  <th>导出说明</th>
-                  <th>照片数量</th>
-                  <th>终端数量</th>
-                  <th>终端编码</th>
-                  <th>导出人</th>
-                  <th>有效期</th>
-                  <th>操作</th>
+                  <th>标签名</th>
+                  <th>已出库</th>
+                  <th>已拍照</th>
+                  <th>缺失终端</th>
+                  <th>照片总量</th>
+                  <th>最近操作记录</th>
+                  <th>导出</th>
                 </tr>
               </thead>
               <tbody>
-                {exportRecords.map((record) => {
-                  const available = record.status === "available";
-                  const statusLabel = available
-                    ? "可下载"
-                    : record.status === "expired"
-                      ? "已过期"
-                      : "文件缺失";
+                {photoArchiveItems.map((policy) => {
+                  const operation = policy.latest_operation;
                   return (
-                    <tr key={record.id}>
-                      <td>{formatDateTime(record.created_at)}</td>
-                      <td className="record-description" title={record.description}>
-                        {record.description}
-                      </td>
-                      <td>{record.image_count} 张</td>
-                      <td>{record.field_count} 个</td>
+                    <tr key={policy.policy_id}>
                       <td>
-                        <div className="record-fields-cell">
-                          <Button
-                            size="mini"
-                            disabled={!record.fields?.length}
-                            onClick={() => openFieldDetails(record)}
-                          >
-                            查看终端编码
-                          </Button>
-                        </div>
-                      </td>
-                      <td>{record.owner_display_name || record.owner_username || "-"}</td>
-                      <td>
-                        <div className="record-expiry-cell">
-                          <Tag color={available ? "green" : "gray"}>
-                            {statusLabel}
+                        <TableEllipsis
+                          value={policy.display_name}
+                          maxWidth={150}
+                        >
+                          <Tag color={policy.color || "arcoblue"}>
+                            {policy.display_name}
                           </Tag>
-                          <Text type="secondary">{formatDateTime(record.expires_at)}</Text>
-                        </div>
+                        </TableEllipsis>
+                      </td>
+                      <td><strong>{policy.shipped_count}</strong></td>
+                      <td><strong>{policy.photographed_count}</strong></td>
+                      <td>
+                        <Button
+                          className="missing-terminal-button"
+                          type="text"
+                          size="small"
+                          disabled={!policy.missing_count}
+                          onClick={() => openMissingTerminals(policy)}
+                        >
+                          {policy.missing_count}
+                        </Button>
+                      </td>
+                      <td><strong>{policy.photo_count}</strong></td>
+                      <td>
+                        {operation ? (
+                          <Tooltip
+                            content={`${formatDateTime(operation.operated_at)} · ${operation.actor_name || "-"} · ${operation.action_label} · ${operation.photo_count}张照片`}
+                          >
+                            <div className="photo-archive-operation">
+                              <span>{formatCompactDateTime(operation.operated_at)}</span>
+                              <span>{operation.actor_name || "-"}</span>
+                              <Tag color={operation.action_type === "archive" ? "arcoblue" : "green"}>
+                                {operation.action_label}
+                              </Tag>
+                            </div>
+                          </Tooltip>
+                        ) : (
+                          <Text type="secondary">暂无记录</Text>
+                        )}
                       </td>
                       <td>
-                        <div className="record-actions">
-                          <Button
-                            size="small"
-                            type="primary"
-                            disabled={!available}
-                            onClick={() => downloadExportRecord(record)}
-                          >
-                            下载
-                          </Button>
-                          <Text type="secondary">{record.download_count} 次</Text>
-                        </div>
+                        <Button
+                          type="text"
+                          size="small"
+                          loading={archiveExportingId === policy.policy_id}
+                          disabled={!policy.photo_count}
+                          onClick={() => exportPolicyArchive(policy)}
+                        >
+                          导出
+                        </Button>
                       </td>
                     </tr>
                   );
                 })}
               </tbody>
-            </table>
-          </div>
-        ) : (
-          <EmptyBox text={recordsLoading ? "正在读取导出记录" : "暂无导出记录"} />
-        )}
+              </table>
+            </div>
+          ) : (
+            <EmptyBox
+              text={photoArchiveLoading ? "正在读取照片档案" : "当前月份暂无政策标签"}
+            />
+          )}
+          {photoArchiveLoading ? (
+            <div className="photo-archive-loading">
+              <Spin size={28} />
+            </div>
+          ) : null}
+        </div>
+        <div className="photo-archive-pagination">
+          <span>每页</span>
+          <Select
+            value={photoArchivePageSize}
+            onChange={(value) => {
+              setPhotoArchivePageSize(value);
+              setPhotoArchivePage(1);
+              loadPhotoArchives({ page: 1, pageSize: value });
+            }}
+          >
+            {[10, 20, 50].map((size) => (
+              <Option key={size} value={size}>{size} 条</Option>
+            ))}
+          </Select>
+          <Pagination
+            current={photoArchivePage}
+            pageSize={photoArchivePageSize}
+            total={photoArchiveTotal}
+            size="small"
+            onChange={(page) => {
+              setPhotoArchivePage(page);
+              loadPhotoArchives({ page });
+            }}
+          />
+        </div>
       </Modal>
+
+      <TerminalListModal
+        visible={missingOpen}
+        title={`缺失终端 · ${missingPolicy?.display_name || ""}`}
+        terminals={missingTerminals}
+        loading={missingLoading}
+        summaryLabel="家未拍照终端"
+        emptyText="暂无缺失终端"
+        onClose={() => setMissingOpen(false)}
+      />
 
       <Modal
         title="新增记录"
@@ -1167,9 +1583,13 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
                     <tr key={record.id}>
                       <td>{formatDateTime(record.created_at)}</td>
                       <td>
-                        {record.owner_display_name ||
-                          record.owner_username ||
-                          "-"}
+                        <TableEllipsis
+                          value={
+                            record.owner_display_name ||
+                            record.owner_username
+                          }
+                          maxWidth={140}
+                        />
                       </td>
                       <td>{methodLabel}</td>
                       <td>
@@ -1220,45 +1640,6 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
       </Modal>
 
       <Modal
-        title="终端编码"
-        visible={fieldDetailsOpen}
-        footer={null}
-        onCancel={() => setFieldDetailsOpen(false)}
-        className="field-details-modal"
-        unmountOnExit
-      >
-        <div className="export-form">
-          <div className="export-meta-grid field-details-meta">
-            <div className="export-meta-item">
-              <Text type="secondary">导出说明</Text>
-              <strong>{fieldDetailsRecord?.description || "-"}</strong>
-            </div>
-            <div className="export-meta-item">
-              <Text type="secondary">终端数量</Text>
-              <strong>{fieldDetailsRecord?.field_count || 0} 个</strong>
-            </div>
-          </div>
-          <div className="export-field-head">
-            <label>终端编码</label>
-            <Button
-              size="small"
-              disabled={!fieldDetailsRecord?.fields?.length}
-              onClick={() => selectAllFields(recordFieldsRef)}
-            >
-              全部选中
-            </Button>
-          </div>
-          <textarea
-            ref={recordFieldsRef}
-            className="manual-copy-textarea record-fields-textarea"
-            value={(fieldDetailsRecord?.fields || []).join("\n")}
-            placeholder="暂无终端编码"
-            readOnly
-          />
-        </div>
-      </Modal>
-
-      <Modal
         title="新增"
         visible={createOpen}
         footer={null}
@@ -1293,8 +1674,1980 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
             alt={previewImage.filename || "图片预览"}
             onClick={(event) => event.stopPropagation()}
           />
+          <ImageArchiveBadges
+            tags={previewImage.archive_tags || []}
+            expanded
+          />
         </div>
       ) : null}
+    </div>
+  );
+}
+
+const CUSTOMER_OPTIONS = {
+  statuses: ["运营", "停用"],
+  salespeople: ["黄春梅", "罗伟", "韦春云", "李富马"],
+  snowSalespeople: ["陈家利", "陈俊杰"],
+  pageSizes: [20, 50, 100],
+};
+
+const POLICY_TAG_OPTIONS = [
+  "主推店",
+  "超勇冰冻10+2",
+  "超勇冰冻10+1",
+  "花车",
+  "旺季套餐陈列",
+  "纯生3+1",
+  "夜市陈列",
+];
+
+const SNOW_RULE_FIELDS = [
+  { value: "outbound_remark", label: "出库单备注", operators: ["equals", "contains"] },
+  { value: "sale_type", label: "售卖类型", operators: ["equals", "contains"] },
+  { value: "converted_boxes", label: "折合箱数", operators: ["equals", "greater_than", "less_than"] },
+];
+
+const SNOW_RULE_OPERATORS = {
+  equals: "等于",
+  contains: "包含",
+  greater_than: "大于",
+  less_than: "小于",
+};
+
+function newSnowCondition() {
+  return { field: "outbound_remark", operator: "contains", value: "" };
+}
+
+function newSnowRule(tag = "主推店") {
+  return { tag, conditions: [newSnowCondition()] };
+}
+
+function cloneRules(rules) {
+  return JSON.parse(JSON.stringify(rules || []));
+}
+
+const EMPTY_CUSTOMER_FORM = {
+  id: null,
+  terminal_code: "",
+  customer_name: "",
+  status: "运营",
+  route: "",
+  salesperson: "",
+  snow_salesperson: "",
+  contact: "",
+  address: "",
+  phone: "",
+  remark: "",
+  version: 0,
+};
+
+const EMPTY_CUSTOMER_FILTERS = {
+  terminal_code: "",
+  customer_name: "",
+  route: "",
+  salesperson: "",
+  snow_salesperson: "",
+};
+
+function personColorClass(name) {
+  return {
+    黄春梅: "person-blue",
+    罗伟: "person-cyan",
+    韦春云: "person-green",
+    李富马: "person-orange",
+    陈家利: "person-purple",
+    陈俊杰: "person-magenta",
+  }[name] || "person-gray";
+}
+
+function policyTagClass(tag) {
+  return {
+    主推店: "policy-blue",
+    "超勇冰冻10+2": "policy-cyan",
+    "超勇冰冻10+1": "policy-green",
+    花车: "policy-orange",
+    旺季套餐陈列: "policy-purple",
+    "纯生3+1": "policy-magenta",
+    夜市陈列: "policy-red",
+  }[tag] || "policy-gray";
+}
+
+function policyColorClass(color) {
+  return `policy-${color || "gray"}`;
+}
+
+function CustomerManagement({ csrfToken, isAdmin, currentUser }) {
+  const [items, setItems] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [filters, setFilters] = useState({ ...EMPTY_CUSTOMER_FILTERS });
+  const [appliedFilters, setAppliedFilters] = useState({ ...EMPTY_CUSTOMER_FILTERS });
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [form, setForm] = useState({ ...EMPTY_CUSTOMER_FORM });
+  const [saving, setSaving] = useState(false);
+  const [logsOpen, setLogsOpen] = useState(false);
+  const [logs, setLogs] = useState([]);
+  const [logsCustomer, setLogsCustomer] = useState(null);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+  const [policyMonth, setPolicyMonth] = useState("");
+  const [policyMonths, setPolicyMonths] = useState([]);
+  const [policyTag, setPolicyTag] = useState("");
+  const [policyTagOptions, setPolicyTagOptions] = useState([]);
+  const [routeOptions, setRouteOptions] = useState([]);
+  const [snowOpen, setSnowOpen] = useState(false);
+  const [snowFile, setSnowFile] = useState(null);
+  const [snowUpdatePolicy, setSnowUpdatePolicy] = useState(true);
+  const [snowRules, setSnowRules] = useState([newSnowRule()]);
+  const [snowTemplates, setSnowTemplates] = useState([]);
+  const [snowTemplateId, setSnowTemplateId] = useState("");
+  const [snowTemplateName, setSnowTemplateName] = useState("");
+  const [snowTemplateDefault, setSnowTemplateDefault] = useState(false);
+  const [savingSnowTemplate, setSavingSnowTemplate] = useState(false);
+  const [snowPreview, setSnowPreview] = useState(null);
+  const [previewingSnow, setPreviewingSnow] = useState(false);
+  const [committingSnow, setCommittingSnow] = useState(false);
+  const requestSequence = useRef(0);
+
+  async function loadCustomers() {
+    const sequence = requestSequence.current + 1;
+    requestSequence.current = sequence;
+    setLoading(true);
+    const params = new URLSearchParams({
+      ...appliedFilters,
+      policy_month: policyMonth,
+      policy_tag: policyTag,
+      page: String(page),
+      page_size: String(pageSize),
+    });
+    try {
+      const data = await jsonFetch(`/api/customers?${params.toString()}`);
+      if (sequence !== requestSequence.current) return;
+      setItems(data.items || []);
+      setTotal(data.total || 0);
+      setStatus(null);
+    } catch (error) {
+      if (sequence !== requestSequence.current) return;
+      setStatus({ type: "error", message: error.message });
+    } finally {
+      if (sequence === requestSequence.current) setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadCustomers();
+  }, [page, pageSize, appliedFilters, policyMonth, policyTag]);
+
+  useEffect(() => {
+    loadSnowOptions();
+    loadCustomerOptions();
+  }, []);
+
+  useEffect(() => {
+    if (!policyMonth) {
+      setPolicyTagOptions([]);
+      setPolicyTag("");
+      return;
+    }
+    loadPolicyTagOptions(policyMonth);
+  }, [policyMonth]);
+
+  async function loadSnowOptions(preferredMonth = "") {
+    try {
+      const data = await jsonFetch("/api/snow-outbound/options");
+      const months = Array.from(
+        new Set([data.current_month, ...(data.months || [])].filter(Boolean))
+      );
+      setPolicyMonths(months);
+      setPolicyMonth((current) => preferredMonth || current || data.current_month || months[0] || "");
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    }
+  }
+
+  async function loadCustomerOptions() {
+    try {
+      const data = await jsonFetch("/api/customers/options");
+      setRouteOptions(data.routes || []);
+    } catch (error) {
+      setStatus({ type: "error", message: error.message });
+    }
+  }
+
+  async function loadPolicyTagOptions(month) {
+    try {
+      const data = await jsonFetch(
+        `/api/customers/policy-options?month=${encodeURIComponent(month)}`
+      );
+      const options = data.items || [];
+      setPolicyTagOptions(options);
+      setPolicyTag((current) => options.includes(current) ? current : "");
+    } catch (error) {
+      setPolicyTagOptions([]);
+      setPolicyTag("");
+      setStatus({ type: "error", message: error.message });
+    }
+  }
+
+  async function loadSnowTemplates() {
+    const data = await jsonFetch("/api/snow-outbound/templates");
+    const templates = data.items || [];
+    setSnowTemplates(templates);
+    return templates;
+  }
+
+  function searchCustomers() {
+    setPage(1);
+    setAppliedFilters({ ...filters });
+  }
+
+  function resetSearch() {
+    setFilters({ ...EMPTY_CUSTOMER_FILTERS });
+    setPolicyTag("");
+    setPage(1);
+    setAppliedFilters({ ...EMPTY_CUSTOMER_FILTERS });
+  }
+
+  function openCreate() {
+    setForm({ ...EMPTY_CUSTOMER_FORM });
+    setFormOpen(true);
+  }
+
+  function openEdit(customer) {
+    setForm({
+      ...EMPTY_CUSTOMER_FORM,
+      ...customer,
+    });
+    setFormOpen(true);
+  }
+
+  async function saveCustomer() {
+    setSaving(true);
+    try {
+      const token = await latestCsrfToken(csrfToken);
+      const isEdit = Boolean(form.id);
+      await jsonFetch(isEdit ? `/api/customers/${form.id}` : "/api/customers", {
+        method: isEdit ? "PATCH" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": token,
+        },
+        body: JSON.stringify({ ...form, csrf_token: token }),
+      });
+      Message.success(isEdit ? "客户档案已更新" : "客户档案已新增");
+      setFormOpen(false);
+      await loadCustomers();
+      await loadCustomerOptions();
+    } catch (error) {
+      Message.error(error.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function deleteCustomer(customer) {
+    Modal.confirm({
+      title: "删除客户档案",
+      content: `确定删除 ${customer.terminal_code}｜${customer.customer_name} 吗？删除后终端编码不可重新使用。`,
+      okText: "确认删除",
+      okButtonProps: { status: "danger" },
+      onOk: async () => {
+        try {
+          const token = await latestCsrfToken(csrfToken);
+          await jsonFetch(`/api/customers/${customer.id}`, {
+            method: "DELETE",
+            headers: { "X-CSRF-Token": token },
+          });
+          Message.success("客户档案已删除");
+          if (items.length === 1 && page > 1) {
+            setPage(page - 1);
+          } else {
+            await loadCustomers();
+          }
+          await loadCustomerOptions();
+        } catch (error) {
+          Message.error(error.message);
+        }
+      },
+    });
+  }
+
+  async function openLogs(customer) {
+    setLogsCustomer(customer);
+    setLogs([]);
+    setLogsOpen(true);
+    setLogsLoading(true);
+    try {
+      const data = await jsonFetch(`/api/customers/${customer.id}/logs`);
+      setLogs(data.items || []);
+    } catch (error) {
+      Message.error(error.message);
+    } finally {
+      setLogsLoading(false);
+    }
+  }
+
+  async function importCustomers() {
+    if (!importFile) return;
+    setImporting(true);
+    try {
+      const token = await latestCsrfToken(csrfToken);
+      const body = new FormData();
+      body.append("file", importFile);
+      body.append("csrf_token", token);
+      const data = await jsonFetch("/api/customers/import", {
+        method: "POST",
+        headers: { "X-CSRF-Token": token },
+        body,
+      });
+      setImportResult(data);
+      Message.success(`导入完成：成功 ${data.success_count} 条，失败 ${data.failed_count} 条`);
+      await loadCustomers();
+      await loadCustomerOptions();
+    } catch (error) {
+      Message.error(error.message);
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function openSnowUpload() {
+    setSnowOpen(true);
+    setSnowFile(null);
+    setSnowPreview(null);
+    setSnowUpdatePolicy(true);
+  }
+
+  function selectSnowTemplate(templateId, source = snowTemplates) {
+    const template = source.find((item) => item.id === templateId);
+    if (!template) {
+      setSnowTemplateId("");
+      setSnowTemplateName("");
+      setSnowTemplateDefault(false);
+      setSnowRules([newSnowRule()]);
+      setSnowPreview(null);
+      return;
+    }
+    setSnowTemplateId(template.id);
+    setSnowTemplateName(template.name);
+    setSnowTemplateDefault(template.is_default);
+    setSnowRules(cloneRules(template.rules));
+    setSnowPreview(null);
+  }
+
+  function changeSnowRules(nextRules) {
+    setSnowRules(nextRules);
+    setSnowPreview(null);
+  }
+
+  function updateSnowRule(ruleIndex, patch) {
+    changeSnowRules(
+      snowRules.map((rule, index) => index === ruleIndex ? { ...rule, ...patch } : rule)
+    );
+  }
+
+  function updateSnowCondition(ruleIndex, conditionIndex, patch) {
+    const nextRules = cloneRules(snowRules);
+    const condition = nextRules[ruleIndex].conditions[conditionIndex];
+    const nextCondition = { ...condition, ...patch };
+    if (patch.field) {
+      const field = SNOW_RULE_FIELDS.find((item) => item.value === patch.field);
+      if (field && !field.operators.includes(nextCondition.operator)) {
+        nextCondition.operator = field.operators[0];
+      }
+    }
+    nextRules[ruleIndex].conditions[conditionIndex] = nextCondition;
+    changeSnowRules(nextRules);
+  }
+
+  function addSnowRule() {
+    const used = new Set(snowRules.map((rule) => rule.tag));
+    const tag = POLICY_TAG_OPTIONS.find((item) => !used.has(item));
+    if (!tag) return;
+    changeSnowRules([...snowRules, newSnowRule(tag)]);
+  }
+
+  function addSnowCondition(ruleIndex) {
+    const nextRules = cloneRules(snowRules);
+    if (nextRules[ruleIndex].conditions.length >= 3) return;
+    nextRules[ruleIndex].conditions.push(newSnowCondition());
+    changeSnowRules(nextRules);
+  }
+
+  function removeSnowCondition(ruleIndex, conditionIndex) {
+    const nextRules = cloneRules(snowRules);
+    if (nextRules[ruleIndex].conditions.length <= 1) return;
+    nextRules[ruleIndex].conditions.splice(conditionIndex, 1);
+    changeSnowRules(nextRules);
+  }
+
+  async function saveSnowTemplate() {
+    setSavingSnowTemplate(true);
+    try {
+      const token = await latestCsrfToken(csrfToken);
+      const endpoint = snowTemplateId
+        ? `/api/snow-outbound/templates/${snowTemplateId}`
+        : "/api/snow-outbound/templates";
+      const data = await jsonFetch(endpoint, {
+        method: snowTemplateId ? "PATCH" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": token,
+        },
+        body: JSON.stringify({
+          name: snowTemplateName,
+          rules: snowRules,
+          is_default: snowTemplateDefault,
+          csrf_token: token,
+        }),
+      });
+      setSnowTemplateId(data.id);
+      await loadSnowTemplates();
+      Message.success(snowTemplateId ? "规则模板已更新" : "规则模板已保存");
+    } catch (error) {
+      Message.error(error.message);
+    } finally {
+      setSavingSnowTemplate(false);
+    }
+  }
+
+  function deleteSnowTemplate() {
+    if (!snowTemplateId) return;
+    Modal.confirm({
+      title: "删除规则模板",
+      content: `确定删除模板“${snowTemplateName}”吗？历史导入的规则快照不会受影响。`,
+      okText: "删除",
+      okButtonProps: { status: "danger" },
+      onOk: async () => {
+        try {
+          const token = await latestCsrfToken(csrfToken);
+          await jsonFetch(`/api/snow-outbound/templates/${snowTemplateId}`, {
+            method: "DELETE",
+            headers: { "X-CSRF-Token": token },
+          });
+          setSnowTemplateId("");
+          setSnowTemplateName("");
+          setSnowTemplateDefault(false);
+          await loadSnowTemplates();
+          Message.success("规则模板已删除");
+        } catch (error) {
+          Message.error(error.message);
+        }
+      },
+    });
+  }
+
+  async function previewSnowOutbound() {
+    if (!snowFile) return;
+    setPreviewingSnow(true);
+    try {
+      const token = await latestCsrfToken(csrfToken);
+      const body = new FormData();
+      body.append("file", snowFile);
+      body.append("update_policy", String(snowUpdatePolicy));
+      body.append("csrf_token", token);
+      const data = await jsonFetch("/api/snow-outbound/preview", {
+        method: "POST",
+        headers: { "X-CSRF-Token": token },
+        body,
+      });
+      setSnowPreview(data);
+      Message.success("文件解析完成，请确认覆盖月份及命中结果");
+    } catch (error) {
+      Message.error(error.message);
+    } finally {
+      setPreviewingSnow(false);
+    }
+  }
+
+  async function commitSnowOutbound() {
+    if (!snowPreview?.preview_id) return;
+    setCommittingSnow(true);
+    try {
+      const token = await latestCsrfToken(csrfToken);
+      const data = await jsonFetch("/api/snow-outbound/import", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": token,
+        },
+        body: JSON.stringify({
+          preview_id: snowPreview.preview_id,
+          csrf_token: token,
+        }),
+      });
+      const preferredMonth = data.months?.[0] || policyMonth;
+      setSnowOpen(false);
+      setPage(1);
+      await loadSnowOptions(preferredMonth);
+      await loadCustomers();
+      Message.success(
+        `导入完成：${data.row_count}条明细，${data.tag_count}个政策标签，自动建档${data.auto_customer_count}家`
+      );
+    } catch (error) {
+      Message.error(error.message);
+    } finally {
+      setCommittingSnow(false);
+    }
+  }
+
+  const canSave =
+    /^\d{10}$/.test(form.terminal_code) &&
+    form.customer_name.trim();
+  const snowRulesReady =
+    snowRules.length > 0 &&
+    snowRules.every(
+      (rule) =>
+        rule.tag &&
+        rule.conditions.length >= 1 &&
+        rule.conditions.length <= 3 &&
+        rule.conditions.every((condition) => String(condition.value || "").trim())
+    ) &&
+    new Set(snowRules.map((rule) => rule.tag)).size === snowRules.length;
+  const selectedSnowTemplate = snowTemplates.find((item) => item.id === snowTemplateId);
+  const canEditSnowTemplate =
+    !snowTemplateId ||
+    isAdmin ||
+    selectedSnowTemplate?.created_by === currentUser;
+
+  return (
+    <div className="customer-page">
+      <Card bordered className="customer-filter-card">
+        <div className="customer-filter-grid">
+          <Select
+            value={policyMonth || undefined}
+            placeholder="雪花政策月份"
+            onChange={(value) => {
+              setPage(1);
+              setPolicyTag("");
+              setPolicyMonth(value);
+            }}
+          >
+            {policyMonths.map((month) => <Option key={month} value={month}>{month}</Option>)}
+          </Select>
+          <Select
+            value={policyTag || undefined}
+            allowClear
+            placeholder="雪花政策"
+            onChange={(value) => {
+              setPage(1);
+              setPolicyTag(value || "");
+            }}
+          >
+            {policyTagOptions.map((tag) => <Option key={tag} value={tag}>{tag}</Option>)}
+          </Select>
+          <Input
+            value={filters.terminal_code}
+            maxLength={10}
+            placeholder="终端编码"
+            onChange={(value) => setFilters({ ...filters, terminal_code: value.replace(/\D/g, "") })}
+            onPressEnter={searchCustomers}
+          />
+          <Input
+            value={filters.customer_name}
+            placeholder="客户全名"
+            onChange={(value) => setFilters({ ...filters, customer_name: value })}
+            onPressEnter={searchCustomers}
+          />
+          <Select
+            value={filters.route || undefined}
+            allowClear
+            showSearch
+            placeholder="线路归属"
+            onChange={(value) => setFilters({ ...filters, route: value || "" })}
+          >
+            {routeOptions.map((route) => (
+              <Option key={route} value={route}>{route}</Option>
+            ))}
+          </Select>
+          <Select
+            value={filters.salesperson || undefined}
+            allowClear
+            placeholder="业务员"
+            onChange={(value) => setFilters({ ...filters, salesperson: value || "" })}
+          >
+            {CUSTOMER_OPTIONS.salespeople.map((name) => <Option key={name} value={name}>{name}</Option>)}
+          </Select>
+          <Select
+            value={filters.snow_salesperson || undefined}
+            allowClear
+            placeholder="雪花业务员"
+            onChange={(value) => setFilters({ ...filters, snow_salesperson: value || "" })}
+          >
+            {CUSTOMER_OPTIONS.snowSalespeople.map((name) => <Option key={name} value={name}>{name}</Option>)}
+          </Select>
+          <Space className="customer-filter-actions">
+            <Button type="primary" loading={loading} onClick={searchCustomers}>查询</Button>
+            <Button onClick={resetSearch}>重置</Button>
+          </Space>
+        </div>
+      </Card>
+
+      <Card bordered className="customer-list-card">
+        <div className="customer-toolbar">
+          <div>
+            <strong>终端明细</strong>
+            <span className="customer-total">共 {total} 条</span>
+          </div>
+          <Space wrap>
+            <Button className="add-button" type="primary" onClick={openCreate}>新增客户</Button>
+            {isAdmin ? (
+              <Button onClick={() => {
+                setImportFile(null);
+                setImportResult(null);
+                setImportOpen(true);
+              }}>
+                批量新增
+              </Button>
+            ) : null}
+          </Space>
+        </div>
+        <Status status={status} />
+        <div className="customer-table-shell">
+          <div className="customer-table-wrap">
+            <table className="customer-table">
+              <thead>
+                <tr>
+                  <th className="sticky-code">终端编码</th>
+                  <th className="sticky-customer">客户全名</th>
+                  <th>线路归属</th>
+                  <th>业务员</th>
+                  <th>雪花业务员</th>
+                  <th>状态</th>
+                  <th>雪花政策</th>
+                  <th>联系人</th>
+                  <th>客户手机</th>
+                  <th>客户地址</th>
+                  <th>备注</th>
+                  <th>最后修改</th>
+                  <th className="sticky-actions">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((customer) => (
+                  <tr key={customer.id}>
+                    <td className="sticky-code"><span className="terminal-code">{customer.terminal_code}</span></td>
+                    <td className="sticky-customer">
+                      <TableEllipsis
+                        value={customer.customer_name}
+                        className="customer-name-cell"
+                        maxWidth={246}
+                      />
+                    </td>
+                    <td>
+                      <TableEllipsis value={customer.route} maxWidth={150} />
+                    </td>
+                    <td>
+                      {customer.salesperson ? (
+                        <span className={`person-tag ${personColorClass(customer.salesperson)}`}>{customer.salesperson}</span>
+                      ) : "-"}
+                    </td>
+                    <td>
+                      {customer.snow_salesperson ? (
+                        <span className={`person-tag ${personColorClass(customer.snow_salesperson)}`}>{customer.snow_salesperson}</span>
+                      ) : "-"}
+                    </td>
+                    <td>
+                      <Tag className={`customer-status-tag ${customer.status === "运营" ? "active" : "inactive"}`}>
+                        {customer.status}
+                      </Tag>
+                    </td>
+                    <td>
+                      <TablePolicyTags tags={customer.policy_tag_details || []} />
+                    </td>
+                    <td>
+                      <TableEllipsis value={customer.contact} maxWidth={110} />
+                    </td>
+                    <td>{customer.phone || "-"}</td>
+                    <td>
+                      <TableEllipsis
+                        value={customer.address}
+                        className="ellipsis-cell"
+                        maxWidth={240}
+                      />
+                    </td>
+                    <td>
+                      <TableEllipsis
+                        value={customer.remark}
+                        className="ellipsis-cell"
+                        maxWidth={190}
+                      />
+                    </td>
+                    <td>
+                      <span className="updated-cell" title={formatDateTime(customer.updated_at)}>
+                        <span className="updated-time">{formatCompactDateTime(customer.updated_at)}</span>
+                        <span className="updated-user">{customer.updated_by_name || "-"}</span>
+                      </span>
+                    </td>
+                    <td className="sticky-actions">
+                      <span className="customer-action-links">
+                        <button className="customer-action-link edit" type="button" onClick={() => openEdit(customer)}>编辑</button>
+                        <button className="customer-action-link logs" type="button" onClick={() => openLogs(customer)}>记录</button>
+                        {isAdmin ? (
+                          <button className="customer-action-link delete" type="button" onClick={() => deleteCustomer(customer)}>删除</button>
+                        ) : null}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {!loading && !items.length ? (
+            <div className="customer-empty-overlay">暂无符合条件的客户档案</div>
+          ) : null}
+          {loading ? <div className="customer-loading"><Spin size={30} /></div> : null}
+        </div>
+        <div className="customer-pagination">
+          <span>每页</span>
+          <Select
+            size="small"
+            value={pageSize}
+            onChange={(value) => {
+              setPage(1);
+              setPageSize(value);
+            }}
+          >
+            {CUSTOMER_OPTIONS.pageSizes.map((size) => <Option key={size} value={size}>{size} 条</Option>)}
+          </Select>
+          <Pagination
+            current={page}
+            pageSize={pageSize}
+            total={total}
+            size="small"
+            disabled={loading}
+            onChange={setPage}
+          />
+        </div>
+      </Card>
+
+      <Modal
+        title={form.id ? "编辑客户档案" : "新增客户档案"}
+        visible={formOpen}
+        onCancel={() => setFormOpen(false)}
+        onOk={saveCustomer}
+        okText={form.id ? "保存修改" : "确认新增"}
+        okButtonProps={{ loading: saving, disabled: !canSave }}
+        className="customer-form-modal"
+        unmountOnExit
+      >
+        <div className="customer-form-grid">
+          <div>
+            <label><i>*</i>终端编码</label>
+            <Input
+              value={form.terminal_code}
+              maxLength={10}
+              placeholder="10位纯数字"
+              onChange={(value) => setForm({ ...form, terminal_code: value.replace(/\D/g, "") })}
+            />
+          </div>
+          <div>
+            <label><i>*</i>客户全名</label>
+            <Input value={form.customer_name} maxLength={200} onChange={(value) => setForm({ ...form, customer_name: value })} />
+          </div>
+          <div>
+            <label><i>*</i>状态</label>
+            <Select value={form.status} onChange={(value) => setForm({ ...form, status: value })}>
+              {CUSTOMER_OPTIONS.statuses.map((value) => <Option key={value} value={value}>{value}</Option>)}
+            </Select>
+          </div>
+          <div>
+            <label>线路归属</label>
+            <Input value={form.route} maxLength={100} onChange={(value) => setForm({ ...form, route: value })} />
+          </div>
+          <div>
+            <label>业务员</label>
+            <Select
+              value={form.salesperson || undefined}
+              allowClear
+              placeholder="可不选择"
+              onChange={(value) => setForm({ ...form, salesperson: value || "" })}
+            >
+              {CUSTOMER_OPTIONS.salespeople.map((name) => <Option key={name} value={name}>{name}</Option>)}
+            </Select>
+          </div>
+          <div>
+            <label>雪花业务员</label>
+            <Select
+              value={form.snow_salesperson || undefined}
+              allowClear
+              placeholder="可不选择"
+              onChange={(value) => setForm({ ...form, snow_salesperson: value || "" })}
+            >
+              {CUSTOMER_OPTIONS.snowSalespeople.map((name) => <Option key={name} value={name}>{name}</Option>)}
+            </Select>
+          </div>
+          <div>
+            <label>客户联系人</label>
+            <Input value={form.contact} maxLength={100} onChange={(value) => setForm({ ...form, contact: value })} />
+          </div>
+          <div>
+            <label>客户手机</label>
+            <Input value={form.phone} maxLength={50} onChange={(value) => setForm({ ...form, phone: value })} />
+          </div>
+          <div className="full-row">
+            <label>客户地址</label>
+            <Input value={form.address} maxLength={500} onChange={(value) => setForm({ ...form, address: value })} />
+          </div>
+          <div className="full-row">
+            <label>备注</label>
+            <textarea
+              className="customer-textarea"
+              value={form.remark}
+              maxLength={1000}
+              rows={3}
+              onChange={(event) => setForm({ ...form, remark: event.target.value })}
+            />
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        title={`修改记录${logsCustomer ? `｜${logsCustomer.customer_name}` : ""}`}
+        visible={logsOpen}
+        footer={null}
+        onCancel={() => setLogsOpen(false)}
+        className="customer-logs-modal"
+        unmountOnExit
+      >
+        {logsLoading ? (
+          <div className="logs-loading"><Spin /></div>
+        ) : logs.length ? (
+          <div className="customer-timeline">
+            {logs.map((log) => (
+              <div className="customer-log" key={log.id}>
+                <span className={`log-dot ${log.action_type}`} />
+                <div>
+                  <div className="log-meta">
+                    <strong>{log.operator_name || log.operator}</strong>
+                    <span>{formatDateTime(log.operated_at)}</span>
+                  </div>
+                  <div className="log-action">{log.action_summary}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : <Empty description="暂无修改记录" />}
+      </Modal>
+
+      <Modal
+        title="批量新增客户"
+        visible={importOpen}
+        onCancel={() => setImportOpen(false)}
+        onOk={importCustomers}
+        okText="开始导入"
+        okButtonProps={{ loading: importing, disabled: !importFile }}
+        className="customer-import-modal"
+        unmountOnExit
+      >
+        <div className="customer-import-guide">
+          <Alert
+            type="info"
+            showIcon
+            content="建议使用标准模板上传 .xlsx 文件。合法行正常录入，失败行不会录入。"
+          />
+          <Button onClick={() => downloadFile("/api/customers/import-template", "客户档案导入模板.xlsx")}>
+            下载标准模板
+          </Button>
+        </div>
+        <label className="customer-file-picker">
+          <input
+            type="file"
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            onChange={(event) => {
+              setImportFile(event.target.files?.[0] || null);
+              setImportResult(null);
+            }}
+          />
+          <span>{importFile ? importFile.name : "请上传文档"}</span>
+        </label>
+        {importResult ? (
+          <div className="import-result">
+            <div><strong>{importResult.total_count}</strong><span>总行数</span></div>
+            <div className="success"><strong>{importResult.success_count}</strong><span>成功</span></div>
+            <div className="danger"><strong>{importResult.failed_count}</strong><span>失败</span></div>
+            {importResult.error_report_url ? (
+              <Button onClick={() => downloadFile(importResult.error_report_url, "客户档案导入失败明细.xlsx")}>
+                下载失败明细
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+      </Modal>
+
+      <Modal
+        title="雪花出库上传"
+        visible={snowOpen}
+        onCancel={() => {
+          if (!committingSnow) setSnowOpen(false);
+        }}
+        onOk={snowPreview ? commitSnowOutbound : previewSnowOutbound}
+        okText={snowPreview ? "确认覆盖并导入" : "解析并预览"}
+        okButtonProps={{
+          loading: snowPreview ? committingSnow : previewingSnow,
+          disabled: snowPreview ? false : !snowFile,
+        }}
+        cancelButtonProps={{ disabled: committingSnow }}
+        className="snow-upload-modal"
+        unmountOnExit
+      >
+        <div className="snow-upload-layout">
+          <Alert
+            type="info"
+            showIcon
+            content="按开票日期分月保存最新出库数据；负数折合箱数会保存，但不会参与政策标签计算。"
+          />
+
+          <section className="snow-section">
+            <div className="snow-section-title">
+              <strong>1. 选择出库文件</strong>
+            </div>
+            <label className="snow-file-picker">
+              <input
+                type="file"
+                accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                onChange={(event) => {
+                  setSnowFile(event.target.files?.[0] || null);
+                  setSnowPreview(null);
+                }}
+              />
+              <span className="snow-file-icon">XL</span>
+              <span>
+                <strong>{snowFile ? snowFile.name : "仅支持雪花系统导出的出库 Excel"}</strong>
+                <small className={snowFile ? "" : "snow-file-warning"}>
+                  {snowFile ? `${(snowFile.size / 1024).toFixed(1)} KB` : "请勿上传其他表格，传错文件可能导致数据错乱"}
+                </small>
+              </span>
+            </label>
+          </section>
+
+          <section className="snow-section snow-update-option">
+            <div>
+              <strong>2. 更新终端客户的雪花政策标签</strong>
+              <span className="snow-update-warning">
+                注意：仅更新对应年月中已启用的政策标签，未启用的政策标签不会更新。
+              </span>
+            </div>
+            <Checkbox
+              aria-label="是否更新终端客户的雪花政策标签"
+              checked={snowUpdatePolicy}
+              onChange={(checked) => {
+                setSnowUpdatePolicy(checked);
+                setSnowPreview(null);
+              }}
+            />
+          </section>
+
+          {false ? <>
+          <section className="snow-section">
+            <div className="snow-section-title">
+              <strong>2. 标签规则模板</strong>
+              <span>每个标签仅对应一个条件组，组内条件全部成立才会命中</span>
+            </div>
+            <div className="snow-template-toolbar">
+              <Select
+                value={snowTemplateId || undefined}
+                allowClear
+                placeholder="选择已保存模板"
+                onChange={(value) => selectSnowTemplate(value || "")}
+              >
+                {snowTemplates.map((template) => (
+                  <Option key={template.id} value={template.id}>
+                    {template.name}{template.is_default ? "（默认）" : ""}
+                  </Option>
+                ))}
+              </Select>
+              <Input
+                value={snowTemplateName}
+                maxLength={100}
+                placeholder="模板名称"
+                onChange={setSnowTemplateName}
+              />
+              <Checkbox
+                checked={snowTemplateDefault}
+                onChange={setSnowTemplateDefault}
+              >
+                默认模板
+              </Checkbox>
+              <Button
+                loading={savingSnowTemplate}
+                disabled={!snowTemplateName.trim() || !snowRulesReady || !canEditSnowTemplate}
+                onClick={saveSnowTemplate}
+              >
+                {snowTemplateId ? "更新模板" : "保存模板"}
+              </Button>
+              {snowTemplateId ? (
+                <Button
+                  onClick={() => {
+                    setSnowTemplateId("");
+                    setSnowTemplateName(`${snowTemplateName}副本`);
+                    setSnowTemplateDefault(false);
+                  }}
+                >
+                  另存为
+                </Button>
+              ) : null}
+              {snowTemplateId && canEditSnowTemplate ? (
+                <Button status="danger" onClick={deleteSnowTemplate}>删除模板</Button>
+              ) : null}
+            </div>
+          </section>
+
+          <section className="snow-section">
+            <div className="snow-section-title rule-title-line">
+              <div>
+                <strong>3. 设置标签映射</strong>
+                <span>最多7组，每组最多3个条件</span>
+              </div>
+              <Button
+                size="small"
+                type="primary"
+                disabled={snowRules.length >= POLICY_TAG_OPTIONS.length}
+                onClick={addSnowRule}
+              >
+                添加标签规则
+              </Button>
+            </div>
+            <div className="snow-rule-list">
+              {snowRules.map((rule, ruleIndex) => {
+                const usedTags = new Set(snowRules.map((item) => item.tag));
+                return (
+                  <div className="snow-rule-card" key={`${rule.tag}-${ruleIndex}`}>
+                    <div className="snow-rule-head">
+                      <span className="snow-rule-number">{ruleIndex + 1}</span>
+                      <span>映射标签</span>
+                      <Select
+                        value={rule.tag}
+                        onChange={(value) => updateSnowRule(ruleIndex, { tag: value })}
+                      >
+                        {POLICY_TAG_OPTIONS
+                          .filter((tag) => tag === rule.tag || !usedTags.has(tag))
+                          .map((tag) => <Option key={tag} value={tag}>{tag}</Option>)}
+                      </Select>
+                      <span className={`policy-tag ${policyTagClass(rule.tag)}`}>{rule.tag}</span>
+                      <Button
+                        size="mini"
+                        status="danger"
+                        disabled={snowRules.length <= 1}
+                        onClick={() => changeSnowRules(snowRules.filter((_item, index) => index !== ruleIndex))}
+                      >
+                        删除本组
+                      </Button>
+                    </div>
+                    <div className="snow-condition-list">
+                      {rule.conditions.map((condition, conditionIndex) => {
+                        const field = SNOW_RULE_FIELDS.find((item) => item.value === condition.field);
+                        return (
+                          <div className="snow-condition-row" key={`${condition.field}-${conditionIndex}`}>
+                            <span className="condition-join">{conditionIndex ? "并且" : "当"}</span>
+                            <Select
+                              value={condition.field}
+                              onChange={(value) => updateSnowCondition(ruleIndex, conditionIndex, { field: value })}
+                            >
+                              {SNOW_RULE_FIELDS.map((item) => <Option key={item.value} value={item.value}>{item.label}</Option>)}
+                            </Select>
+                            <Select
+                              value={condition.operator}
+                              onChange={(value) => updateSnowCondition(ruleIndex, conditionIndex, { operator: value })}
+                            >
+                              {(field?.operators || []).map((operator) => (
+                                <Option key={operator} value={operator}>{SNOW_RULE_OPERATORS[operator]}</Option>
+                              ))}
+                            </Select>
+                            <Input
+                              value={String(condition.value ?? "")}
+                              placeholder={condition.field === "converted_boxes" ? "输入数值" : "输入匹配内容"}
+                              onChange={(value) => updateSnowCondition(ruleIndex, conditionIndex, { value })}
+                            />
+                            <Button
+                              size="mini"
+                              disabled={rule.conditions.length <= 1}
+                              onClick={() => removeSnowCondition(ruleIndex, conditionIndex)}
+                            >
+                              移除
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <Button
+                      size="mini"
+                      type="text"
+                      disabled={rule.conditions.length >= 3}
+                      onClick={() => addSnowCondition(ruleIndex)}
+                    >
+                      + 添加条件
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+          </> : null}
+
+          {snowPreview ? (
+            <section className="snow-section snow-preview-section">
+              <div className="snow-section-title">
+                <strong>解析预览</strong>
+              </div>
+              <div className="snow-preview-grid">
+                <div><strong>{snowPreview.months.join("、")}</strong><span>覆盖月份</span></div>
+                <div><strong>{snowPreview.row_count}</strong><span>明细行</span></div>
+                <div><strong>{snowPreview.ticket_count}</strong><span>票号</span></div>
+                <div><strong>{snowPreview.terminal_count}</strong><span>终端</span></div>
+                <div><strong>{snowPreview.tag_count}</strong><span>命中标签</span></div>
+                <div><strong>{snowPreview.policy_count}</strong><span>参与政策</span></div>
+                <div><strong>{snowPreview.auto_customer_count}</strong><span>自动建档</span></div>
+                <div><strong>{snowPreview.negative_row_count}</strong><span>负数行（不打标）</span></div>
+              </div>
+              {snowPreview.unknown_salespeople?.length ? (
+                <Alert
+                  type="warning"
+                  showIcon
+                  content={`未识别业务员：${snowPreview.unknown_salespeople.join("、")}。相关自动建档人员字段将留空。`}
+                />
+              ) : null}
+              <div className="snow-tag-summary">
+                {Object.keys(snowPreview.tag_counts || {}).map((tag) => (
+                  <span key={tag}>
+                    <span className={`policy-tag ${policyColorClass(snowPreview.tag_colors?.[tag])}`}>{tag}</span>
+                    <strong>{snowPreview.tag_counts?.[tag] || 0}</strong>
+                  </span>
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+function SnowOutboundUploadModal({ visible, csrfToken, onClose, onImported }) {
+  const [file, setFile] = useState(null);
+  const [updatePolicy, setUpdatePolicy] = useState(true);
+  const [preview, setPreview] = useState(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [committing, setCommitting] = useState(false);
+
+  useEffect(() => {
+    if (!visible) return;
+    setFile(null);
+    setUpdatePolicy(true);
+    setPreview(null);
+  }, [visible]);
+
+  async function previewFile() {
+    if (!file) return;
+    setPreviewing(true);
+    try {
+      const token = await latestCsrfToken(csrfToken);
+      const body = new FormData();
+      body.append("file", file);
+      body.append("update_policy", String(updatePolicy));
+      body.append("csrf_token", token);
+      const data = await jsonFetch("/api/snow-outbound/preview", {
+        method: "POST",
+        headers: { "X-CSRF-Token": token },
+        body,
+      });
+      setPreview(data);
+      Message.success("文件解析完成，请确认覆盖月份及命中结果");
+    } catch (error) {
+      Message.error(error.message);
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
+  async function commitImport() {
+    if (!preview?.preview_id) return;
+    setCommitting(true);
+    try {
+      const token = await latestCsrfToken(csrfToken);
+      const data = await jsonFetch("/api/snow-outbound/import", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": token,
+        },
+        body: JSON.stringify({
+          preview_id: preview.preview_id,
+          csrf_token: token,
+        }),
+      });
+      onClose();
+      await onImported?.(data);
+      Message.success(
+        `导入完成：${data.row_count}条明细，${data.tag_count}个政策标签，自动建档${data.auto_customer_count}家`
+      );
+    } catch (error) {
+      Message.error(error.message);
+    } finally {
+      setCommitting(false);
+    }
+  }
+
+  return (
+    <Modal
+      title="雪花出库上传"
+      visible={visible}
+      onCancel={() => {
+        if (!committing) onClose();
+      }}
+      onOk={preview ? commitImport : previewFile}
+      okText={preview ? "确认覆盖并导入" : "解析并预览"}
+      okButtonProps={{
+        loading: preview ? committing : previewing,
+        disabled: preview ? false : !file,
+      }}
+      cancelButtonProps={{ disabled: committing }}
+      className="snow-upload-modal"
+      unmountOnExit
+    >
+      <div className="snow-upload-layout">
+        <Alert
+          type="info"
+          showIcon
+          content="按开票日期分月保存最新出库数据；负数折合箱数会保存，但不会参与政策标签计算。"
+        />
+
+        <section className="snow-section">
+          <div className="snow-section-title">
+            <strong>1. 选择出库文件</strong>
+          </div>
+          <label className="snow-file-picker">
+            <input
+              type="file"
+              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              onChange={(event) => {
+                setFile(event.target.files?.[0] || null);
+                setPreview(null);
+              }}
+            />
+            <span className="snow-file-icon">XL</span>
+            <span>
+              <strong>{file ? file.name : "仅支持雪花系统导出的出库 Excel"}</strong>
+              <small className={file ? "" : "snow-file-warning"}>
+                {file ? `${(file.size / 1024).toFixed(1)} KB` : "请勿上传其他表格，传错文件可能导致数据错乱"}
+              </small>
+            </span>
+          </label>
+        </section>
+
+        <section className="snow-section snow-update-option">
+          <div>
+            <strong>2. 更新终端客户的雪花政策标签</strong>
+            <span className="snow-update-warning">
+              注意：仅更新对应年月中已启用的政策标签，未启用的政策标签不会更新。
+            </span>
+          </div>
+          <Checkbox
+            aria-label="是否更新终端客户的雪花政策标签"
+            checked={updatePolicy}
+            onChange={(checked) => {
+              setUpdatePolicy(checked);
+              setPreview(null);
+            }}
+          />
+        </section>
+
+        {preview ? (
+          <section className="snow-section snow-preview-section">
+            <div className="snow-section-title">
+              <strong>解析预览</strong>
+            </div>
+            <div className="snow-preview-grid">
+              <div><strong>{preview.months.join("、")}</strong><span>覆盖月份</span></div>
+              <div><strong>{preview.row_count}</strong><span>明细行</span></div>
+              <div><strong>{preview.ticket_count}</strong><span>票号</span></div>
+              <div><strong>{preview.terminal_count}</strong><span>终端</span></div>
+              <div><strong>{preview.tag_count}</strong><span>命中标签</span></div>
+              <div><strong>{preview.policy_count}</strong><span>参与政策</span></div>
+              <div><strong>{preview.auto_customer_count}</strong><span>自动建档</span></div>
+              <div><strong>{preview.negative_row_count}</strong><span>负数行（不打标）</span></div>
+            </div>
+            {preview.unknown_salespeople?.length ? (
+              <Alert
+                type="warning"
+                showIcon
+                content={`未识别业务员：${preview.unknown_salespeople.join("、")}。相关自动建档人员字段将留空。`}
+              />
+            ) : null}
+            <div className="snow-tag-summary">
+              {Object.keys(preview.tag_counts || {}).map((tag) => (
+                <span key={tag}>
+                  <span className={`policy-tag ${policyColorClass(preview.tag_colors?.[tag])}`}>{tag}</span>
+                  <strong>{preview.tag_counts?.[tag] || 0}</strong>
+                </span>
+              ))}
+            </div>
+          </section>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
+const EMPTY_POLICY_FILTERS = {
+  year: "",
+  month: "",
+  outbound_code: "",
+  name: "",
+  enabled: "",
+};
+
+function emptyPolicyForm() {
+  return {
+    id: "",
+    name: "",
+    outbound_code: "",
+    explanation: "",
+    requires_photo: false,
+    set_limit: "",
+    month_target: "",
+    year: 2026,
+    month: new Date().getMonth() + 1,
+    conditions: [
+      {
+        field: "outbound_remark",
+        operator: "contains",
+        value: "",
+        auto_code: true,
+      },
+    ],
+  };
+}
+
+function SnowPolicyManagement({ csrfToken, isAdmin }) {
+  const [items, setItems] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [filters, setFilters] = useState({ ...EMPTY_POLICY_FILTERS });
+  const [appliedFilters, setAppliedFilters] = useState({ ...EMPTY_POLICY_FILTERS });
+  const [loading, setLoading] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const [form, setForm] = useState(emptyPolicyForm());
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [status, setStatus] = useState(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [latestUploadAt, setLatestUploadAt] = useState("");
+  const [terminalListOpen, setTerminalListOpen] = useState(false);
+  const [terminalListPolicy, setTerminalListPolicy] = useState(null);
+  const [terminalListKind, setTerminalListKind] = useState("pending");
+  const [terminalListItems, setTerminalListItems] = useState([]);
+  const [terminalListLoading, setTerminalListLoading] = useState(false);
+  const latestUploadDate = getDateParts(latestUploadAt);
+  const sequence = useRef(0);
+  const monthOptions = Array.from({ length: 12 }, (_item, index) => index + 1);
+  const terminalListMeta = {
+    shipped: {
+      countField: "shipped_count",
+      endpoint: "shipped-terminals",
+      title: "已出库终端",
+      summaryLabel: "家已出库终端",
+      emptyText: "暂无已出库终端",
+    },
+    photographed: {
+      countField: "photographed_count",
+      endpoint: "photographed-terminals",
+      title: "已拍照终端",
+      summaryLabel: "家已拍照终端",
+      emptyText: "暂无已拍照终端",
+    },
+    pending: {
+      countField: "pending_outbound_count",
+      endpoint: "pending-outbound",
+      title: "待出库终端",
+      summaryLabel: "家待出库终端",
+      emptyText: "暂无待出库终端",
+    },
+  };
+
+  async function loadPolicies() {
+    const requestId = ++sequence.current;
+    setLoading(true);
+    const params = new URLSearchParams({
+      ...appliedFilters,
+      page: String(page),
+      page_size: String(pageSize),
+    });
+    try {
+      const data = await jsonFetch(`/api/snow-outbound/policies?${params}`);
+      if (requestId !== sequence.current) return;
+      setItems(data.items || []);
+      setTotal(data.total || 0);
+      setLatestUploadAt(data.latest_upload_at || "");
+      setStatus(null);
+    } catch (error) {
+      if (requestId === sequence.current) {
+        setStatus({ type: "error", message: error.message });
+      }
+    } finally {
+      if (requestId === sequence.current) setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadPolicies();
+  }, [page, pageSize, appliedFilters]);
+
+  function openPolicyCreate() {
+    setForm(emptyPolicyForm());
+    setFormError("");
+    setFormOpen(true);
+  }
+
+  function openPolicyEdit(policy) {
+    setForm({
+      ...policy,
+      set_limit: policy.set_limit ?? "",
+      month_target: policy.month_target ?? "",
+      conditions: (policy.conditions || []).map((condition) => ({
+        ...condition,
+        value: String(condition.value ?? ""),
+        auto_code: false,
+      })),
+    });
+    setFormError("");
+    setFormOpen(true);
+  }
+
+  function updatePolicyForm(patch) {
+    setForm((current) => ({ ...current, ...patch }));
+    setFormError("");
+  }
+
+  function setOutboundCode(value) {
+    setForm((current) => ({
+      ...current,
+      outbound_code: value,
+      conditions: current.conditions.map((condition) =>
+        condition.field === "outbound_remark" && condition.auto_code
+          ? { ...condition, value }
+          : condition
+      ),
+    }));
+    setFormError("");
+  }
+
+  function updatePolicyCondition(index, patch) {
+    setForm((current) => {
+      const conditions = current.conditions.map((condition, position) => {
+        if (position !== index) return condition;
+        const next = { ...condition, ...patch };
+        if (patch.field) {
+          const field = SNOW_RULE_FIELDS.find((item) => item.value === patch.field);
+          if (!field?.operators.includes(next.operator)) {
+            next.operator = field?.operators[0] || "equals";
+          }
+          if (patch.field === "outbound_remark") {
+            next.value = current.outbound_code;
+            next.auto_code = true;
+          } else {
+            next.value = "";
+            next.auto_code = false;
+          }
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, "value")) {
+          next.auto_code = false;
+        }
+        return next;
+      });
+      return { ...current, conditions };
+    });
+    setFormError("");
+  }
+
+  function addPolicyCondition() {
+    setForm((current) => {
+      if (current.conditions.length >= 3) return current;
+      const used = new Set(current.conditions.map((item) => item.field));
+      const field = SNOW_RULE_FIELDS.find((item) => !used.has(item.value));
+      if (!field) return current;
+      return {
+        ...current,
+        conditions: [
+          ...current.conditions,
+          {
+            field: field.value,
+            operator: field.operators[0],
+            value: field.value === "outbound_remark" ? current.outbound_code : "",
+            auto_code: field.value === "outbound_remark",
+          },
+        ],
+      };
+    });
+    setFormError("");
+  }
+
+  async function savePolicy() {
+    setSaving(true);
+    try {
+      const token = await latestCsrfToken(csrfToken);
+      const payload = {
+        ...form,
+        set_limit: form.set_limit === "" ? null : form.set_limit,
+        month_target: form.month_target === "" ? null : form.month_target,
+        conditions: form.conditions.map(({ auto_code, ...condition }) => condition),
+      };
+      await jsonFetch(
+        form.id ? `/api/snow-outbound/policies/${form.id}` : "/api/snow-outbound/policies",
+        {
+          method: form.id ? "PATCH" : "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": token,
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+      Message.success(form.id ? "政策标签已更新" : "政策标签已新建");
+      setFormError("");
+      setFormOpen(false);
+      await loadPolicies();
+    } catch (error) {
+      setFormError(error.message);
+      Message.error(error.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function togglePolicy(policy) {
+    try {
+      const token = await latestCsrfToken(csrfToken);
+      await jsonFetch(`/api/snow-outbound/policies/${policy.id}/status`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": token,
+        },
+        body: JSON.stringify({ enabled: !policy.enabled }),
+      });
+      Message.success(policy.enabled ? "政策标签已停用" : "政策标签已启用");
+      await loadPolicies();
+    } catch (error) {
+      Message.error(error.message);
+    }
+  }
+
+  async function openPolicyTerminals(policy, kind) {
+    const meta = terminalListMeta[kind];
+    if (!meta || !policy[meta.countField]) return;
+    setTerminalListKind(kind);
+    setTerminalListPolicy(policy);
+    setTerminalListItems([]);
+    setTerminalListOpen(true);
+    setTerminalListLoading(true);
+    try {
+      const result = await jsonFetch(
+        `/api/snow-outbound/policies/${encodeURIComponent(policy.id)}/${meta.endpoint}`
+      );
+      setTerminalListItems(result.items || []);
+    } catch (error) {
+      Message.error(error.message);
+      setTerminalListOpen(false);
+    } finally {
+      setTerminalListLoading(false);
+    }
+  }
+
+  function deletePolicy(policy) {
+    Modal.confirm({
+      title: "删除政策标签",
+      content: `确定删除“${policy.display_name}”吗？已有终端历史标签将保留。`,
+      okText: "删除",
+      okButtonProps: { status: "danger" },
+      onOk: async () => {
+        try {
+          const token = await latestCsrfToken(csrfToken);
+          await jsonFetch(`/api/snow-outbound/policies/${policy.id}`, {
+            method: "DELETE",
+            headers: { "X-CSRF-Token": token },
+          });
+          Message.success("政策标签已删除");
+          if (items.length === 1 && page > 1) setPage(page - 1);
+          else await loadPolicies();
+        } catch (error) {
+          Message.error(error.message);
+        }
+      },
+    });
+  }
+
+  const formReady =
+    form.name.trim() &&
+    form.name.trim().length <= 10 &&
+    form.outbound_code.trim() &&
+    form.explanation.trim() &&
+    form.explanation.trim().length <= 50 &&
+    form.conditions.length >= 1 &&
+    form.conditions.every((condition) => String(condition.value || "").trim()) &&
+    new Set(form.conditions.map((condition) => condition.field)).size === form.conditions.length &&
+    (form.set_limit === "" || /^\d+$/.test(String(form.set_limit))) &&
+    (form.month_target === "" || /^\d+$/.test(String(form.month_target)));
+
+  return (
+    <div className="policy-page">
+      <Card bordered className="policy-filter-card">
+        <div className="policy-filter-grid">
+          <Select
+            value={
+              filters.year && filters.month
+                ? `${filters.year}-${String(filters.month).padStart(2, "0")}`
+                : undefined
+            }
+            allowClear
+            placeholder="年月"
+            onChange={(value) => {
+              if (!value) {
+                setFilters({ ...filters, year: "", month: "" });
+                return;
+              }
+              const [year, month] = value.split("-");
+              setFilters({ ...filters, year, month: String(Number(month)) });
+            }}
+          >
+            {monthOptions.map((month) => (
+              <Option key={month} value={`2026-${String(month).padStart(2, "0")}`}>
+                2026年{month}月
+              </Option>
+            ))}
+          </Select>
+          <Input
+            value={filters.outbound_code}
+            placeholder="出库编码搜索"
+            onChange={(value) => setFilters({ ...filters, outbound_code: value })}
+          />
+          <Input
+            value={filters.name}
+            placeholder="标签名搜索"
+            onChange={(value) => setFilters({ ...filters, name: value })}
+            onPressEnter={() => {
+              setPage(1);
+              setAppliedFilters({ ...filters });
+            }}
+          />
+          <Select
+            value={filters.enabled || undefined}
+            allowClear
+            placeholder="是否启用"
+            onChange={(value) => setFilters({ ...filters, enabled: value ?? "" })}
+          >
+            <Option value="true">已启用</Option>
+            <Option value="false">已停用</Option>
+          </Select>
+          <Space>
+            <Button type="primary" onClick={() => {
+              setPage(1);
+              setAppliedFilters({ ...filters });
+            }}>查询</Button>
+            <Button onClick={() => {
+              setFilters({ ...EMPTY_POLICY_FILTERS });
+              setPage(1);
+              setAppliedFilters({ ...EMPTY_POLICY_FILTERS });
+            }}>重置</Button>
+          </Space>
+        </div>
+      </Card>
+
+      <Card bordered className="policy-list-card">
+        <div className="policy-toolbar">
+          <div className="policy-toolbar-title">
+            <strong>雪花政策明细</strong>
+            <span>共 {total} 条</span>
+          </div>
+          <div className="policy-latest-upload">
+            <span>雪花出库最新更新时间</span>
+            {latestUploadDate ? (
+              <strong className="policy-date-display" aria-label={`${latestUploadDate.year}年${latestUploadDate.month}月${latestUploadDate.day}日`}>
+                <span className="policy-date-tag">{latestUploadDate.year}</span><em>年</em>
+                <span className="policy-date-tag">{latestUploadDate.month}</span><em>月</em>
+                <span className="policy-date-tag">{latestUploadDate.day}</span><em>日</em>
+              </strong>
+            ) : (
+              <strong className="policy-date-empty">暂无上传记录</strong>
+            )}
+          </div>
+          <div className="policy-toolbar-actions">
+            <Button className="snow-upload-button" onClick={() => setUploadOpen(true)}>雪花出库上传</Button>
+            <Button className="policy-add-button" type="primary" onClick={openPolicyCreate}>新增政策标签</Button>
+          </div>
+        </div>
+        <Status status={status} />
+        <div className="policy-table-wrap">
+          <table className="policy-table">
+            <thead>
+              <tr>
+                <th>年月</th>
+                <th>启用</th>
+                <th>标签名</th>
+                <th>出库编码</th>
+                <th>月目标</th>
+                <th>已出库</th>
+                <th>已拍照</th>
+                <th>待出库</th>
+                <th>出库解释</th>
+                <th>是否拍照</th>
+                <th>套数限制</th>
+                <th>标签ID</th>
+                <th>命中条件</th>
+                <th>新建人</th>
+                <th>新建时间</th>
+                <th className="policy-actions-sticky">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((policy) => (
+                <tr key={policy.id}>
+                  <td>{policy.year}年{policy.month}月</td>
+                  <td>
+                    <Switch
+                      size="small"
+                      checked={policy.enabled}
+                      checkedText="启用"
+                      uncheckedText="停用"
+                      onChange={() => togglePolicy(policy)}
+                    />
+                  </td>
+                  <td>
+                    <TableEllipsis value={policy.display_name} maxWidth={150}>
+                      <span className={`policy-tag ${policyColorClass(policy.color)}`}>
+                        {policy.display_name}
+                      </span>
+                    </TableEllipsis>
+                  </td>
+                  <td><span className="policy-code">{policy.outbound_code}</span></td>
+                  <td>{policy.month_target ?? "-"}</td>
+                  <td>
+                    <Button
+                      className="policy-stat-button policy-stat-shipped"
+                      type="text"
+                      size="small"
+                      disabled={!policy.shipped_count}
+                      onClick={() => openPolicyTerminals(policy, "shipped")}
+                    >
+                      {policy.shipped_count ?? 0}
+                    </Button>
+                  </td>
+                  <td>
+                    <Button
+                      className="policy-stat-button policy-stat-photographed"
+                      type="text"
+                      size="small"
+                      disabled={!policy.photographed_count}
+                      onClick={() => openPolicyTerminals(policy, "photographed")}
+                    >
+                      {policy.photographed_count ?? 0}
+                    </Button>
+                  </td>
+                  <td>
+                    <Button
+                      className="policy-stat-button policy-stat-pending"
+                      type="text"
+                      size="small"
+                      disabled={!policy.pending_outbound_count}
+                      onClick={() => openPolicyTerminals(policy, "pending")}
+                    >
+                      {policy.pending_outbound_count ?? 0}
+                    </Button>
+                  </td>
+                  <td>
+                    <TableEllipsis
+                      value={policy.explanation}
+                      className="policy-explanation"
+                      maxWidth={240}
+                    />
+                  </td>
+                  <td>{policy.requires_photo ? <Tag color="green">是</Tag> : <Tag color="gray">否</Tag>}</td>
+                  <td>{policy.set_limit ?? "-"}</td>
+                  <td>
+                    <TableEllipsis
+                      value={policy.id}
+                      className="policy-id"
+                      maxWidth={150}
+                    />
+                  </td>
+                  <td>
+                    <Tooltip
+                      position="top"
+                      content={policy.conditions.map((condition) => {
+                        const field = SNOW_RULE_FIELDS.find((item) => item.value === condition.field);
+                        return `${field?.label || condition.field} ${SNOW_RULE_OPERATORS[condition.operator]} ${condition.value}`;
+                      }).join(" 且 ")}
+                    >
+                      <span className="policy-condition-summary">
+                        {policy.conditions.map((condition) => {
+                          const field = SNOW_RULE_FIELDS.find((item) => item.value === condition.field);
+                          return `${field?.label || condition.field}${SNOW_RULE_OPERATORS[condition.operator]}${condition.value}`;
+                        }).join("；")}
+                      </span>
+                    </Tooltip>
+                  </td>
+                  <td>
+                    <TableEllipsis value={policy.created_by_name} maxWidth={110} />
+                  </td>
+                  <td>{formatCompactDateTime(policy.created_at)}</td>
+                  <td className="policy-actions-sticky">
+                    <span className="customer-action-links">
+                      <button className="customer-action-link edit" type="button" onClick={() => openPolicyEdit(policy)}>编辑</button>
+                      {isAdmin ? <button className="customer-action-link delete" type="button" onClick={() => deletePolicy(policy)}>删除</button> : null}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!loading && !items.length ? <div className="policy-empty">暂无政策标签</div> : null}
+          {loading ? <div className="customer-loading"><Spin size={30} /></div> : null}
+        </div>
+        <div className="customer-pagination">
+          <span>每页</span>
+          <Select size="small" value={pageSize} onChange={(value) => {
+            setPage(1);
+            setPageSize(value);
+          }}>
+            {CUSTOMER_OPTIONS.pageSizes.map((size) => <Option key={size} value={size}>{size} 条</Option>)}
+          </Select>
+          <Pagination current={page} pageSize={pageSize} total={total} size="small" onChange={setPage} />
+        </div>
+      </Card>
+
+      <TerminalListModal
+        visible={terminalListOpen}
+        title={`${terminalListMeta[terminalListKind].title} · ${terminalListPolicy?.display_name || ""}`}
+        terminals={terminalListItems}
+        loading={terminalListLoading}
+        summaryLabel={terminalListMeta[terminalListKind].summaryLabel}
+        emptyText={terminalListMeta[terminalListKind].emptyText}
+        onClose={() => setTerminalListOpen(false)}
+      />
+
+      <Modal
+        title={form.id ? `编辑标签｜${form.id}` : "新增雪花出库政策标签"}
+        visible={formOpen}
+        onCancel={() => {
+          setFormError("");
+          setFormOpen(false);
+        }}
+        onOk={savePolicy}
+        okText={form.id ? "保存修改" : "新增"}
+        okButtonProps={{ loading: saving, disabled: !formReady }}
+        className="policy-form-modal"
+        unmountOnExit
+      >
+        <div className="policy-form-grid">
+          <div>
+            <label><i>*</i>政策月份</label>
+            <Select
+              value={`2026-${String(form.month).padStart(2, "0")}`}
+              onChange={(value) => {
+                const month = Number(value.split("-")[1]);
+                updatePolicyForm({ year: 2026, month });
+              }}
+            >
+              {monthOptions.map((month) => (
+                <Option key={month} value={`2026-${String(month).padStart(2, "0")}`}>
+                  2026年{month}月
+                </Option>
+              ))}
+            </Select>
+          </div>
+          <div>
+            <label>月目标</label>
+            <Input
+              value={String(form.month_target)}
+              placeholder="选填，非负整数"
+              onChange={(value) => updatePolicyForm({ month_target: value.replace(/\D/g, "") })}
+            />
+          </div>
+          <div>
+            <label className="policy-name-label">
+              <span><i>*</i>标签名字</span>
+              <small>展示为：{form.month}月-{form.name || "标签名字"}</small>
+            </label>
+            <Input value={form.name} maxLength={10} showWordLimit placeholder="不超过10个字" onChange={(value) => updatePolicyForm({ name: value })} />
+          </div>
+          <div>
+            <label><i>*</i>出库编码</label>
+            <Input value={form.outbound_code} maxLength={100} onChange={setOutboundCode} />
+          </div>
+          <div className="full-row">
+            <label><i>*</i>出库解释</label>
+            <Input value={form.explanation} maxLength={50} showWordLimit onChange={(value) => updatePolicyForm({ explanation: value })} />
+          </div>
+          <div>
+            <label>是否拍照</label>
+            <Checkbox checked={form.requires_photo} onChange={(checked) => updatePolicyForm({ requires_photo: checked })}>需要拍照</Checkbox>
+          </div>
+          <div>
+            <label>套数限制</label>
+            <Input value={String(form.set_limit)} placeholder="选填，非负整数" onChange={(value) => updatePolicyForm({ set_limit: value.replace(/\D/g, "") })} />
+          </div>
+        </div>
+
+        <div className="policy-condition-editor">
+          <div className="policy-condition-title">
+            <div><strong>命中条件</strong><span>同一字段只能定义一次，组合条件全部成立才命中</span></div>
+            <Button className="policy-add-condition" size="small" disabled={form.conditions.length >= 3} onClick={addPolicyCondition}>添加条件</Button>
+          </div>
+          {form.conditions.map((condition, index) => {
+            const usedFields = new Set(form.conditions.map((item) => item.field));
+            const field = SNOW_RULE_FIELDS.find((item) => item.value === condition.field);
+            return (
+              <div className="policy-condition-row" key={`${condition.field}-${index}`}>
+                <span>{index ? "并且" : "当"}</span>
+                <Select value={condition.field} onChange={(value) => updatePolicyCondition(index, { field: value })}>
+                  {SNOW_RULE_FIELDS
+                    .filter((option) => option.value === condition.field || !usedFields.has(option.value))
+                    .map((option) => <Option key={option.value} value={option.value}>{option.label}</Option>)}
+                </Select>
+                <Select value={condition.operator} onChange={(value) => updatePolicyCondition(index, { operator: value })}>
+                  {(field?.operators || []).map((operator) => <Option key={operator} value={operator}>{SNOW_RULE_OPERATORS[operator]}</Option>)}
+                </Select>
+                <Input value={String(condition.value ?? "")} placeholder={condition.field === "converted_boxes" ? "输入数值" : "输入匹配内容"} onChange={(value) => updatePolicyCondition(index, { value })} />
+                <button
+                  className="policy-remove-condition"
+                  type="button"
+                  title="移除条件"
+                  aria-label="移除条件"
+                  disabled={form.conditions.length <= 1}
+                  onClick={() => updatePolicyForm({
+                    conditions: form.conditions.filter((_item, position) => position !== index),
+                  })}
+                >×</button>
+              </div>
+            );
+          })}
+        </div>
+        {formError ? (
+          <Alert
+            className="policy-form-error"
+            type="error"
+            showIcon
+            content={`${form.id ? "保存" : "新增"}失败：${formError}`}
+          />
+        ) : null}
+      </Modal>
+
+      <SnowOutboundUploadModal
+        visible={uploadOpen}
+        csrfToken={csrfToken}
+        onClose={() => setUploadOpen(false)}
+        onImported={async () => {
+          setPage(1);
+          await loadPolicies();
+        }}
+      />
     </div>
   );
 }
@@ -1449,11 +3802,15 @@ function UserManagement({ csrfToken }) {
                 <tr key={user.id}>
                   <td>
                     <span className="user-account-cell">
-                      <Text bold>{user.username}</Text>
+                      <TableEllipsis value={user.username} maxWidth={150}>
+                        <Text bold>{user.username}</Text>
+                      </TableEllipsis>
                       {user.is_super_admin ? <Tag color="gold">超级管理员</Tag> : null}
                     </span>
                   </td>
-                  <td>{user.display_name}</td>
+                  <td>
+                    <TableEllipsis value={user.display_name} maxWidth={160} />
+                  </td>
                   <td>{user.role === "admin" ? "管理员" : "普通用户"}</td>
                   <td>
                     <Tag color={user.status === "enabled" ? "green" : "gray"}>
@@ -1549,6 +3906,7 @@ function App() {
   const [session, setSession] = useState({ user: "", display_name: "", csrf_token: "", is_admin: false });
   const [collapsed, setCollapsed] = useState(false);
   const [activePage, setActivePage] = useState("library");
+  const [customerSection, setCustomerSection] = useState("terminals");
   const [libraryMonths, setLibraryMonths] = useState([]);
   const [activeLibraryMonth, setActiveLibraryMonth] = useState("");
 
@@ -1573,7 +3931,12 @@ function App() {
     });
   }
 
-  const pageTitle = activePage === "users" ? "权限管理" : "CRM图片处理";
+  const pageTitle =
+    activePage === "users"
+      ? "权限管理"
+      : activePage === "customers"
+        ? customerSection === "policies" ? "雪花出库政策" : "终端明细"
+        : "CRM图片处理";
   const displayName = session.display_name || session.user || "用户";
 
   return (
@@ -1616,6 +3979,37 @@ function App() {
                 ))}
               </div>
             ) : null}
+            <button
+              type="button"
+              className={activePage === "customers" ? "nav-item active" : "nav-item"}
+              title={collapsed ? "客户档案" : undefined}
+              onClick={() => setActivePage("customers")}
+            >
+              <NavIcon type="customers" />
+              {!collapsed ? (
+                <span className="nav-copy">
+                  <span>客户档案</span>
+                </span>
+              ) : null}
+            </button>
+            {activePage === "customers" && !collapsed ? (
+              <div className="sub-nav customer-sub-nav">
+                <button
+                  type="button"
+                  className={customerSection === "terminals" ? "sub-nav-item active" : "sub-nav-item"}
+                  onClick={() => setCustomerSection("terminals")}
+                >
+                  终端明细
+                </button>
+                <button
+                  type="button"
+                  className={customerSection === "policies" ? "sub-nav-item active" : "sub-nav-item"}
+                  onClick={() => setCustomerSection("policies")}
+                >
+                  雪花出库政策
+                </button>
+              </div>
+            ) : null}
             {session.is_admin ? (
               <button
                 type="button"
@@ -1647,17 +4041,39 @@ function App() {
           <Header className="app-header">
             <div className="header-inner">
               <div className="top-title">{pageTitle}</div>
-              <Space>
-                <Tag color="green">欢迎您，{displayName}</Tag>
+              <Space className="header-actions">
+                <Text type="secondary">欢迎您</Text>
+                <Tag color="green">{displayName}</Tag>
                 <Button type="text" href="/logout">
                   退出
                 </Button>
               </Space>
             </div>
           </Header>
-          <Content className={activePage === "users" ? "app-content" : "app-content library-content"}>
+          <Content
+            className={
+              activePage === "library"
+                ? "app-content library-content"
+                : activePage === "customers"
+                  ? "app-content customer-content"
+                  : "app-content"
+            }
+          >
             {activePage === "users" ? (
               <UserManagement csrfToken={session.csrf_token} />
+            ) : activePage === "customers" ? (
+              customerSection === "policies" ? (
+                <SnowPolicyManagement
+                  csrfToken={session.csrf_token}
+                  isAdmin={session.is_admin}
+                />
+              ) : (
+                <CustomerManagement
+                  csrfToken={session.csrf_token}
+                  isAdmin={session.is_admin}
+                  currentUser={session.user}
+                />
+              )
             ) : (
               <ImageLibrary
                 csrfToken={session.csrf_token}

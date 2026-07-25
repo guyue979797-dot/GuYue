@@ -10,6 +10,63 @@ from infolens.image_library import ImageLibraryStore
 
 
 class ImageLibraryStoreTests(unittest.TestCase):
+    def test_query_orders_terminal_groups_by_latest_upload_and_business_or(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            store = ImageLibraryStore(
+                root / "_system" / "image_library.sqlite3",
+                root,
+            )
+            fixtures = [
+                ("VISIT-OLD", "1000000001", "较早终端", "业务甲", "2026-07-01T09:00:00"),
+                ("VISIT-NEW", "1000000002", "最新终端", "业务乙", "2026-07-02T09:00:00"),
+            ]
+            for visit_id, field, customer, business, created_at in fixtures:
+                output_dir = root / f"{customer}_{visit_id}"
+                output_dir.mkdir()
+                filename = f"{field}_{customer}_{business}_01.jpg"
+                (output_dir / filename).write_bytes(b"image")
+                store.add_result(
+                    ExtractResult(
+                        visit_id=visit_id,
+                        terminal_name=customer,
+                        partner_name=business,
+                        output_dir=str(output_dir),
+                        images=[
+                            SavedImage(
+                                index=1,
+                                photoid=(
+                                    "private/TCOS/Z0019/O50002488/20260610/"
+                                    f"{field}/source.jpeg"
+                                ),
+                                filename=filename,
+                                url="",
+                                size_bytes=5,
+                            )
+                        ],
+                        metadata_file=str(output_dir / "metadata.json"),
+                        visit_in_time="2026-06-30 20:21:43",
+                    ),
+                    created_at=created_at,
+                )
+
+            result = store.query(
+                month="2026-06",
+                businesses=["业务甲", "业务乙"],
+            )
+            self.assertEqual(
+                [item["field"] for item in result["items"]],
+                ["1000000002", "1000000001"],
+            )
+            business_result = store.query(
+                month="2026-06",
+                businesses=["业务甲"],
+            )
+            self.assertEqual(
+                [item["field"] for item in business_result["items"]],
+                ["1000000001"],
+            )
+
     def test_add_query_and_export_images(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -88,6 +145,17 @@ class ImageLibraryStoreTests(unittest.TestCase):
             images = store.get_images([image["id"]])
             self.assertEqual(len(images), 1)
             self.assertEqual(images[0].field, "1023275022")
+            self.assertEqual(
+                store.query(
+                    terminal_codes=["1023275022"],
+                    month="2026-06",
+                )["image_count"],
+                1,
+            )
+            self.assertEqual(
+                store.query(terminal_codes=[], month="2026-06")["image_count"],
+                0,
+            )
 
     def test_visit_in_time_milliseconds_define_month(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -8,6 +8,7 @@ import shutil
 import sqlite3
 import secrets
 import urllib.parse
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -147,6 +148,36 @@ class ImageLibraryStore:
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL DEFAULT ''
                 )
+                """
+            )
+            connection.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS image_policy_tags (
+                    image_id TEXT NOT NULL,
+                    policy_id TEXT NOT NULL,
+                    terminal_code TEXT NOT NULL,
+                    archived_by TEXT NOT NULL DEFAULT '',
+                    archived_by_name TEXT NOT NULL DEFAULT '',
+                    archived_at TEXT NOT NULL,
+                    PRIMARY KEY(image_id, policy_id),
+                    FOREIGN KEY(image_id) REFERENCES extracted_images(id)
+                );
+                CREATE INDEX IF NOT EXISTS idx_image_policy_tags_policy
+                    ON image_policy_tags(policy_id, terminal_code, archived_at);
+
+                CREATE TABLE IF NOT EXISTS photo_archive_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    policy_id TEXT NOT NULL,
+                    action_type TEXT NOT NULL,
+                    actor TEXT NOT NULL DEFAULT '',
+                    actor_name TEXT NOT NULL DEFAULT '',
+                    photo_count INTEGER NOT NULL DEFAULT 0,
+                    terminal_count INTEGER NOT NULL DEFAULT 0,
+                    skipped_count INTEGER NOT NULL DEFAULT 0,
+                    operated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_photo_archive_logs_policy
+                    ON photo_archive_logs(policy_id, operated_at DESC, id DESC);
                 """
             )
 
@@ -391,8 +422,10 @@ class ImageLibraryStore:
         self,
         *,
         fields: list[str] | None = None,
+        terminal_codes: list[str] | None = None,
         month: str = "",
         business: str = "",
+        businesses: list[str] | None = None,
         customer_name: str = "",
         page: int = 1,
         page_size: int = 12,
@@ -408,12 +441,34 @@ class ImageLibraryStore:
             placeholders = ",".join("?" for _ in normalized_fields)
             conditions.append(f"field IN ({placeholders})")
             params.extend(normalized_fields)
+        if terminal_codes is not None:
+            normalized_terminal_codes = list(
+                dict.fromkeys(
+                    str(item).strip()
+                    for item in terminal_codes
+                    if str(item).strip()
+                )
+            )
+            if normalized_terminal_codes:
+                placeholders = ",".join("?" for _ in normalized_terminal_codes)
+                conditions.append(f"field IN ({placeholders})")
+                params.extend(normalized_terminal_codes)
+            else:
+                conditions.append("1 = 0")
         if month:
             conditions.append("month = ?")
             params.append(month)
-        if business:
-            conditions.append("business = ?")
-            params.append(business)
+        normalized_businesses = list(
+            dict.fromkeys(
+                item.strip()
+                for item in [*(businesses or []), business]
+                if item and item.strip()
+            )
+        )
+        if normalized_businesses:
+            placeholders = ",".join("?" for _ in normalized_businesses)
+            conditions.append(f"business IN ({placeholders})")
+            params.extend(normalized_businesses)
         if customer_name:
             conditions.append("customer_name LIKE ?")
             params.append(f"%{customer_name}%")
@@ -452,11 +507,12 @@ class ImageLibraryStore:
             rows = connection.execute(
                 f"""
                 WITH selected_groups AS (
-                    SELECT month, field, business, customer_name
+                    SELECT month, field, business, customer_name,
+                           MAX(created_at) AS latest_created_at
                     FROM extracted_images
                     WHERE {where}
                     GROUP BY month, field, business, customer_name
-                    ORDER BY month DESC, field, customer_name, business
+                    ORDER BY latest_created_at DESC, field, customer_name, business
                     LIMIT ? OFFSET ?
                 )
                 SELECT image.* FROM extracted_images AS image
@@ -466,7 +522,8 @@ class ImageLibraryStore:
                  AND image.business = selected.business
                  AND image.customer_name = selected.customer_name
                 WHERE image.deleted_at = ''
-                ORDER BY image.month DESC, image.field, image.customer_name,
+                ORDER BY selected.latest_created_at DESC,
+                         image.field, image.customer_name,
                          image.business, image.created_at, image.id
                 """,
                 [*params, normalized_page_size, offset],
@@ -583,6 +640,296 @@ class ImageLibraryStore:
                 (normalized,),
             ).fetchone()
         return self._row_to_image(row) if row is not None else None
+
+    def archive_images(
+        self,
+        image_ids: list[str],
+        *,
+        policy_id: str,
+        month: str,
+        actor: str,
+        actor_name: str,
+    ) -> dict[str, int]:
+        normalized_ids = list(
+            dict.fromkeys(
+                image_id.strip() for image_id in image_ids if image_id.strip()
+            )
+        )
+        if not normalized_ids:
+            raise ValueError("请先选择需要归档的照片")
+        if len(normalized_ids) > 5000:
+            raise ValueError("单次最多归档5000张照片")
+        placeholders = ",".join("?" for _ in normalized_ids)
+        operated_at = datetime.now().isoformat(timespec="seconds")
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT id, field, month
+                FROM extracted_images
+                WHERE deleted_at = '' AND id IN ({placeholders})
+                """,
+                normalized_ids,
+            ).fetchall()
+            if len(rows) != len(normalized_ids):
+                raise ValueError("部分照片不存在或已被删除，请刷新页面后重试")
+            image_months = {row["month"] for row in rows}
+            if image_months != {month}:
+                raise ValueError("所选照片与当前月份不一致，请刷新页面后重新选择")
+
+            connection.execute("BEGIN IMMEDIATE")
+            inserted_count = 0
+            terminal_codes: set[str] = set()
+            for row in rows:
+                terminal_codes.add(row["field"])
+                cursor = connection.execute(
+                    """
+                    INSERT OR IGNORE INTO image_policy_tags (
+                        image_id, policy_id, terminal_code,
+                        archived_by, archived_by_name, archived_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        row["id"],
+                        policy_id,
+                        row["field"],
+                        actor,
+                        actor_name,
+                        operated_at,
+                    ),
+                )
+                inserted_count += max(int(cursor.rowcount or 0), 0)
+            skipped_count = len(rows) - inserted_count
+            connection.execute(
+                """
+                INSERT INTO photo_archive_logs (
+                    policy_id, action_type, actor, actor_name,
+                    photo_count, terminal_count, skipped_count, operated_at
+                ) VALUES (?, 'archive', ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    policy_id,
+                    actor,
+                    actor_name,
+                    inserted_count,
+                    len(terminal_codes),
+                    skipped_count,
+                    operated_at,
+                ),
+            )
+            connection.execute("COMMIT")
+        return {
+            "selected_count": len(rows),
+            "archived_count": inserted_count,
+            "skipped_count": skipped_count,
+            "terminal_count": len(terminal_codes),
+        }
+
+    def policy_archive_stats(
+        self, policy_ids: list[str]
+    ) -> dict[str, dict[str, int]]:
+        normalized_ids = list(
+            dict.fromkeys(policy_id.strip() for policy_id in policy_ids if policy_id.strip())
+        )
+        if not normalized_ids:
+            return {}
+        placeholders = ",".join("?" for _ in normalized_ids)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT tags.policy_id,
+                       COUNT(*) AS photo_count,
+                       COUNT(DISTINCT tags.terminal_code) AS photographed_count
+                FROM image_policy_tags AS tags
+                JOIN extracted_images AS image ON image.id = tags.image_id
+                WHERE image.deleted_at = ''
+                  AND tags.policy_id IN ({placeholders})
+                GROUP BY tags.policy_id
+                """,
+                normalized_ids,
+            ).fetchall()
+        return {
+            row["policy_id"]: {
+                "photo_count": int(row["photo_count"] or 0),
+                "photographed_count": int(row["photographed_count"] or 0),
+            }
+            for row in rows
+        }
+
+    def archived_terminal_codes(self, policy_id: str) -> set[str]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT DISTINCT tags.terminal_code
+                FROM image_policy_tags AS tags
+                JOIN extracted_images AS image ON image.id = tags.image_id
+                WHERE tags.policy_id = ? AND image.deleted_at = ''
+                ORDER BY tags.terminal_code
+                """,
+                (policy_id.strip(),),
+            ).fetchall()
+        return {row["terminal_code"] for row in rows}
+
+    def archived_policy_ids_by_image(
+        self,
+        image_ids: list[str],
+    ) -> dict[str, list[str]]:
+        normalized_ids = list(
+            dict.fromkeys(
+                image_id.strip()
+                for image_id in image_ids
+                if image_id.strip()
+            )
+        )
+        if not normalized_ids:
+            return {}
+        placeholders = ",".join("?" for _ in normalized_ids)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT tags.image_id, tags.policy_id
+                FROM image_policy_tags AS tags
+                JOIN extracted_images AS image ON image.id = tags.image_id
+                WHERE image.deleted_at = ''
+                  AND tags.image_id IN ({placeholders})
+                ORDER BY tags.image_id, tags.archived_at, tags.policy_id
+                """,
+                normalized_ids,
+            ).fetchall()
+        result: dict[str, list[str]] = defaultdict(list)
+        for row in rows:
+            result[row["image_id"]].append(row["policy_id"])
+        return dict(result)
+
+    def archived_terminal_codes_by_policy(
+        self,
+        policy_ids: list[str],
+    ) -> dict[str, set[str]]:
+        normalized_ids = list(
+            dict.fromkeys(
+                policy_id.strip()
+                for policy_id in policy_ids
+                if policy_id.strip()
+            )
+        )
+        if not normalized_ids:
+            return {}
+        placeholders = ",".join("?" for _ in normalized_ids)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT tags.policy_id, tags.terminal_code
+                FROM image_policy_tags AS tags
+                JOIN extracted_images AS image ON image.id = tags.image_id
+                WHERE image.deleted_at = ''
+                  AND tags.policy_id IN ({placeholders})
+                GROUP BY tags.policy_id, tags.terminal_code
+                """,
+                normalized_ids,
+            ).fetchall()
+        result: dict[str, set[str]] = defaultdict(set)
+        for row in rows:
+            result[row["policy_id"]].add(row["terminal_code"])
+        return dict(result)
+
+    def archived_terminals(self, policy_id: str) -> list[dict[str, str]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT tags.terminal_code,
+                       MAX(image.customer_name) AS customer_name,
+                       MAX(image.business) AS salesperson
+                FROM image_policy_tags AS tags
+                JOIN extracted_images AS image ON image.id = tags.image_id
+                WHERE tags.policy_id = ? AND image.deleted_at = ''
+                GROUP BY tags.terminal_code
+                ORDER BY tags.terminal_code
+                """,
+                (policy_id.strip(),),
+            ).fetchall()
+        return [
+            {
+                "terminal_code": row["terminal_code"],
+                "customer_name": row["customer_name"] or "",
+                "salesperson": row["salesperson"] or "",
+            }
+            for row in rows
+        ]
+
+    def archived_images(self, policy_id: str) -> list[dict[str, Any]]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT image.*, tags.archived_by, tags.archived_by_name,
+                       tags.archived_at
+                FROM image_policy_tags AS tags
+                JOIN extracted_images AS image ON image.id = tags.image_id
+                WHERE tags.policy_id = ? AND image.deleted_at = ''
+                ORDER BY tags.terminal_code, image.customer_name,
+                         tags.archived_at, image.created_at, image.id
+                """,
+                (policy_id.strip(),),
+            ).fetchall()
+        return [
+            {
+                "image": self._row_to_image(row),
+                "archived_by": row["archived_by"],
+                "archived_by_name": row["archived_by_name"],
+                "archived_at": row["archived_at"],
+            }
+            for row in rows
+        ]
+
+    def latest_photo_archive_logs(
+        self, policy_ids: list[str]
+    ) -> dict[str, dict[str, Any]]:
+        normalized_ids = list(
+            dict.fromkeys(policy_id.strip() for policy_id in policy_ids if policy_id.strip())
+        )
+        if not normalized_ids:
+            return {}
+        placeholders = ",".join("?" for _ in normalized_ids)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT log.*
+                FROM photo_archive_logs AS log
+                JOIN (
+                    SELECT policy_id, MAX(id) AS latest_id
+                    FROM photo_archive_logs
+                    WHERE policy_id IN ({placeholders})
+                    GROUP BY policy_id
+                ) AS latest ON latest.latest_id = log.id
+                """,
+                normalized_ids,
+            ).fetchall()
+        return {row["policy_id"]: dict(row) for row in rows}
+
+    def record_photo_archive_export(
+        self,
+        policy_id: str,
+        *,
+        actor: str,
+        actor_name: str,
+        photo_count: int,
+        terminal_count: int,
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO photo_archive_logs (
+                    policy_id, action_type, actor, actor_name,
+                    photo_count, terminal_count, skipped_count, operated_at
+                ) VALUES (?, 'export', ?, ?, ?, ?, 0, ?)
+                """,
+                (
+                    policy_id.strip(),
+                    actor,
+                    actor_name,
+                    max(int(photo_count), 0),
+                    max(int(terminal_count), 0),
+                    datetime.now().isoformat(timespec="seconds"),
+                ),
+            )
 
     def _public_image(self, image: LibraryImage) -> dict[str, Any]:
         return {

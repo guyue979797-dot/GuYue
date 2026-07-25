@@ -8,6 +8,7 @@ const outDir = resolve(root, "../web/assets");
 const outFile = resolve(outDir, "index-arco.js");
 const reactGlobalsFile = resolve(outDir, "react-globals.js");
 const htmlFile = resolve(root, "../web/index.html");
+const assetVersion = Date.now().toString(36);
 
 await mkdir(outDir, { recursive: true });
 
@@ -56,14 +57,14 @@ await writeFile(
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>雪花CRM拜访照片提取</title>
-    <link rel="stylesheet" href="/assets/arco.min.css" />
-    <link rel="stylesheet" href="/assets/index-arco.css" />
+    <link rel="stylesheet" href="/assets/arco.min.css?v=${assetVersion}" />
+    <link rel="stylesheet" href="/assets/index-arco.css?v=${assetVersion}" />
   </head>
   <body>
     <div id="root"></div>
-    <script src="/assets/react-globals.js"></script>
-    <script src="/assets/arco.min.js"></script>
-    <script type="module" crossorigin src="/assets/index-arco.js"></script>
+    <script src="/assets/react-globals.js?v=${assetVersion}"></script>
+    <script src="/assets/arco.min.js?v=${assetVersion}"></script>
+    <script type="module" crossorigin src="/assets/index-arco.js?v=${assetVersion}"></script>
   </body>
 </html>
 `,

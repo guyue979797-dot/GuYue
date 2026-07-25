@@ -18,17 +18,20 @@ import os
 import queue
 import re
 import secrets
+import shutil
 import threading
 import time
 import urllib.parse
 import zipfile
 from collections import defaultdict, deque
-from datetime import datetime, timezone
+from datetime import datetime
 from functools import wraps
 from pathlib import Path
 from typing import Callable
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.utils.exceptions import InvalidFileException
 from flask import (
     Flask,
@@ -47,15 +50,15 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import generate_password_hash
 
 from infolens.crm_client import CrmApiError
+from infolens.customers import (
+    EXCEL_HEADERS,
+    HEADER_TO_FIELD,
+    SALESPEOPLE,
+    SNOW_SALESPEOPLE,
+    CustomerStore,
+)
 from infolens.distribution import DistributionStore
 from infolens.extraction_records import ExtractionRecordStore
-from infolens.export_records import (
-    ExportArchiveMissingError,
-    ExportExpiredError,
-    ExportRecordError,
-    ExportRecordStore,
-    to_utc_iso,
-)
 from infolens.extractor import (
     ExtractResult,
     build_image_filename,
@@ -63,7 +66,14 @@ from infolens.extractor import (
     parse_visit_url,
     photoid_name_field,
 )
-from infolens.image_library import ImageLibraryStore, LibraryImage
+from infolens.image_library import ImageLibraryStore
+from infolens.snow_outbound import (
+    POLICY_TAGS,
+    RULE_FIELDS,
+    RULE_OPERATOR_LABELS,
+    SnowOutboundStore,
+    parse_outbound_workbook,
+)
 from infolens.users import UserStore
 from infolens.wecom_bot import (
     MessageDeduplicator,
@@ -125,9 +135,11 @@ IMAGE_LIBRARY = ImageLibraryStore(
     OUTPUT_ROOT,
 )
 USER_STORE = UserStore(OUTPUT_ROOT / "_system" / "users.sqlite3")
-EXPORT_RECORD_STORE = ExportRecordStore(
-    OUTPUT_ROOT / "_system" / "export_records.sqlite3",
-    OUTPUT_ROOT,
+CUSTOMER_STORE = CustomerStore(
+    OUTPUT_ROOT / "_system" / "customer_profiles.sqlite3"
+)
+SNOW_OUTBOUND_STORE = SnowOutboundStore(
+    OUTPUT_ROOT / "_system" / "customer_profiles.sqlite3"
 )
 EXTRACTION_RECORD_STORE = ExtractionRecordStore(
     OUTPUT_ROOT / "_system" / "extraction_records.sqlite3"
@@ -960,6 +972,151 @@ def _check_rate_limit() -> None:
         bucket.append(now)
 
 
+def _customer_operator() -> tuple[str, str]:
+    username = str(_current_user() or "")
+    return username, str(session.get("display_name") or username)
+
+
+def _excel_text(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+def _safe_excel_cell(value) -> str:
+    text = _excel_text(value)
+    if text.startswith(("=", "+", "-", "@")):
+        return f"'{text}"
+    return text
+
+
+def _parse_customer_workbook(file_stream) -> list[dict]:
+    try:
+        workbook = load_workbook(file_stream, read_only=True, data_only=True)
+    except (InvalidFileException, OSError, ValueError, zipfile.BadZipFile) as exc:
+        raise ValueError("无法读取 Excel 文件，请确认文件为有效的 .xlsx 格式") from exc
+    try:
+        worksheet = workbook.active
+        worksheet.reset_dimensions()
+        first_row = next(worksheet.iter_rows(min_row=1, max_row=1, values_only=True), ())
+        headers = [_excel_text(value) for value in first_row]
+        while headers and not headers[-1]:
+            headers.pop()
+        if not headers:
+            raise ValueError("Excel 表头不能为空")
+        if any(not header for header in headers):
+            raise ValueError("Excel 表头中不能包含空白列")
+        duplicates = sorted({header for header in headers if headers.count(header) > 1})
+        if duplicates:
+            raise ValueError(f"Excel 表头存在重复字段：{'、'.join(duplicates)}")
+        missing = [header for header in EXCEL_HEADERS if header not in headers]
+        unknown = [header for header in headers if header not in EXCEL_HEADERS]
+        if missing:
+            raise ValueError(f"Excel 缺少表头：{'、'.join(missing)}")
+        if unknown:
+            raise ValueError(f"Excel 存在未知表头：{'、'.join(unknown)}")
+
+        rows = []
+        for row_number, values in enumerate(
+            worksheet.iter_rows(min_row=2, values_only=True),
+            start=2,
+        ):
+            raw = {
+                header: _excel_text(values[index] if index < len(values) else None)
+                for index, header in enumerate(headers)
+            }
+            if not any(raw.values()):
+                continue
+            rows.append(
+                {
+                    "row_number": row_number,
+                    "raw": raw,
+                    "payload": {
+                        HEADER_TO_FIELD[header]: raw[header]
+                        for header in EXCEL_HEADERS
+                    },
+                }
+            )
+        return rows
+    finally:
+        workbook.close()
+
+
+def _customer_workbook_response(*, errors: list[dict] | None = None):
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "客户档案"
+    headers = [*EXCEL_HEADERS, *(["失败原因"] if errors is not None else [])]
+    worksheet.append(headers)
+    header_fill = PatternFill("solid", fgColor="165DFF")
+    for cell in worksheet[1]:
+        cell.fill = header_fill
+        cell.font = Font(color="FFFFFF", bold=True)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    worksheet.freeze_panes = "A2"
+    worksheet.auto_filter.ref = f"A1:{worksheet.cell(1, len(headers)).coordinate}"
+    widths = [16, 28, 12, 18, 14, 16, 16, 36, 18, 36]
+    if errors is not None:
+        widths.append(50)
+        for error in errors:
+            raw = error.get("data") or {}
+            worksheet.append(
+                [_safe_excel_cell(raw.get(header, "")) for header in EXCEL_HEADERS]
+                + [_safe_excel_cell(error.get("error", ""))]
+            )
+    else:
+        worksheet.append(
+            [
+                "1000000001",
+                "示例客户（请删除本行）",
+                "运营",
+                "示例线路",
+                SALESPEOPLE[0],
+                SNOW_SALESPEOPLE[0],
+                "",
+                "",
+                "",
+                "",
+            ]
+        )
+        status_validation = DataValidation(
+            type="list",
+            formula1='"运营,停用"',
+            allow_blank=True,
+        )
+        salesperson_validation = DataValidation(
+            type="list",
+            formula1=f'"{",".join(SALESPEOPLE)}"',
+        )
+        snow_validation = DataValidation(
+            type="list",
+            formula1=f'"{",".join(SNOW_SALESPEOPLE)}"',
+            allow_blank=True,
+        )
+        for validation, cells in (
+            (status_validation, "C2:C1000"),
+            (salesperson_validation, "E2:E1000"),
+            (snow_validation, "F2:F1000"),
+        ):
+            worksheet.add_data_validation(validation)
+            validation.add(cells)
+        for row in range(2, 1001):
+            worksheet.cell(row, 1).number_format = "@"
+            worksheet.cell(row, 9).number_format = "@"
+    for index, width in enumerate(widths, start=1):
+        worksheet.column_dimensions[worksheet.cell(1, index).column_letter].width = width
+    output = io.BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    return output
+
+
 def _run_wecom_extract_job(
     application: Flask,
     crypto: WecomBotCrypto,
@@ -1157,6 +1314,22 @@ def _parse_field_lines(value: str) -> list[str]:
     return fields
 
 
+def _parse_string_values(value) -> list[str]:
+    if isinstance(value, list):
+        source = value
+    elif value is None:
+        source = []
+    else:
+        source = [value]
+    return list(
+        dict.fromkeys(
+            str(item).strip()
+            for item in source
+            if str(item).strip()
+        )
+    )
+
+
 def _parse_pagination(page_value, page_size_value) -> tuple[int, int]:
     try:
         page = int(page_value or 1)
@@ -1166,6 +1339,38 @@ def _parse_pagination(page_value, page_size_value) -> tuple[int, int]:
     if page < 1 or page_size < 1:
         raise ValueError("分页参数必须大于 0")
     return page, min(page_size, 50)
+
+
+def _attach_image_archive_tags(result: dict) -> None:
+    images = [
+        image
+        for item in result.get("items", [])
+        for image in item.get("images", [])
+    ]
+    archive_map = IMAGE_LIBRARY.archived_policy_ids_by_image(
+        [str(image.get("id") or "") for image in images]
+    )
+    policy_ids = list(
+        dict.fromkeys(
+            policy_id
+            for policy_ids in archive_map.values()
+            for policy_id in policy_ids
+        )
+    )
+    policy_map = SNOW_OUTBOUND_STORE.policy_summaries(
+        policy_ids,
+        include_deleted=True,
+    )
+    for image in images:
+        image["archive_tags"] = [
+            {
+                "policy_id": policy_map[policy_id]["policy_id"],
+                "tag": policy_map[policy_id]["tag"],
+                "color": policy_map[policy_id]["color"],
+            }
+            for policy_id in archive_map.get(str(image.get("id") or ""), [])
+            if policy_id in policy_map
+        ]
 
 
 def _private_image_cache(response):
@@ -1221,122 +1426,125 @@ def _serve_output_file(
     return _private_image_cache(response) if cache else response
 
 
-def _valid_export_images(image_ids: list[str]) -> list[tuple[LibraryImage, Path]]:
-    images = IMAGE_LIBRARY.get_images(image_ids)
-    valid_images: list[tuple[LibraryImage, Path]] = []
-    for image in images:
+def _safe_archive_part(value: str, fallback: str = "未知") -> str:
+    cleaned = re.sub(r'[\\/:*?"<>|]', "_", str(value or "").strip())
+    return cleaned[:100] or fallback
+
+
+def _create_photo_archive(policy: dict) -> tuple[Path, str, int, int]:
+    archived_items = IMAGE_LIBRARY.archived_images(policy["id"])
+    valid_items: list[tuple[dict, Path]] = []
+    for item in archived_items:
+        image = item["image"]
         source = (OUTPUT_ROOT / image.file_path).resolve()
         try:
             source.relative_to(OUTPUT_ROOT)
         except ValueError:
             continue
         if source.is_file():
-            valid_images.append((image, source))
-    if not valid_images:
-        raise ValueError("选中的照片文件不存在，无法导出")
-    return valid_images
+            valid_items.append((item, source))
+    if not valid_items:
+        raise ValueError("该政策标签暂无可导出的归档照片")
 
-
-def _preview_image_library_archive(image_ids: list[str]) -> dict:
-    valid_images = _valid_export_images(image_ids)
-    fields = sorted({image.field for image, _source in valid_images})
-    return {
-        "image_count": len(valid_images),
-        "field_count": len(fields),
-        "fields": fields,
-        "export_time": to_utc_iso(datetime.now(timezone.utc)),
-    }
-
-
-def _create_image_library_archive(
-    image_ids: list[str],
-    *,
-    description: str,
-    owner_username: str,
-    owner_display_name: str,
-) -> dict:
-    description = description.strip()
-    if not description:
-        raise ValueError("请填写导出说明")
-    if len(description) > 30:
-        raise ValueError("导出说明不能超过30个字")
-
-    valid_images = _valid_export_images(image_ids)
-    exported_at = datetime.now(timezone.utc)
-    record_id = secrets.token_hex(16)
-
-    export_root = OUTPUT_ROOT / "_image_exports"
+    export_root = OUTPUT_ROOT / "_photo_archive_exports"
     export_root.mkdir(parents=True, exist_ok=True)
     archive_name = (
-        f"{datetime.now():%Y%m%d_%H%M%S}_选中照片_"
-        f"{len(valid_images)}张_{record_id[:6]}.zip"
+        f"{datetime.now():%Y%m%d_%H%M%S}_"
+        f"{_safe_archive_part(policy['display_name'], '雪花政策')}_照片档案.zip"
     )
-    archive_path = export_root / archive_name
-    temp_path = export_root / f".{record_id}.zip"
-    groups: dict[tuple[str, str, str], int] = {}
-    fields: set[str] = set()
-    archived_images = 0
-    image_items: list[tuple[str, str]] = []
+    archive_path = export_root / f"{secrets.token_hex(8)}.zip"
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "照片档案明细"
+    headers = [
+        "政策标签",
+        "政策年月",
+        "终端编码",
+        "客户全名",
+        "终端照片数量",
+        "照片文件名",
+        "归档人",
+        "归档时间",
+    ]
+    worksheet.append(headers)
+    for cell in worksheet[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="165DFF")
+        cell.alignment = Alignment(horizontal="center")
+    worksheet.freeze_panes = "A2"
+    worksheet.auto_filter.ref = f"A1:H{len(valid_items) + 1}"
+    worksheet.column_dimensions["A"].width = 24
+    worksheet.column_dimensions["B"].width = 12
+    worksheet.column_dimensions["C"].width = 16
+    worksheet.column_dimensions["D"].width = 30
+    worksheet.column_dimensions["E"].width = 14
+    worksheet.column_dimensions["F"].width = 38
+    worksheet.column_dimensions["G"].width = 16
+    worksheet.column_dimensions["H"].width = 22
 
+    folder_sequences: dict[str, int] = defaultdict(int)
+    terminal_photo_counts: dict[str, int] = defaultdict(int)
+    for item, _source in valid_items:
+        terminal_photo_counts[item["image"].field] += 1
+    terminal_codes: set[str] = set()
     with zipfile.ZipFile(
-        temp_path,
+        archive_path,
         "w",
         compression=zipfile.ZIP_DEFLATED,
         compresslevel=6,
     ) as archive:
-        for image, source in valid_images:
-            group_key = (image.field, image.customer_name, image.business)
-            groups[group_key] = groups.get(group_key, 0) + 1
-            sequence = groups[group_key]
-            safe_field = re.sub(r'[\\/:*?"<>|]', "_", image.field)
-            safe_customer = re.sub(r'[\\/:*?"<>|]', "_", image.customer_name)
-            safe_business = re.sub(r'[\\/:*?"<>|]', "_", image.business)
-            folder = f"{safe_field}_{safe_customer}_{safe_business}"
+        for item, source in valid_items:
+            image = item["image"]
+            terminal_codes.add(image.field)
+            folder = (
+                f"{_safe_archive_part(image.field, '未知终端')}_"
+                f"{_safe_archive_part(image.customer_name, '未知客户')}"
+            )
+            folder_sequences[folder] += 1
             extension = source.suffix.lower() or ".jpg"
-            archive.write(source, f"{folder}/{sequence:02d}{extension}")
-            fields.add(image.field)
-            image_items.append((image.id, image.field))
-            archived_images += 1
+            archived_filename = (
+                f"{folder_sequences[folder]:03d}_"
+                f"{_safe_archive_part(image.filename, '照片')}"
+            )
+            if not Path(archived_filename).suffix:
+                archived_filename += extension
+            archive.write(source, f"{folder}/{archived_filename}")
+            worksheet.append(
+                [
+                    _safe_excel_cell(policy["display_name"]),
+                    f"{int(policy['year']):04d}-{int(policy['month']):02d}",
+                    _safe_excel_cell(image.field),
+                    _safe_excel_cell(image.customer_name),
+                    terminal_photo_counts[image.field],
+                    _safe_excel_cell(archived_filename),
+                    _safe_excel_cell(
+                        item["archived_by_name"] or item["archived_by"]
+                    ),
+                    item["archived_at"],
+                ]
+            )
+        workbook_stream = io.BytesIO()
+        workbook.save(workbook_stream)
+        archive.writestr("照片档案明细.xlsx", workbook_stream.getvalue())
+    return archive_path, archive_name, len(valid_items), len(terminal_codes)
 
-        report = {
-            "record_id": record_id,
-            "description": description,
-            "field_count": len(fields),
-            "fields": sorted(fields),
-            "image_count": archived_images,
-            "created_at": to_utc_iso(exported_at),
-        }
-        archive.writestr(
-            "图片库导出结果.json",
-            json.dumps(report, ensure_ascii=False, indent=2),
-        )
 
-    if not archived_images:
-        temp_path.unlink(missing_ok=True)
-        raise ValueError("选中的照片文件不存在，无法导出")
-
-    temp_path.replace(archive_path)
-    try:
-        return EXPORT_RECORD_STORE.create_record(
-            record_id=record_id,
-            description=description,
-            owner_username=owner_username,
-            owner_display_name=owner_display_name,
-            archive_name=archive_name,
-            archive_path=archive_path.relative_to(OUTPUT_ROOT).as_posix(),
-            image_items=image_items,
-            archive_size_bytes=archive_path.stat().st_size,
-            created_at=exported_at,
-        )
-    except Exception:
-        archive_path.unlink(missing_ok=True)
-        raise
+def _cleanup_legacy_image_exports() -> None:
+    legacy_export_root = OUTPUT_ROOT / "_image_exports"
+    if legacy_export_root.is_dir():
+        shutil.rmtree(legacy_export_root)
+    database = OUTPUT_ROOT / "_system" / "export_records.sqlite3"
+    for candidate in (database, Path(f"{database}-wal"), Path(f"{database}-shm")):
+        candidate.unlink(missing_ok=True)
+    transient_root = OUTPUT_ROOT / "_photo_archive_exports"
+    if transient_root.is_dir():
+        shutil.rmtree(transient_root)
 
 
 def create_app() -> Flask:
     _require_production_config()
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
-    EXPORT_RECORD_STORE.expire_records()
+    _cleanup_legacy_image_exports()
     EXTRACTION_RECORD_STORE.prune_expired()
     _ensure_super_admin()
     if os.environ.get("INFOLENS_DISTRIBUTION_IMPORT_EXISTING", "").lower() in {
@@ -1653,6 +1861,539 @@ def create_app() -> Flask:
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
+    @application.get("/api/customers/options")
+    @_login_required
+    def customer_options():
+        return jsonify(
+            {
+                "statuses": ["运营", "停用"],
+                "routes": CUSTOMER_STORE.list_routes(),
+                "salespeople": list(SALESPEOPLE),
+                "snow_salespeople": list(SNOW_SALESPEOPLE),
+                "page_sizes": [20, 50, 100],
+            }
+        )
+
+    @application.get("/api/customers")
+    @_login_required
+    def list_customers():
+        try:
+            return jsonify(
+                CUSTOMER_STORE.list_customers(
+                    terminal_code=request.args.get("terminal_code", ""),
+                    customer_name=request.args.get("customer_name", ""),
+                    route=request.args.get("route", ""),
+                    salesperson=request.args.get("salesperson", ""),
+                    snow_salesperson=request.args.get("snow_salesperson", ""),
+                    policy_month=(
+                        request.args.get("policy_month")
+                        or datetime.now().strftime("%Y-%m")
+                    ),
+                    policy_tag=request.args.get("policy_tag", ""),
+                    page=int(request.args.get("page", "1")),
+                    page_size=int(request.args.get("page_size", "20")),
+                )
+            )
+        except (TypeError, ValueError) as exc:
+            return jsonify({"error": str(exc) or "分页参数不正确"}), 400
+
+    @application.post("/api/customers")
+    @_login_required
+    def create_customer():
+        _check_csrf()
+        payload = request.get_json(silent=True) or {}
+        operator, operator_name = _customer_operator()
+        try:
+            return (
+                jsonify(
+                    CUSTOMER_STORE.create_customer(
+                        payload,
+                        operator=operator,
+                        operator_name=operator_name,
+                    )
+                ),
+                201,
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @application.get("/api/customers/<int:customer_id>")
+    @_login_required
+    def get_customer(customer_id: int):
+        try:
+            return jsonify(CUSTOMER_STORE.get_customer(customer_id))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 404
+
+    @application.patch("/api/customers/<int:customer_id>")
+    @_login_required
+    def update_customer(customer_id: int):
+        _check_csrf()
+        payload = request.get_json(silent=True) or {}
+        operator, operator_name = _customer_operator()
+        try:
+            return jsonify(
+                CUSTOMER_STORE.update_customer(
+                    customer_id,
+                    payload,
+                    operator=operator,
+                    operator_name=operator_name,
+                )
+            )
+        except ValueError as exc:
+            message = str(exc)
+            status = 409 if "其他人修改" in message else 400
+            return jsonify({"error": message}), status
+
+    @application.delete("/api/customers/<int:customer_id>")
+    @_admin_required
+    def delete_customer(customer_id: int):
+        _check_csrf()
+        operator, operator_name = _customer_operator()
+        try:
+            CUSTOMER_STORE.delete_customer(
+                customer_id,
+                operator=operator,
+                operator_name=operator_name,
+            )
+            return jsonify({"message": "客户档案已删除"})
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @application.get("/api/customers/<int:customer_id>/logs")
+    @_login_required
+    def customer_logs(customer_id: int):
+        try:
+            return jsonify({"items": CUSTOMER_STORE.list_logs(customer_id)})
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 404
+
+    @application.get("/api/customers/import-template")
+    @_login_required
+    def customer_import_template():
+        return send_file(
+            _customer_workbook_response(),
+            as_attachment=True,
+            download_name="客户档案导入模板.xlsx",
+            mimetype=(
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
+            ),
+        )
+
+    @application.post("/api/customers/import")
+    @_admin_required
+    def import_customers():
+        _check_csrf()
+        upload = request.files.get("file")
+        if not upload or not upload.filename:
+            return jsonify({"error": "请选择需要导入的 Excel 文件"}), 400
+        if Path(upload.filename).suffix.lower() != ".xlsx":
+            return jsonify({"error": "仅支持 .xlsx 格式的 Excel 文件"}), 400
+        try:
+            rows = _parse_customer_workbook(io.BytesIO(upload.read()))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        if not rows:
+            return jsonify({"error": "Excel 中没有可导入的客户数据"}), 400
+
+        operator, operator_name = _customer_operator()
+        success_count = 0
+        errors = []
+        seen_codes: set[str] = set()
+        for row in rows:
+            raw_code = str(row["payload"].get("terminal_code") or "")
+            if raw_code in seen_codes:
+                errors.append(
+                    {
+                        "row_number": row["row_number"],
+                        "data": row["raw"],
+                        "error": f"Excel 内终端编码 {raw_code} 重复",
+                    }
+                )
+                continue
+            if raw_code:
+                seen_codes.add(raw_code)
+            try:
+                CUSTOMER_STORE.create_customer(
+                    row["payload"],
+                    operator=operator,
+                    operator_name=operator_name,
+                    source="batch",
+                )
+                success_count += 1
+            except ValueError as exc:
+                errors.append(
+                    {
+                        "row_number": row["row_number"],
+                        "data": row["raw"],
+                        "error": str(exc),
+                    }
+                )
+        import_id = CUSTOMER_STORE.record_import(
+            operator=operator,
+            operator_name=operator_name,
+            filename=Path(upload.filename).name,
+            total_count=len(rows),
+            success_count=success_count,
+            errors=errors,
+        )
+        return jsonify(
+            {
+                "id": import_id,
+                "total_count": len(rows),
+                "success_count": success_count,
+                "failed_count": len(errors),
+                "errors": errors[:100],
+                "error_report_url": (
+                    f"/api/customers/imports/{import_id}/errors"
+                    if errors
+                    else ""
+                ),
+            }
+        )
+
+    @application.get("/api/customers/imports/<import_id>/errors")
+    @_admin_required
+    def customer_import_errors(import_id: str):
+        try:
+            import_job = CUSTOMER_STORE.get_import(import_id)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 404
+        if not import_job["errors"]:
+            return jsonify({"error": "本次导入没有失败数据"}), 404
+        return send_file(
+            _customer_workbook_response(errors=import_job["errors"]),
+            as_attachment=True,
+            download_name="客户档案导入失败明细.xlsx",
+            mimetype=(
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
+            ),
+        )
+
+    @application.get("/api/snow-outbound/options")
+    @_login_required
+    def snow_outbound_options():
+        return jsonify(
+            {
+                "tags": list(POLICY_TAGS),
+                "fields": [
+                    {
+                        "value": field,
+                        "label": config["label"],
+                        "operators": sorted(config["operators"]),
+                    }
+                    for field, config in RULE_FIELDS.items()
+                ],
+                "operators": RULE_OPERATOR_LABELS,
+                "months": SNOW_OUTBOUND_STORE.list_months(),
+                "current_month": datetime.now().strftime("%Y-%m"),
+                "years": list(range(2026, 2036)),
+            }
+        )
+
+    @application.get("/api/customers/policy-options")
+    @_login_required
+    def customer_policy_options():
+        month = request.args.get("month", "")
+        try:
+            return jsonify(
+                {
+                    "month": month,
+                    "items": SNOW_OUTBOUND_STORE.list_policy_tags(month),
+                }
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @application.get("/api/snow-outbound/policies")
+    @_login_required
+    def list_snow_policies():
+        try:
+            result = SNOW_OUTBOUND_STORE.list_policies(
+                year=request.args.get("year", ""),
+                month=request.args.get("month", ""),
+                outbound_code=request.args.get("outbound_code", ""),
+                name=request.args.get("name", ""),
+                enabled=request.args.get("enabled", ""),
+                page=int(request.args.get("page", "1")),
+                page_size=int(request.args.get("page_size", "20")),
+            )
+            policy_ids = [item["id"] for item in result["items"]]
+            archived_by_policy = IMAGE_LIBRARY.archived_terminal_codes_by_policy(
+                policy_ids
+            )
+            shipped_by_policy = (
+                SNOW_OUTBOUND_STORE.shipped_terminal_codes_by_policy(policy_ids)
+            )
+            for item in result["items"]:
+                archived_codes = archived_by_policy.get(item["id"], set())
+                shipped_codes = shipped_by_policy.get(item["id"], set())
+                item["photographed_count"] = len(archived_codes)
+                item["pending_outbound_count"] = len(
+                    archived_codes - shipped_codes
+                )
+            return jsonify(result)
+        except (TypeError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @application.get("/api/snow-outbound/policies/<policy_id>/pending-outbound")
+    @_login_required
+    def pending_outbound_terminals(policy_id: str):
+        policy = SNOW_OUTBOUND_STORE.get_policy(policy_id)
+        if not policy:
+            return jsonify({"error": "雪花政策标签不存在"}), 404
+        shipped_codes = {
+            item["terminal_code"]
+            for item in SNOW_OUTBOUND_STORE.shipped_terminals(policy_id)
+        }
+        pending = [
+            terminal
+            for terminal in IMAGE_LIBRARY.archived_terminals(policy_id)
+            if terminal["terminal_code"] not in shipped_codes
+        ]
+        return jsonify(
+            {
+                "items": pending,
+                "total": len(pending),
+                "policy_id": policy_id,
+                "policy_name": policy["display_name"],
+            }
+        )
+
+    @application.get("/api/snow-outbound/policies/<policy_id>/shipped-terminals")
+    @_login_required
+    def shipped_policy_terminals(policy_id: str):
+        policy = SNOW_OUTBOUND_STORE.get_policy(policy_id)
+        if not policy:
+            return jsonify({"error": "雪花政策标签不存在"}), 404
+        items = SNOW_OUTBOUND_STORE.shipped_terminals(policy_id)
+        return jsonify(
+            {
+                "items": items,
+                "total": len(items),
+                "policy_id": policy_id,
+                "policy_name": policy["display_name"],
+            }
+        )
+
+    @application.get(
+        "/api/snow-outbound/policies/<policy_id>/photographed-terminals"
+    )
+    @_login_required
+    def photographed_policy_terminals(policy_id: str):
+        policy = SNOW_OUTBOUND_STORE.get_policy(policy_id)
+        if not policy:
+            return jsonify({"error": "雪花政策标签不存在"}), 404
+        items = IMAGE_LIBRARY.archived_terminals(policy_id)
+        return jsonify(
+            {
+                "items": items,
+                "total": len(items),
+                "policy_id": policy_id,
+                "policy_name": policy["display_name"],
+            }
+        )
+
+    @application.post("/api/snow-outbound/policies")
+    @_login_required
+    def create_snow_policy():
+        _check_csrf()
+        operator, operator_name = _customer_operator()
+        try:
+            return (
+                jsonify(
+                    SNOW_OUTBOUND_STORE.create_policy(
+                        request.get_json(silent=True) or {},
+                        operator=operator,
+                        operator_name=operator_name,
+                    )
+                ),
+                201,
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @application.patch("/api/snow-outbound/policies/<policy_id>")
+    @_login_required
+    def update_snow_policy(policy_id: str):
+        _check_csrf()
+        operator, operator_name = _customer_operator()
+        try:
+            return jsonify(
+                SNOW_OUTBOUND_STORE.update_policy(
+                    policy_id,
+                    request.get_json(silent=True) or {},
+                    operator=operator,
+                    operator_name=operator_name,
+                )
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @application.post("/api/snow-outbound/policies/<policy_id>/status")
+    @_login_required
+    def set_snow_policy_status(policy_id: str):
+        _check_csrf()
+        payload = request.get_json(silent=True) or {}
+        if not isinstance(payload.get("enabled"), bool):
+            return jsonify({"error": "启用状态格式不正确"}), 400
+        operator, operator_name = _customer_operator()
+        try:
+            return jsonify(
+                SNOW_OUTBOUND_STORE.set_policy_enabled(
+                    policy_id,
+                    payload["enabled"],
+                    operator=operator,
+                    operator_name=operator_name,
+                )
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @application.delete("/api/snow-outbound/policies/<policy_id>")
+    @_admin_required
+    def delete_snow_policy(policy_id: str):
+        _check_csrf()
+        operator, operator_name = _customer_operator()
+        try:
+            SNOW_OUTBOUND_STORE.delete_policy(
+                policy_id,
+                operator=operator,
+                operator_name=operator_name,
+            )
+            return jsonify({"message": "雪花出库政策已删除"})
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @application.get("/api/snow-outbound/policies/<policy_id>/logs")
+    @_login_required
+    def snow_policy_logs(policy_id: str):
+        return jsonify(
+            {"items": SNOW_OUTBOUND_STORE.list_policy_logs(policy_id)}
+        )
+
+    @application.get("/api/snow-outbound/templates")
+    @_login_required
+    def list_snow_rule_templates():
+        return jsonify({"items": SNOW_OUTBOUND_STORE.list_templates()})
+
+    @application.post("/api/snow-outbound/templates")
+    @_login_required
+    def create_snow_rule_template():
+        _check_csrf()
+        payload = request.get_json(silent=True) or {}
+        operator, operator_name = _customer_operator()
+        try:
+            return (
+                jsonify(
+                    SNOW_OUTBOUND_STORE.save_template(
+                        name=str(payload.get("name") or ""),
+                        rules=payload.get("rules"),
+                        is_default=bool(payload.get("is_default")),
+                        operator=operator,
+                        operator_name=operator_name,
+                        is_admin=_is_admin(),
+                    )
+                ),
+                201,
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @application.patch("/api/snow-outbound/templates/<template_id>")
+    @_login_required
+    def update_snow_rule_template(template_id: str):
+        _check_csrf()
+        payload = request.get_json(silent=True) or {}
+        operator, operator_name = _customer_operator()
+        try:
+            return jsonify(
+                SNOW_OUTBOUND_STORE.save_template(
+                    template_id=template_id,
+                    name=str(payload.get("name") or ""),
+                    rules=payload.get("rules"),
+                    is_default=bool(payload.get("is_default")),
+                    operator=operator,
+                    operator_name=operator_name,
+                    is_admin=_is_admin(),
+                )
+            )
+        except PermissionError as exc:
+            return jsonify({"error": str(exc)}), 403
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @application.delete("/api/snow-outbound/templates/<template_id>")
+    @_login_required
+    def delete_snow_rule_template(template_id: str):
+        _check_csrf()
+        operator, _operator_name = _customer_operator()
+        try:
+            SNOW_OUTBOUND_STORE.delete_template(
+                template_id,
+                operator=operator,
+                is_admin=_is_admin(),
+            )
+            return jsonify({"message": "规则模板已删除"})
+        except PermissionError as exc:
+            return jsonify({"error": str(exc)}), 403
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @application.post("/api/snow-outbound/preview")
+    @_login_required
+    def preview_snow_outbound():
+        _check_csrf()
+        upload = request.files.get("file")
+        if not upload or not upload.filename:
+            return jsonify({"error": "请选择雪花出库Excel文件"}), 400
+        if Path(upload.filename).suffix.lower() != ".xlsx":
+            return jsonify({"error": "仅支持.xlsx格式的Excel文件"}), 400
+        operator, operator_name = _customer_operator()
+        try:
+            # Werkzeug在部分Python版本中提供的临时上传流不完整实现
+            # openpyxl所需的seekable接口；请求体已有全局大小限制，可安全转为内存流。
+            rows = parse_outbound_workbook(io.BytesIO(upload.read()))
+            update_policy = str(
+                request.form.get("update_policy", "true")
+            ).strip().lower() in {"1", "true", "yes", "on"}
+            return jsonify(
+                SNOW_OUTBOUND_STORE.create_preview(
+                    filename=Path(upload.filename).name,
+                    operator=operator,
+                    operator_name=operator_name,
+                    rows=rows,
+                    update_policy=update_policy,
+                )
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @application.post("/api/snow-outbound/import")
+    @_login_required
+    def commit_snow_outbound():
+        _check_csrf()
+        payload = request.get_json(silent=True) or {}
+        preview_id = str(payload.get("preview_id") or "")
+        if not preview_id:
+            return jsonify({"error": "缺少导入预览标识"}), 400
+        operator, operator_name = _customer_operator()
+        try:
+            return jsonify(
+                SNOW_OUTBOUND_STORE.commit_preview(
+                    preview_id,
+                    operator=operator,
+                    operator_name=operator_name,
+                    is_admin=_is_admin(),
+                )
+            )
+        except PermissionError as exc:
+            return jsonify({"error": str(exc)}), 403
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
     @application.get("/api/results")
     @_login_required
     def saved_results():
@@ -1712,8 +2453,13 @@ def create_app() -> Flask:
     @_login_required
     def image_library():
         month = request.args.get("month", "").strip()
-        business = request.args.get("business", "").strip()
+        businesses = _parse_string_values(
+            request.args.getlist("business") or request.args.get("business", "")
+        )
         customer_name = request.args.get("customer_name", "").strip()
+        policy_ids = _parse_string_values(
+            request.args.getlist("policy_id") or request.args.get("policy_id", "")
+        )
         fields = _parse_field_lines(request.args.get("fields", ""))
         try:
             page, page_size = _parse_pagination(
@@ -1722,19 +2468,47 @@ def create_app() -> Flask:
             )
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
+        try:
+            policy_options = (
+                SNOW_OUTBOUND_STORE.active_policy_options(month) if month else []
+            )
+        except ValueError:
+            policy_options = []
+        terminal_codes = None
+        if policy_ids:
+            valid_policy_ids = {item["id"] for item in policy_options}
+            if any(policy_id not in valid_policy_ids for policy_id in policy_ids):
+                return jsonify({"error": "所选政策标签不属于当前月份或未启用"}), 400
+            terminal_codes = sorted(
+                {
+                    item["terminal_code"]
+                    for policy_id in policy_ids
+                    for item in SNOW_OUTBOUND_STORE.shipped_terminals(policy_id)
+                }
+            )
+        result = IMAGE_LIBRARY.query(
+            fields=fields,
+            terminal_codes=terminal_codes,
+            month=month,
+            businesses=businesses,
+            customer_name=customer_name,
+            page=page,
+            page_size=page_size,
+        )
+        _attach_image_archive_tags(result)
+        tag_map = SNOW_OUTBOUND_STORE.policy_tags_for_terminals(
+            month,
+            [item["field"] for item in result["items"]],
+        )
+        for item in result["items"]:
+            item["policy_tags"] = tag_map.get(item["field"], [])
         return jsonify(
             {
-                **IMAGE_LIBRARY.query(
-                    fields=fields,
-                    month=month,
-                    business=business,
-                    customer_name=customer_name,
-                    page=page,
-                    page_size=page_size,
-                ),
+                **result,
                 "months": IMAGE_LIBRARY.months(),
                 "businesses": IMAGE_LIBRARY.businesses(),
                 "customer_names": IMAGE_LIBRARY.customer_names(),
+                "policy_options": policy_options,
             }
         )
 
@@ -1742,6 +2516,13 @@ def create_app() -> Flask:
     @_login_required
     def image_library_search():
         payload = request.get_json(silent=True) or {}
+        month = str(payload.get("month") or "").strip()
+        businesses = _parse_string_values(
+            payload.get("businesses", payload.get("business"))
+        )
+        policy_ids = _parse_string_values(
+            payload.get("policy_ids", payload.get("policy_id"))
+        )
         raw_fields = payload.get("fields", "")
         if isinstance(raw_fields, list):
             fields = [
@@ -1758,19 +2539,47 @@ def create_app() -> Flask:
             )
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
+        try:
+            policy_options = (
+                SNOW_OUTBOUND_STORE.active_policy_options(month) if month else []
+            )
+        except ValueError:
+            policy_options = []
+        terminal_codes = None
+        if policy_ids:
+            valid_policy_ids = {item["id"] for item in policy_options}
+            if any(policy_id not in valid_policy_ids for policy_id in policy_ids):
+                return jsonify({"error": "所选政策标签不属于当前月份或未启用"}), 400
+            terminal_codes = sorted(
+                {
+                    item["terminal_code"]
+                    for policy_id in policy_ids
+                    for item in SNOW_OUTBOUND_STORE.shipped_terminals(policy_id)
+                }
+            )
+        result = IMAGE_LIBRARY.query(
+            fields=fields,
+            terminal_codes=terminal_codes,
+            month=month,
+            businesses=businesses,
+            customer_name=str(payload.get("customer_name") or "").strip(),
+            page=page,
+            page_size=page_size,
+        )
+        _attach_image_archive_tags(result)
+        tag_map = SNOW_OUTBOUND_STORE.policy_tags_for_terminals(
+            month,
+            [item["field"] for item in result["items"]],
+        )
+        for item in result["items"]:
+            item["policy_tags"] = tag_map.get(item["field"], [])
         return jsonify(
             {
-                **IMAGE_LIBRARY.query(
-                    fields=fields,
-                    month=str(payload.get("month") or "").strip(),
-                    business=str(payload.get("business") or "").strip(),
-                    customer_name=str(payload.get("customer_name") or "").strip(),
-                    page=page,
-                    page_size=page_size,
-                ),
+                **result,
                 "months": IMAGE_LIBRARY.months(),
                 "businesses": IMAGE_LIBRARY.businesses(),
                 "customer_names": IMAGE_LIBRARY.customer_names(),
+                "policy_options": policy_options,
             }
         )
 
@@ -1782,75 +2591,190 @@ def create_app() -> Flask:
             abort(404)
         return _serve_output_file(thumbnail, cache=True)
 
-    @application.post("/api/image-library/export-preview")
+    @application.get("/api/photo-archive/options")
     @_login_required
-    def preview_library_export():
-        _check_csrf()
-        payload = request.get_json(silent=True) or {}
-        image_ids = [
-            str(item)
-            for item in payload.get("image_ids") or []
-            if str(item).strip()
-        ]
+    def photo_archive_options():
+        month = request.args.get("month", "").strip()
         try:
-            return jsonify(_preview_image_library_archive(image_ids))
+            items = SNOW_OUTBOUND_STORE.active_policy_options(month)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
+        return jsonify({"items": items, "month": month})
 
-    @application.post("/api/image-library/export")
-    @application.post("/api/export-records")
+    @application.post("/api/photo-archive")
     @_login_required
-    def export_library_images():
+    def archive_library_images():
         _check_csrf()
         payload = request.get_json(silent=True) or {}
         image_ids = [
-            str(item)
+            str(item).strip()
             for item in payload.get("image_ids") or []
             if str(item).strip()
         ]
+        policy_id = str(payload.get("policy_id") or "").strip()
+        month = str(payload.get("month") or "").strip()
+        policy = SNOW_OUTBOUND_STORE.get_policy(policy_id)
+        if not policy:
+            return jsonify({"error": "雪花政策标签不存在"}), 404
+        policy_month = f"{int(policy['year']):04d}-{int(policy['month']):02d}"
+        if not policy["enabled"]:
+            return jsonify({"error": "该雪花政策标签未启用"}), 400
+        if policy_month != month:
+            return jsonify({"error": "所选政策标签与照片月份不一致"}), 400
+        actor, actor_name = _customer_operator()
         try:
-            return jsonify(
-                _create_image_library_archive(
-                    image_ids,
-                    description=str(payload.get("description") or ""),
-                    owner_username=_current_user() or "",
-                    owner_display_name=str(
-                        session.get("display_name") or _current_user() or ""
-                    ),
-                )
+            result = IMAGE_LIBRARY.archive_images(
+                image_ids,
+                policy_id=policy_id,
+                month=month,
+                actor=actor,
+                actor_name=actor_name,
             )
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
-        except Exception:
-            application.logger.exception("图片库导出失败")
-            return jsonify({"error": "导出失败，请联系管理员"}), 500
+        return jsonify(
+            {
+                **result,
+                "policy_id": policy_id,
+                "policy_name": policy["display_name"],
+            }
+        )
 
-    @application.get("/api/export-records")
+    @application.get("/api/photo-archive/policies")
     @_login_required
-    def list_export_records():
-        return jsonify({"items": EXPORT_RECORD_STORE.list_records()})
+    def photo_archive_policies():
+        month = request.args.get("month", "").strip()
+        match = re.fullmatch(r"(\d{4})-(\d{2})", month)
+        if not match:
+            return jsonify({"error": "请选择照片档案月份"}), 400
+        try:
+            page, page_size = _parse_pagination(
+                request.args.get("page"),
+                request.args.get("page_size"),
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        policies = SNOW_OUTBOUND_STORE.list_policies(
+            year=match.group(1),
+            month=str(int(match.group(2))),
+            page=page,
+            page_size=page_size,
+        )
+        policy_ids = [item["id"] for item in policies["items"]]
+        archive_stats = IMAGE_LIBRARY.policy_archive_stats(policy_ids)
+        latest_logs = IMAGE_LIBRARY.latest_photo_archive_logs(policy_ids)
+        items = []
+        for policy in policies["items"]:
+            stats = archive_stats.get(
+                policy["id"],
+                {"photo_count": 0, "photographed_count": 0},
+            )
+            shipped_terminals = SNOW_OUTBOUND_STORE.shipped_terminals(policy["id"])
+            shipped_codes = {
+                terminal["terminal_code"] for terminal in shipped_terminals
+            }
+            photographed_codes = IMAGE_LIBRARY.archived_terminal_codes(policy["id"])
+            latest = latest_logs.get(policy["id"])
+            items.append(
+                {
+                    "policy_id": policy["id"],
+                    "display_name": policy["display_name"],
+                    "color": policy["color"],
+                    "year": policy["year"],
+                    "month": policy["month"],
+                    "enabled": policy["enabled"],
+                    "shipped_count": len(shipped_codes),
+                    "photographed_count": stats["photographed_count"],
+                    "missing_count": len(shipped_codes - photographed_codes),
+                    "photo_count": stats["photo_count"],
+                    "latest_operation": (
+                        {
+                            "operated_at": latest["operated_at"],
+                            "actor_name": latest["actor_name"] or latest["actor"],
+                            "action_type": latest["action_type"],
+                            "action_label": (
+                                "归档"
+                                if latest["action_type"] == "archive"
+                                else "导出"
+                            ),
+                            "photo_count": int(latest["photo_count"] or 0),
+                            "terminal_count": int(latest["terminal_count"] or 0),
+                            "skipped_count": int(latest["skipped_count"] or 0),
+                        }
+                        if latest
+                        else None
+                    ),
+                }
+            )
+        return jsonify(
+            {
+                "items": items,
+                "total": policies["total"],
+                "page": policies["page"],
+                "page_size": policies["page_size"],
+                "month": month,
+                "months": SNOW_OUTBOUND_STORE.policy_months(),
+            }
+        )
+
+    @application.get("/api/photo-archive/policies/<policy_id>/missing")
+    @_login_required
+    def photo_archive_missing_terminals(policy_id: str):
+        policy = SNOW_OUTBOUND_STORE.get_policy(policy_id)
+        if not policy:
+            return jsonify({"error": "雪花政策标签不存在"}), 404
+        photographed_codes = IMAGE_LIBRARY.archived_terminal_codes(policy_id)
+        missing = [
+            terminal
+            for terminal in SNOW_OUTBOUND_STORE.shipped_terminals(policy_id)
+            if terminal["terminal_code"] not in photographed_codes
+        ]
+        return jsonify(
+            {
+                "items": missing,
+                "total": len(missing),
+                "policy_id": policy_id,
+                "policy_name": policy["display_name"],
+            }
+        )
+
+    @application.post("/api/photo-archive/policies/<policy_id>/export")
+    @_login_required
+    def export_photo_archive(policy_id: str):
+        _check_csrf()
+        policy = SNOW_OUTBOUND_STORE.get_policy(policy_id)
+        if not policy:
+            return jsonify({"error": "雪花政策标签不存在"}), 404
+        try:
+            archive_path, archive_name, photo_count, terminal_count = (
+                _create_photo_archive(policy)
+            )
+            actor, actor_name = _customer_operator()
+            IMAGE_LIBRARY.record_photo_archive_export(
+                policy_id,
+                actor=actor,
+                actor_name=actor_name,
+                photo_count=photo_count,
+                terminal_count=terminal_count,
+            )
+            response = send_file(
+                archive_path,
+                as_attachment=True,
+                download_name=archive_name,
+                mimetype="application/zip",
+            )
+            response.call_on_close(lambda: archive_path.unlink(missing_ok=True))
+            return response
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception:
+            application.logger.exception("照片档案导出失败")
+            return jsonify({"error": "照片档案导出失败，请联系管理员"}), 500
 
     @application.get("/api/extraction-records")
     @_login_required
     def list_extraction_records():
         return jsonify({"items": EXTRACTION_RECORD_STORE.list_records()})
-
-    @application.get("/api/export-records/<record_id>/download")
-    @_login_required
-    def download_export_record(record_id: str):
-        try:
-            record, archive_path = EXPORT_RECORD_STORE.archive_for_download(record_id)
-        except ExportExpiredError as exc:
-            return jsonify({"error": str(exc)}), 410
-        except (ExportRecordError, ExportArchiveMissingError) as exc:
-            return jsonify({"error": str(exc)}), 404
-        EXPORT_RECORD_STORE.mark_downloaded(record_id)
-        return send_file(
-            archive_path,
-            as_attachment=True,
-            download_name=record["archive_name"],
-            mimetype="application/zip",
-        )
 
     @application.get("/output/<path:relative_path>")
     @_login_required
@@ -1859,6 +2783,7 @@ def create_app() -> Flask:
         if first_part in {
             ("_system",),
             ("_image_exports",),
+            ("_photo_archive_exports",),
             ("_image_thumbnails",),
         }:
             abort(404)
