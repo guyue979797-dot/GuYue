@@ -1269,6 +1269,52 @@ class WebSecurityTests(unittest.TestCase):
         ).get_json()
         self.assertEqual(refreshed["image_count"], 1)
 
+        remove_url = (
+            f"/api/photo-archive/images/{image_id}/policies/{policy['id']}"
+        )
+        self.assertEqual(self.client.delete(remove_url).status_code, 403)
+        removed = self.client.delete(
+            remove_url,
+            headers={"X-CSRF-Token": "test-token"},
+        )
+        self.assertEqual(removed.status_code, 200)
+        self.assertEqual(removed.get_json()["removed_count"], 1)
+        after_remove = self.client.post(
+            "/api/image-library/search",
+            json={
+                "fields": ["1023275022", "1023275099"],
+                "month": "2026-06",
+            },
+        ).get_json()
+        images_after_remove = {
+            item["field"]: item["images"][0]
+            for item in after_remove["items"]
+        }
+        self.assertEqual(
+            images_after_remove["1023275022"]["archive_tags"],
+            [],
+        )
+        self.assertEqual(
+            images_after_remove["1023275099"]["archive_tags"],
+            expected_archive_tag,
+        )
+        archive_after_remove = self.client.get(
+            "/api/photo-archive/policies?month=2026-06"
+        ).get_json()["items"][0]
+        self.assertEqual(archive_after_remove["photo_count"], 1)
+        self.assertEqual(archive_after_remove["photographed_count"], 1)
+        self.assertEqual(
+            archive_after_remove["latest_operation"]["action_type"],
+            "unarchive",
+        )
+        self.assertEqual(
+            self.client.delete(
+                remove_url,
+                headers={"X-CSRF-Token": "test-token"},
+            ).status_code,
+            404,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

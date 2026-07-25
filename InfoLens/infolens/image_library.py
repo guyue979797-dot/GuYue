@@ -724,6 +724,61 @@ class ImageLibraryStore:
             "terminal_count": len(terminal_codes),
         }
 
+    def remove_archive_tag(
+        self,
+        image_id: str,
+        *,
+        policy_id: str,
+        actor: str,
+        actor_name: str,
+    ) -> dict[str, Any] | None:
+        normalized_image_id = image_id.strip()
+        normalized_policy_id = policy_id.strip()
+        if not normalized_image_id or not normalized_policy_id:
+            return None
+        operated_at = datetime.now().isoformat(timespec="seconds")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                """
+                SELECT terminal_code
+                FROM image_policy_tags
+                WHERE image_id = ? AND policy_id = ?
+                """,
+                (normalized_image_id, normalized_policy_id),
+            ).fetchone()
+            if row is None:
+                connection.execute("ROLLBACK")
+                return None
+            connection.execute(
+                """
+                DELETE FROM image_policy_tags
+                WHERE image_id = ? AND policy_id = ?
+                """,
+                (normalized_image_id, normalized_policy_id),
+            )
+            connection.execute(
+                """
+                INSERT INTO photo_archive_logs (
+                    policy_id, action_type, actor, actor_name,
+                    photo_count, terminal_count, skipped_count, operated_at
+                ) VALUES (?, 'unarchive', ?, ?, 1, 1, 0, ?)
+                """,
+                (
+                    normalized_policy_id,
+                    actor,
+                    actor_name,
+                    operated_at,
+                ),
+            )
+            connection.execute("COMMIT")
+        return {
+            "image_id": normalized_image_id,
+            "policy_id": normalized_policy_id,
+            "terminal_code": row["terminal_code"],
+            "removed_count": 1,
+        }
+
     def policy_archive_stats(
         self, policy_ids: list[str]
     ) -> dict[str, dict[str, int]]:

@@ -310,7 +310,7 @@ function TablePolicyTags({ tags = [], limit = 2 }) {
   );
 }
 
-function ImageArchiveBadges({ tags = [], expanded = false }) {
+function ImageArchiveBadges({ tags = [], expanded = false, onRemove }) {
   const seen = new Set();
   const normalized = tags.filter((tag) => {
     const key = tag.policy_id || tag.tag;
@@ -320,8 +320,6 @@ function ImageArchiveBadges({ tags = [], expanded = false }) {
   });
   if (!normalized.length) return null;
 
-  const visibleTags = expanded ? normalized : normalized.slice(0, 2);
-  const hiddenCount = normalized.length - visibleTags.length;
   const content = (
     <div className="image-archive-tooltip">
       <strong>归档标签</strong>
@@ -346,18 +344,30 @@ function ImageArchiveBadges({ tags = [], expanded = false }) {
         aria-label={`归档标签：${normalized.map((tag) => tag.tag).join("、")}`}
         onClick={(event) => event.stopPropagation()}
       >
-        {visibleTags.map((tag) => (
+        {normalized.map((tag) => (
           <Tag
             key={tag.policy_id || tag.tag}
             color={tag.color || "arcoblue"}
             className="image-archive-badge"
           >
-            {tag.tag}
+            <span className="image-archive-badge-label">{tag.tag}</span>
+            {onRemove ? (
+              <button
+                className="image-archive-remove"
+                type="button"
+                title={`删除标签“${tag.tag}”`}
+                aria-label={`删除标签“${tag.tag}”`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onRemove(tag);
+                }}
+              >
+                ×
+              </button>
+            ) : null}
           </Tag>
         ))}
-        {hiddenCount > 0 ? (
-          <span className="image-archive-more">+{hiddenCount}</span>
-        ) : null}
       </div>
     </Tooltip>
   );
@@ -722,6 +732,8 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
   const [extractionRecords, setExtractionRecords] = useState([]);
   const [extractionErrorOpen, setExtractionErrorOpen] = useState(false);
   const [extractionError, setExtractionError] = useState("");
+  const [removeTagTarget, setRemoveTagTarget] = useState(null);
+  const [removingTag, setRemovingTag] = useState(false);
   const [createOpen, setCreateOpen] = useState(
     () => Boolean(window.localStorage.getItem(BATCH_JOB_STORAGE_KEY)),
   );
@@ -1037,6 +1049,44 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
     return load({ force: true });
   }
 
+  function confirmRemoveArchiveTag(image, tag) {
+    setRemoveTagTarget({ image, tag });
+  }
+
+  async function removeArchiveTag() {
+    if (!removeTagTarget) return;
+    const { image, tag } = removeTagTarget;
+    setRemovingTag(true);
+    try {
+      const token = await latestCsrfToken(csrfToken);
+      await jsonFetch(
+        `/api/photo-archive/images/${encodeURIComponent(image.id)}/policies/${encodeURIComponent(tag.policy_id)}`,
+        {
+          method: "DELETE",
+          headers: { "X-CSRF-Token": token },
+        }
+      );
+      setPreviewImage((current) =>
+        current?.id === image.id
+          ? {
+              ...current,
+              archive_tags: (current.archive_tags || []).filter(
+                (item) => item.policy_id !== tag.policy_id
+              ),
+            }
+          : current
+      );
+      setRemoveTagTarget(null);
+      Message.success(`已删除照片标签“${tag.tag}”`);
+      await refreshLibrary();
+      if (photoArchiveOpen) await loadPhotoArchives();
+    } catch (error) {
+      Message.error(error.message);
+    } finally {
+      setRemovingTag(false);
+    }
+  }
+
   async function refreshAfterExtraction() {
     await refreshLibrary();
     if (extractionRecordsOpen) await loadExtractionRecords();
@@ -1261,7 +1311,10 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
                               className={isSelected ? "image-card selected" : "image-card"}
                               bodyStyle={{ padding: 0 }}
                             >
-                              <ImageArchiveBadges tags={image.archive_tags || []} />
+                              <ImageArchiveBadges
+                                tags={image.archive_tags || []}
+                                onRemove={(tag) => confirmRemoveArchiveTag(image, tag)}
+                              />
                               <Image
                                 src={image.thumbnail_url || image.url}
                                 width="100%"
@@ -1458,7 +1511,15 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
                             <div className="photo-archive-operation">
                               <span>{formatCompactDateTime(operation.operated_at)}</span>
                               <span>{operation.actor_name || "-"}</span>
-                              <Tag color={operation.action_type === "archive" ? "arcoblue" : "green"}>
+                              <Tag
+                                color={
+                                  operation.action_type === "archive"
+                                    ? "arcoblue"
+                                    : operation.action_type === "unarchive"
+                                      ? "red"
+                                      : "green"
+                                }
+                              >
                                 {operation.action_label}
                               </Tag>
                             </div>
@@ -1663,6 +1724,26 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
         </Tabs>
       </Modal>
 
+      <Modal
+        title="删除标签"
+        visible={Boolean(removeTagTarget)}
+        onCancel={() => {
+          if (!removingTag) setRemoveTagTarget(null);
+        }}
+        onOk={removeArchiveTag}
+        okText="确认删除"
+        cancelText="取消"
+        okButtonProps={{ status: "danger", loading: removingTag }}
+        className="image-tag-remove-modal"
+        unmountOnExit
+      >
+        <p className="image-tag-remove-message">
+          确定从此照片移除
+          <strong>“{removeTagTarget?.tag?.tag || ""}”</strong>
+          标签吗？
+        </p>
+      </Modal>
+
       {previewImage ? (
         <div className="fullscreen-preview" role="dialog" aria-modal="true" onClick={() => setPreviewImage(null)}>
           <button className="fullscreen-close" type="button" onClick={() => setPreviewImage(null)}>
@@ -1677,6 +1758,7 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
           <ImageArchiveBadges
             tags={previewImage.archive_tags || []}
             expanded
+            onRemove={(tag) => confirmRemoveArchiveTag(previewImage, tag)}
           />
         </div>
       ) : null}

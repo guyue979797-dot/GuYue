@@ -2640,6 +2640,31 @@ def create_app() -> Flask:
             }
         )
 
+    @application.delete(
+        "/api/photo-archive/images/<image_id>/policies/<policy_id>"
+    )
+    @_login_required
+    def remove_library_image_archive_tag(image_id: str, policy_id: str):
+        _check_csrf()
+        policy = SNOW_OUTBOUND_STORE.get_policy(policy_id, include_deleted=True)
+        if not policy:
+            return jsonify({"error": "雪花政策标签不存在"}), 404
+        actor, actor_name = _customer_operator()
+        result = IMAGE_LIBRARY.remove_archive_tag(
+            image_id,
+            policy_id=policy_id,
+            actor=actor,
+            actor_name=actor_name,
+        )
+        if result is None:
+            return jsonify({"error": "该照片未标注此政策标签"}), 404
+        return jsonify(
+            {
+                **result,
+                "policy_name": policy["display_name"],
+            }
+        )
+
     @application.get("/api/photo-archive/policies")
     @_login_required
     def photo_archive_policies():
@@ -2695,7 +2720,11 @@ def create_app() -> Flask:
                             "action_label": (
                                 "归档"
                                 if latest["action_type"] == "archive"
-                                else "导出"
+                                else (
+                                    "删除标签"
+                                    if latest["action_type"] == "unarchive"
+                                    else "导出"
+                                )
                             ),
                             "photo_count": int(latest["photo_count"] or 0),
                             "terminal_count": int(latest["terminal_count"] or 0),

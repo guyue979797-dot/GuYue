@@ -537,17 +537,21 @@ body {
 .customer-table-shell {
   grid-row: 3;
   position: relative;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
 }
 
 .customer-table-wrap {
-  width: calc(100% - 28px);
-  height: calc(100% - 12px);
+  position: absolute;
+  inset: 12px 14px 0;
+  width: auto;
+  height: auto;
   min-height: 160px;
-  margin: 12px 14px 0;
+  margin: 0;
   overflow: auto;
   overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   border: 1px solid #e5e8ef;
   border-radius: 8px;
   box-sizing: border-box;
@@ -876,10 +880,11 @@ body {
 .customer-empty-overlay {
   position: absolute;
   z-index: 4;
-  inset: 44px 0 0;
+  inset: 57px 15px 1px;
   display: flex;
   align-items: center;
   justify-content: center;
+  border-radius: 0 0 7px 7px;
   color: #86909c;
   background: #ffffff;
   font-size: 13px;
@@ -888,10 +893,11 @@ body {
 .customer-loading {
   position: absolute;
   z-index: 10;
-  inset: 0;
+  inset: 12px 14px 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.68);
   backdrop-filter: blur(1px);
 }
@@ -2717,30 +2723,103 @@ body {
   position: absolute;
   z-index: 4;
   top: 8px;
+  right: 8px;
   left: 8px;
   display: flex;
-  max-width: calc(100% - 16px);
-  align-items: center;
+  max-width: none;
+  align-items: flex-start;
+  align-content: flex-start;
+  flex-wrap: wrap;
   gap: 5px;
   pointer-events: auto;
 }
 
 .image-archive-badge.arco-tag {
+  flex: 0 0 auto;
   display: inline-flex;
-  max-width: 94px;
+  max-width: 100%;
+  min-width: 0;
   min-height: 23px;
   margin: 0;
-  padding: 2px 8px;
+  padding: 2px 5px 2px 8px;
   align-items: center;
-  overflow: hidden;
+  gap: 0;
+  overflow: visible;
   border: 1px solid currentColor;
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(29, 39, 56, 0.14);
+  box-sizing: border-box;
   font-size: 12px;
   font-weight: 600;
   line-height: 17px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+}
+
+.image-archive-badge-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  word-break: break-all;
+}
+
+.image-archive-badge.arco-tag .arco-tag-content {
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  overflow: visible;
+}
+
+.image-archive-remove {
+  flex: 0 0 20px;
+  width: 20px;
+  min-width: 20px;
+  height: 17px;
+  margin-left: 5px;
+  padding: 0 0 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-left: 1px solid rgba(78, 89, 105, 0.22);
+  border-radius: 0;
+  box-sizing: border-box;
+  color: #86909c;
+  background: transparent;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 17px;
+}
+
+.image-archive-remove:hover,
+.image-archive-remove:focus-visible {
+  color: #f53f3f;
+  background: transparent;
+  outline: none;
+}
+
+.image-tag-remove-modal {
+  width: min(480px, calc(100vw - 32px));
+}
+
+.image-tag-remove-modal .arco-modal-header,
+.image-tag-remove-modal .arco-modal-title {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.image-tag-remove-message {
+  margin: 0 0 14px;
+  color: #1d2738;
+  line-height: 1.7;
+}
+
+.image-tag-remove-message strong {
+  color: #f53f3f;
 }
 
 .image-archive-more {
@@ -2872,6 +2951,7 @@ body {
 .fullscreen-preview .image-archive-badges-expanded {
   position: fixed;
   top: auto;
+  right: auto;
   bottom: 24px;
   left: 50%;
   max-width: min(760px, calc(100vw - 64px));
