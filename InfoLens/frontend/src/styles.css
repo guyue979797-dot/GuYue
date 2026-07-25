@@ -1841,12 +1841,52 @@ body {
   display: grid;
   grid-template-columns:
     minmax(130px, 170px)
-    minmax(150px, 210px)
-    minmax(220px, 1fr)
+    minmax(290px, 1fr)
+    minmax(170px, 240px)
     minmax(170px, 240px)
     auto;
   gap: 12px;
   align-items: center;
+}
+
+.policy-filter-condition {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 0;
+}
+
+.policy-filter-condition > .arco-select {
+  position: relative;
+}
+
+.policy-filter-condition > .arco-select:first-child {
+  z-index: 2;
+}
+
+.policy-filter-condition > .arco-select:first-child .arco-select-view {
+  border-radius: 4px 0 0 4px;
+}
+
+.policy-filter-condition > .arco-select:last-child {
+  margin-left: -1px;
+}
+
+.policy-filter-condition > .arco-select:last-child .arco-select-view {
+  height: auto;
+  min-height: 32px;
+  border-radius: 0 4px 4px 0;
+}
+
+.policy-filter-condition
+  > .arco-select:last-child
+  .arco-select-view-selector {
+  flex-wrap: wrap;
+}
+
+.policy-filter-condition > .arco-select:hover,
+.policy-filter-condition > .arco-select.arco-select-focused {
+  z-index: 3;
 }
 
 .filter-grid .arco-select,
@@ -1987,6 +2027,21 @@ body {
 }
 
 @media (max-width: 1200px) {
+  .filter-grid {
+    grid-template-columns:
+      minmax(120px, 160px)
+      minmax(270px, 1fr)
+      minmax(170px, 220px);
+  }
+
+  .customer-name-filter {
+    grid-column: 1 / 3;
+  }
+
+  .filter-actions {
+    grid-column: 3;
+  }
+
   .operation-toolbar {
     grid-template-columns: minmax(0, 1fr) auto;
   }
@@ -3009,7 +3064,7 @@ body {
 .library-pagination {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 16px;
   margin-top: 18px;
   padding-top: 16px;
@@ -3110,6 +3165,10 @@ body {
 
   .filter-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .customer-name-filter {
+    grid-column: 1 / -1;
   }
 
   .customer-page {

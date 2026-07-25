@@ -156,6 +156,20 @@ class ImageLibraryStoreTests(unittest.TestCase):
                 store.query(terminal_codes=[], month="2026-06")["image_count"],
                 0,
             )
+            self.assertEqual(
+                store.query(
+                    terminal_codes=["1023275022"],
+                    terminal_code_match="exclude",
+                    month="2026-06",
+                )["image_count"],
+                0,
+            )
+            with self.assertRaisesRegex(ValueError, "包含或不包含"):
+                store.query(
+                    terminal_codes=["1023275022"],
+                    terminal_code_match="invalid",
+                    month="2026-06",
+                )
 
     def test_visit_in_time_milliseconds_define_month(self):
         with tempfile.TemporaryDirectory() as temporary:

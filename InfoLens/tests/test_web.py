@@ -1029,10 +1029,46 @@ class WebSecurityTests(unittest.TestCase):
             month="2026-06",
         )["items"][0]["images"][0]["id"]
 
+        no_photo_policy = self.web.SNOW_OUTBOUND_STORE.create_policy(
+            {
+                "name": "无需拍照政策",
+                "outbound_code": "PLX260000000002",
+                "explanation": "不应出现在照片归档枚举中",
+                "requires_photo": False,
+                "set_limit": 1,
+                "month_target": 1,
+                "year": 2026,
+                "month": 6,
+                "conditions": [
+                    {
+                        "field": "outbound_remark",
+                        "operator": "equals",
+                        "value": "PLX260000000002",
+                    }
+                ],
+            },
+            operator="team",
+            operator_name="测试用户",
+        )
         options = self.client.get(
             "/api/photo-archive/options?month=2026-06"
         ).get_json()["items"]
         self.assertEqual([item["id"] for item in options], [policy["id"]])
+
+        rejected_no_photo_archive = self.client.post(
+            "/api/photo-archive",
+            json={
+                "image_ids": [pending_image_id],
+                "policy_id": no_photo_policy["id"],
+                "month": "2026-06",
+            },
+            headers={"X-CSRF-Token": "test-token"},
+        )
+        self.assertEqual(rejected_no_photo_archive.status_code, 400)
+        self.assertIn(
+            "无需拍照",
+            rejected_no_photo_archive.get_json()["error"],
+        )
 
         policy_search = self.client.post(
             "/api/image-library/search",
@@ -1044,9 +1080,14 @@ class WebSecurityTests(unittest.TestCase):
         )
         self.assertEqual(policy_search.status_code, 200)
         policy_search_data = policy_search.get_json()
-        self.assertEqual(policy_search_data["image_count"], 1)
+        self.assertEqual(policy_search_data["image_count"], 2)
+        tagged_item = next(
+            item
+            for item in policy_search_data["items"]
+            if item["field"] == "1023275022"
+        )
         self.assertEqual(
-            policy_search_data["items"][0]["policy_tags"],
+            tagged_item["policy_tags"],
             [
                 {
                     "color": "blue",
@@ -1057,8 +1098,32 @@ class WebSecurityTests(unittest.TestCase):
         )
         self.assertEqual(
             [item["id"] for item in policy_search_data["policy_options"]],
-            [policy["id"]],
+            [policy["id"], no_photo_policy["id"]],
         )
+        excluded_policy_search = self.client.post(
+            "/api/image-library/search",
+            json={
+                "month": "2026-06",
+                "policy_ids": [policy["id"]],
+                "policy_match": "exclude",
+            },
+        )
+        self.assertEqual(excluded_policy_search.status_code, 200)
+        excluded_data = excluded_policy_search.get_json()
+        self.assertEqual(excluded_data["image_count"], 1)
+        self.assertEqual(
+            [item["field"] for item in excluded_data["items"]],
+            ["1023275099"],
+        )
+        invalid_policy_match = self.client.post(
+            "/api/image-library/search",
+            json={
+                "month": "2026-06",
+                "policy_ids": [policy["id"]],
+                "policy_match": "invalid",
+            },
+        )
+        self.assertEqual(invalid_policy_match.status_code, 400)
         invalid_policy_search = self.client.post(
             "/api/image-library/search",
             json={"month": "2026-06", "policy_ids": ["POL-NOT-FOUND"]},

@@ -423,6 +423,7 @@ class ImageLibraryStore:
         *,
         fields: list[str] | None = None,
         terminal_codes: list[str] | None = None,
+        terminal_code_match: str = "include",
         month: str = "",
         business: str = "",
         businesses: list[str] | None = None,
@@ -441,20 +442,6 @@ class ImageLibraryStore:
             placeholders = ",".join("?" for _ in normalized_fields)
             conditions.append(f"field IN ({placeholders})")
             params.extend(normalized_fields)
-        if terminal_codes is not None:
-            normalized_terminal_codes = list(
-                dict.fromkeys(
-                    str(item).strip()
-                    for item in terminal_codes
-                    if str(item).strip()
-                )
-            )
-            if normalized_terminal_codes:
-                placeholders = ",".join("?" for _ in normalized_terminal_codes)
-                conditions.append(f"field IN ({placeholders})")
-                params.extend(normalized_terminal_codes)
-            else:
-                conditions.append("1 = 0")
         if month:
             conditions.append("month = ?")
             params.append(month)
@@ -465,10 +452,34 @@ class ImageLibraryStore:
                 if item and item.strip()
             )
         )
+        grouped_filters: list[str] = []
+        grouped_params: list[Any] = []
         if normalized_businesses:
             placeholders = ",".join("?" for _ in normalized_businesses)
-            conditions.append(f"business IN ({placeholders})")
-            params.extend(normalized_businesses)
+            grouped_filters.append(f"business IN ({placeholders})")
+            grouped_params.extend(normalized_businesses)
+        if terminal_codes is not None:
+            normalized_terminal_codes = list(
+                dict.fromkeys(
+                    str(item).strip()
+                    for item in terminal_codes
+                    if str(item).strip()
+                )
+            )
+            if terminal_code_match not in {"include", "exclude"}:
+                raise ValueError("终端政策条件必须为包含或不包含")
+            if normalized_terminal_codes:
+                placeholders = ",".join("?" for _ in normalized_terminal_codes)
+                operator = "IN" if terminal_code_match == "include" else "NOT IN"
+                grouped_filters.append(f"field {operator} ({placeholders})")
+                grouped_params.extend(normalized_terminal_codes)
+            else:
+                grouped_filters.append(
+                    "1 = 0" if terminal_code_match == "include" else "1 = 1"
+                )
+        if grouped_filters:
+            conditions.append(f"({' OR '.join(grouped_filters)})")
+            params.extend(grouped_params)
         if customer_name:
             conditions.append("customer_name LIKE ?")
             params.append(f"%{customer_name}%")

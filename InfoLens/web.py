@@ -2460,6 +2460,9 @@ def create_app() -> Flask:
         policy_ids = _parse_string_values(
             request.args.getlist("policy_id") or request.args.get("policy_id", "")
         )
+        policy_match = request.args.get("policy_match", "include").strip()
+        if policy_match not in {"include", "exclude"}:
+            return jsonify({"error": "终端政策条件必须为包含或不包含"}), 400
         fields = _parse_field_lines(request.args.get("fields", ""))
         try:
             page, page_size = _parse_pagination(
@@ -2489,6 +2492,7 @@ def create_app() -> Flask:
         result = IMAGE_LIBRARY.query(
             fields=fields,
             terminal_codes=terminal_codes,
+            terminal_code_match=policy_match,
             month=month,
             businesses=businesses,
             customer_name=customer_name,
@@ -2523,6 +2527,9 @@ def create_app() -> Flask:
         policy_ids = _parse_string_values(
             payload.get("policy_ids", payload.get("policy_id"))
         )
+        policy_match = str(payload.get("policy_match") or "include").strip()
+        if policy_match not in {"include", "exclude"}:
+            return jsonify({"error": "终端政策条件必须为包含或不包含"}), 400
         raw_fields = payload.get("fields", "")
         if isinstance(raw_fields, list):
             fields = [
@@ -2560,6 +2567,7 @@ def create_app() -> Flask:
         result = IMAGE_LIBRARY.query(
             fields=fields,
             terminal_codes=terminal_codes,
+            terminal_code_match=policy_match,
             month=month,
             businesses=businesses,
             customer_name=str(payload.get("customer_name") or "").strip(),
@@ -2596,7 +2604,10 @@ def create_app() -> Flask:
     def photo_archive_options():
         month = request.args.get("month", "").strip()
         try:
-            items = SNOW_OUTBOUND_STORE.active_policy_options(month)
+            items = SNOW_OUTBOUND_STORE.active_policy_options(
+                month,
+                requires_photo_only=True,
+            )
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         return jsonify({"items": items, "month": month})
@@ -2619,6 +2630,8 @@ def create_app() -> Flask:
         policy_month = f"{int(policy['year']):04d}-{int(policy['month']):02d}"
         if not policy["enabled"]:
             return jsonify({"error": "该雪花政策标签未启用"}), 400
+        if not policy["requires_photo"]:
+            return jsonify({"error": "该雪花政策标签定义为无需拍照"}), 400
         if policy_month != month:
             return jsonify({"error": "所选政策标签与照片月份不一致"}), 400
         actor, actor_name = _customer_operator()

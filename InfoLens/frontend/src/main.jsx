@@ -686,6 +686,7 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
   const [queriedFields, setQueriedFields] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [policyIds, setPolicyIds] = useState([]);
+  const [policyMatch, setPolicyMatch] = useState("include");
   const [data, setData] = useState({
     items: [],
     months: [],
@@ -752,6 +753,7 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
       query.fields.trim(),
       query.customerName.trim(),
       query.policyIds,
+      query.policyMatch,
       query.page,
       query.pageSize,
     ]);
@@ -771,6 +773,7 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
         fields: query.fields,
         customer_name: query.customerName,
         policy_ids: query.policyIds,
+        policy_match: query.policyMatch,
         page: query.page,
         page_size: query.pageSize,
       }),
@@ -802,6 +805,7 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
       fields: overrides.fields ?? fields,
       customerName: overrides.customerName ?? customerName,
       policyIds: overrides.policyIds ?? policyIds,
+      policyMatch: overrides.policyMatch ?? policyMatch,
       page: overrides.page ?? data.pagination?.page ?? 1,
       pageSize: overrides.pageSize ?? data.pagination?.page_size ?? 12,
     };
@@ -844,11 +848,13 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
     setMissingOpen(false);
     setBusinesses([]);
     setPolicyIds([]);
+    setPolicyMatch("include");
     libraryCacheRef.current.clear();
     load({
       month: activeMonth || "",
       businesses: [],
       policyIds: [],
+      policyMatch: "include",
       page: 1,
       force: true,
     });
@@ -1127,20 +1133,29 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
                 </Option>
               ))}
             </Select>
-            <Select
-              placeholder="政策终端"
-              mode="multiple"
-              value={policyIds}
-              allowClear
-              maxTagCount={1}
-              onChange={(value) => setPolicyIds(value || [])}
-            >
-              {(data.policy_options || []).map((policy) => (
-                <Option key={policy.id} value={policy.id}>
-                  {policy.display_name}
-                </Option>
-              ))}
-            </Select>
+            <div className="policy-filter-condition">
+              <Select
+                value={policyMatch}
+                aria-label="终端政策条件"
+                onChange={(value) => setPolicyMatch(value || "include")}
+              >
+                <Option value="include">包含</Option>
+                <Option value="exclude">不包含</Option>
+              </Select>
+              <Select
+                placeholder="政策终端"
+                mode="multiple"
+                value={policyIds}
+                allowClear
+                onChange={(value) => setPolicyIds(value || [])}
+              >
+                {(data.policy_options || []).map((policy) => (
+                  <Option key={policy.id} value={policy.id}>
+                    {policy.display_name}
+                  </Option>
+                ))}
+              </Select>
+            </div>
             <Input
               value={fields}
               onChange={setFields}
@@ -1148,6 +1163,7 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
               onPressEnter={() => runSearch()}
             />
             <Select
+              className="customer-name-filter"
               placeholder="客户名字"
               value={customerName || undefined}
               allowClear
@@ -1175,11 +1191,13 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
                   setFields("");
                   setCustomerName("");
                   setPolicyIds([]);
+                  setPolicyMatch("include");
                   runSearch({
                     businesses: [],
                     fields: "",
                     customerName: "",
                     policyIds: [],
+                    policyMatch: "include",
                   });
                 }}
               >
@@ -1234,6 +1252,16 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
             <Button onClick={openExtractionRecords}>新增记录</Button>
           </div>
           <div className="selection-summary">
+            <div className="selection-metric">
+              <Text type="secondary">筛选出</Text>
+              <Tag color="arcoblue">
+                {data.pagination?.total_groups || 0}
+              </Tag>
+              <Text type="secondary">家</Text>
+            </div>
+            <Text type="secondary" className="selection-separator">
+              ，
+            </Text>
             <div className="selection-metric">
               <Text type="secondary">已选择照片</Text>
               <Tag color="arcoblue">{selected.size}</Tag>
@@ -1346,9 +1374,6 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
             )}
             {data.pagination?.total_groups > 0 ? (
               <div className="library-pagination">
-                <Text type="secondary">
-                  共 {data.pagination.total_groups} 个终端，第 {data.pagination.page} / {data.pagination.total_pages} 页
-                </Text>
                 <Pagination
                   current={data.pagination.page}
                   pageSize={data.pagination.page_size}
@@ -1393,7 +1418,7 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
               placeholder={
                 archiveOptionsLoading
                   ? "正在读取当前月份政策标签"
-                  : "请选择一个已启用的雪花政策标签"
+                  : "请选择一个已启用且需要拍照的雪花政策标签"
               }
               loading={archiveOptionsLoading}
               disabled={archiveOptionsLoading || !archiveOptions.length}
@@ -1409,7 +1434,7 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
               <Alert
                 type="warning"
                 showIcon
-                content={`${activeMonth} 暂无已启用的雪花政策标签`}
+                content={`${activeMonth} 暂无已启用且需要拍照的雪花政策标签`}
               />
             ) : null}
           </div>

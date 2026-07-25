@@ -800,17 +800,24 @@ class SnowOutboundStore:
             for row in rows
         }
 
-    def active_policy_options(self, month: str) -> list[dict[str, Any]]:
+    def active_policy_options(
+        self,
+        month: str,
+        *,
+        requires_photo_only: bool = False,
+    ) -> list[dict[str, Any]]:
         match = re.fullmatch(r"(\d{4})-(\d{2})", month.strip())
         if not match:
             raise ValueError("照片月份格式不正确")
         year, month_number = int(match.group(1)), int(match.group(2))
+        photo_condition = "AND requires_photo = 1" if requires_photo_only else ""
         with self._connect() as connection:
             rows = connection.execute(
-                """
+                f"""
                 SELECT id, display_name, name, color, year, month
                 FROM snow_policies
                 WHERE deleted_at = '' AND enabled = 1
+                  {photo_condition}
                   AND year = ? AND month = ?
                 ORDER BY created_at, id
                 """,
