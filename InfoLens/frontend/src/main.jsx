@@ -383,9 +383,14 @@ function TerminalListModal({
   onClose,
 }) {
   const [business, setBusiness] = useState("");
+  const [copyVisible, setCopyVisible] = useState(false);
+  const excelTextRef = useRef(null);
 
   useEffect(() => {
-    if (visible) setBusiness("");
+    if (visible) {
+      setBusiness("");
+      setCopyVisible(false);
+    }
   }, [visible, title]);
 
   const businesses = [...new Set(
@@ -395,14 +400,20 @@ function TerminalListModal({
     ? terminals.filter((item) => item.salesperson === business)
     : terminals;
 
-  async function copyTerminalCodes() {
-    const text = filtered.map((item) => item.terminal_code).join("\n");
-    try {
-      if (!(await copyText(text))) throw new Error("copy failed");
-      Message.success(`已复制 ${filtered.length} 个终端编码`);
-    } catch (_error) {
-      Message.error("复制失败，请稍后重试");
-    }
+  const excelText = filtered
+    .map((item) =>
+      String(item.terminal_code || "")
+        .replace(/\t/g, " ")
+        .replace(/\r?\n/g, " ")
+    )
+    .join("\n");
+
+  function selectExcelText() {
+    const textarea = excelTextRef.current;
+    if (!textarea || !filtered.length) return;
+    textarea.focus();
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
   }
 
   return (
@@ -434,9 +445,9 @@ function TerminalListModal({
         <Button
           size="small"
           disabled={!filtered.length}
-          onClick={copyTerminalCodes}
+          onClick={() => setCopyVisible(true)}
         >
-          复制全部终端编码
+          复制全部
         </Button>
       </div>
       {filtered.length ? (
@@ -474,6 +485,36 @@ function TerminalListModal({
       ) : (
         <EmptyBox text={loading ? "正在读取终端明细" : emptyText} />
       )}
+      <Modal
+        title="复制终端编码"
+        visible={copyVisible}
+        footer={null}
+        onCancel={() => setCopyVisible(false)}
+        className="terminal-excel-modal"
+        unmountOnExit
+      >
+        <div className="terminal-excel-toolbar">
+          <Text type="secondary">
+            已按 Excel 单列格式整理，共 <strong>{filtered.length}</strong> 个终端编码
+          </Text>
+          <Button
+            size="small"
+            type="primary"
+            disabled={!filtered.length}
+            onClick={selectExcelText}
+          >
+            全选
+          </Button>
+        </div>
+        <textarea
+          ref={excelTextRef}
+          className="terminal-excel-textarea"
+          value={excelText}
+          readOnly
+          spellCheck={false}
+          aria-label="可复制到 Excel 的终端编码"
+        />
+      </Modal>
     </Modal>
   );
 }

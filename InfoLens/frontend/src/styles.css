@@ -2102,6 +2102,7 @@ body {
 .photo-archive-action-modal .arco-modal-header,
 .photo-archive-list-modal .arco-modal-header,
 .missing-terminals-modal .arco-modal-header,
+.terminal-excel-modal .arco-modal-header,
 .extraction-records-modal .arco-modal-header,
 .extraction-error-modal .arco-modal-header {
   text-align: left;
@@ -2113,6 +2114,7 @@ body {
 .photo-archive-action-modal .arco-modal-title,
 .photo-archive-list-modal .arco-modal-title,
 .missing-terminals-modal .arco-modal-title,
+.terminal-excel-modal .arco-modal-title,
 .extraction-records-modal .arco-modal-title,
 .extraction-error-modal .arco-modal-title {
   justify-content: flex-start;
@@ -2129,6 +2131,10 @@ body {
 
 .missing-terminals-modal {
   width: min(680px, calc(100vw - 32px)) !important;
+}
+
+.terminal-excel-modal {
+  width: min(520px, calc(100vw - 32px)) !important;
 }
 
 .photo-archive-action-form,
@@ -2349,6 +2355,44 @@ body {
   color: #165dff;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-weight: 600;
+}
+
+.terminal-excel-textarea {
+  width: 100%;
+  height: min(440px, 56vh);
+  min-height: 260px;
+  padding: 12px 14px;
+  overflow: auto;
+  resize: none;
+  border: 1px solid #e5e8ef;
+  border-radius: 8px;
+  outline: none;
+  background: #ffffff;
+  color: #1d2738;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.8;
+  tab-size: 16;
+  white-space: pre;
+  box-sizing: border-box;
+}
+
+.terminal-excel-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.terminal-excel-toolbar strong {
+  color: #165dff;
+}
+
+.terminal-excel-textarea:focus {
+  border-color: #165dff;
+  box-shadow: 0 0 0 2px rgba(22, 93, 255, 0.1);
 }
 
 .export-records-modal {
