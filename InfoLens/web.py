@@ -1373,6 +1373,26 @@ def _attach_image_archive_tags(result: dict) -> None:
         ]
 
 
+def _archive_policy_options(month: str) -> list[dict]:
+    if not month:
+        return []
+    policy_ids = IMAGE_LIBRARY.archived_policy_ids(month)
+    policy_map = SNOW_OUTBOUND_STORE.policy_summaries(
+        policy_ids,
+        include_deleted=True,
+    )
+    return [
+        {
+            "id": policy_id,
+            "display_name": policy_map[policy_id]["tag"],
+            "color": policy_map[policy_id]["color"],
+            "deleted": policy_map[policy_id]["deleted"],
+        }
+        for policy_id in policy_ids
+        if policy_id in policy_map
+    ]
+
+
 def _private_image_cache(response):
     response.cache_control.public = False
     response.cache_control.private = True
@@ -2463,6 +2483,15 @@ def create_app() -> Flask:
         policy_match = request.args.get("policy_match", "include").strip()
         if policy_match not in {"include", "exclude"}:
             return jsonify({"error": "终端政策条件必须为包含或不包含"}), 400
+        archive_policy_ids = _parse_string_values(
+            request.args.getlist("archive_policy_id")
+            or request.args.get("archive_policy_id", "")
+        )
+        archive_policy_match = request.args.get(
+            "archive_policy_match", "archived"
+        ).strip()
+        if archive_policy_match not in {"archived", "unarchived"}:
+            return jsonify({"error": "归档条件必须为已归档或未归档"}), 400
         fields = _parse_field_lines(request.args.get("fields", ""))
         try:
             page, page_size = _parse_pagination(
@@ -2477,6 +2506,15 @@ def create_app() -> Flask:
             )
         except ValueError:
             policy_options = []
+        archive_policy_options = _archive_policy_options(month)
+        valid_archive_policy_ids = {
+            item["id"] for item in archive_policy_options
+        }
+        if any(
+            policy_id not in valid_archive_policy_ids
+            for policy_id in archive_policy_ids
+        ):
+            return jsonify({"error": "所选归档标签在当前月份不存在归档记录"}), 400
         terminal_codes = None
         if policy_ids:
             valid_policy_ids = {item["id"] for item in policy_options}
@@ -2493,6 +2531,8 @@ def create_app() -> Flask:
             fields=fields,
             terminal_codes=terminal_codes,
             terminal_code_match=policy_match,
+            archive_policy_ids=archive_policy_ids,
+            archive_policy_match=archive_policy_match,
             month=month,
             businesses=businesses,
             customer_name=customer_name,
@@ -2513,6 +2553,7 @@ def create_app() -> Flask:
                 "businesses": IMAGE_LIBRARY.businesses(),
                 "customer_names": IMAGE_LIBRARY.customer_names(),
                 "policy_options": policy_options,
+                "archive_policy_options": archive_policy_options,
             }
         )
 
@@ -2530,6 +2571,14 @@ def create_app() -> Flask:
         policy_match = str(payload.get("policy_match") or "include").strip()
         if policy_match not in {"include", "exclude"}:
             return jsonify({"error": "终端政策条件必须为包含或不包含"}), 400
+        archive_policy_ids = _parse_string_values(
+            payload.get("archive_policy_ids", payload.get("archive_policy_id"))
+        )
+        archive_policy_match = str(
+            payload.get("archive_policy_match") or "archived"
+        ).strip()
+        if archive_policy_match not in {"archived", "unarchived"}:
+            return jsonify({"error": "归档条件必须为已归档或未归档"}), 400
         raw_fields = payload.get("fields", "")
         if isinstance(raw_fields, list):
             fields = [
@@ -2552,6 +2601,15 @@ def create_app() -> Flask:
             )
         except ValueError:
             policy_options = []
+        archive_policy_options = _archive_policy_options(month)
+        valid_archive_policy_ids = {
+            item["id"] for item in archive_policy_options
+        }
+        if any(
+            policy_id not in valid_archive_policy_ids
+            for policy_id in archive_policy_ids
+        ):
+            return jsonify({"error": "所选归档标签在当前月份不存在归档记录"}), 400
         terminal_codes = None
         if policy_ids:
             valid_policy_ids = {item["id"] for item in policy_options}
@@ -2568,6 +2626,8 @@ def create_app() -> Flask:
             fields=fields,
             terminal_codes=terminal_codes,
             terminal_code_match=policy_match,
+            archive_policy_ids=archive_policy_ids,
+            archive_policy_match=archive_policy_match,
             month=month,
             businesses=businesses,
             customer_name=str(payload.get("customer_name") or "").strip(),
@@ -2588,6 +2648,7 @@ def create_app() -> Flask:
                 "businesses": IMAGE_LIBRARY.businesses(),
                 "customer_names": IMAGE_LIBRARY.customer_names(),
                 "policy_options": policy_options,
+                "archive_policy_options": archive_policy_options,
             }
         )
 

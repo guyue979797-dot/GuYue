@@ -1840,10 +1840,11 @@ body {
 .filter-grid {
   display: grid;
   grid-template-columns:
-    minmax(130px, 170px)
-    minmax(290px, 1fr)
-    minmax(170px, 240px)
-    minmax(170px, 240px)
+    minmax(120px, 150px)
+    minmax(260px, 1fr)
+    minmax(260px, 1fr)
+    minmax(150px, 210px)
+    minmax(150px, 210px)
     auto;
   gap: 12px;
   align-items: center;
@@ -2032,6 +2033,18 @@ body {
       minmax(120px, 160px)
       minmax(270px, 1fr)
       minmax(170px, 220px);
+  }
+
+  .snow-policy-filter {
+    grid-column: 2 / 4;
+  }
+
+  .archive-policy-filter {
+    grid-column: 1 / 3;
+  }
+
+  .terminal-code-filter {
+    grid-column: 3;
   }
 
   .customer-name-filter {
@@ -3209,6 +3222,12 @@ body {
 
   .filter-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .snow-policy-filter,
+  .archive-policy-filter,
+  .terminal-code-filter {
+    grid-column: auto;
   }
 
   .customer-name-filter {

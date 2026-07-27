@@ -728,12 +728,15 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
   const [customerName, setCustomerName] = useState("");
   const [policyIds, setPolicyIds] = useState([]);
   const [policyMatch, setPolicyMatch] = useState("include");
+  const [archivePolicyIds, setArchivePolicyIds] = useState([]);
+  const [archivePolicyMatch, setArchivePolicyMatch] = useState("archived");
   const [data, setData] = useState({
     items: [],
     months: [],
     businesses: [],
     customer_names: [],
     policy_options: [],
+    archive_policy_options: [],
     field_count: 0,
     image_count: 0,
     missing_fields: [],
@@ -795,6 +798,8 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
       query.customerName.trim(),
       query.policyIds,
       query.policyMatch,
+      query.archivePolicyIds,
+      query.archivePolicyMatch,
       query.page,
       query.pageSize,
     ]);
@@ -815,6 +820,8 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
         customer_name: query.customerName,
         policy_ids: query.policyIds,
         policy_match: query.policyMatch,
+        archive_policy_ids: query.archivePolicyIds,
+        archive_policy_match: query.archivePolicyMatch,
         page: query.page,
         page_size: query.pageSize,
       }),
@@ -847,6 +854,8 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
       customerName: overrides.customerName ?? customerName,
       policyIds: overrides.policyIds ?? policyIds,
       policyMatch: overrides.policyMatch ?? policyMatch,
+      archivePolicyIds: overrides.archivePolicyIds ?? archivePolicyIds,
+      archivePolicyMatch: overrides.archivePolicyMatch ?? archivePolicyMatch,
       page: overrides.page ?? data.pagination?.page ?? 1,
       pageSize: overrides.pageSize ?? data.pagination?.page_size ?? 12,
     };
@@ -890,12 +899,16 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
     setBusinesses([]);
     setPolicyIds([]);
     setPolicyMatch("include");
+    setArchivePolicyIds([]);
+    setArchivePolicyMatch("archived");
     libraryCacheRef.current.clear();
     load({
       month: activeMonth || "",
       businesses: [],
       policyIds: [],
       policyMatch: "include",
+      archivePolicyIds: [],
+      archivePolicyMatch: "archived",
       page: 1,
       force: true,
     });
@@ -1174,7 +1187,7 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
                 </Option>
               ))}
             </Select>
-            <div className="policy-filter-condition">
+            <div className="policy-filter-condition snow-policy-filter">
               <Select
                 value={policyMatch}
                 aria-label="终端政策条件"
@@ -1184,7 +1197,7 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
                 <Option value="exclude">不包含</Option>
               </Select>
               <Select
-                placeholder="政策终端"
+                placeholder="雪花已出库政策"
                 mode="multiple"
                 value={policyIds}
                 allowClear
@@ -1197,7 +1210,33 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
                 ))}
               </Select>
             </div>
+            <div className="policy-filter-condition archive-policy-filter">
+              <Select
+                value={archivePolicyMatch}
+                aria-label="照片归档条件"
+                onChange={(value) =>
+                  setArchivePolicyMatch(value || "archived")
+                }
+              >
+                <Option value="archived">已归档</Option>
+                <Option value="unarchived">未归档</Option>
+              </Select>
+              <Select
+                placeholder="政策标签"
+                mode="multiple"
+                value={archivePolicyIds}
+                allowClear
+                onChange={(value) => setArchivePolicyIds(value || [])}
+              >
+                {(data.archive_policy_options || []).map((policy) => (
+                  <Option key={policy.id} value={policy.id}>
+                    {policy.display_name}
+                  </Option>
+                ))}
+              </Select>
+            </div>
             <Input
+              className="terminal-code-filter"
               value={fields}
               onChange={setFields}
               placeholder="批量终端编码"
@@ -1233,12 +1272,16 @@ function ImageLibrary({ csrfToken, activeMonth, onMonthsChange }) {
                   setCustomerName("");
                   setPolicyIds([]);
                   setPolicyMatch("include");
+                  setArchivePolicyIds([]);
+                  setArchivePolicyMatch("archived");
                   runSearch({
                     businesses: [],
                     fields: "",
                     customerName: "",
                     policyIds: [],
                     policyMatch: "include",
+                    archivePolicyIds: [],
+                    archivePolicyMatch: "archived",
                   });
                 }}
               >

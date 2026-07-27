@@ -424,6 +424,8 @@ class ImageLibraryStore:
         fields: list[str] | None = None,
         terminal_codes: list[str] | None = None,
         terminal_code_match: str = "include",
+        archive_policy_ids: list[str] | None = None,
+        archive_policy_match: str = "archived",
         month: str = "",
         business: str = "",
         businesses: list[str] | None = None,
@@ -452,12 +454,10 @@ class ImageLibraryStore:
                 if item and item.strip()
             )
         )
-        grouped_filters: list[str] = []
-        grouped_params: list[Any] = []
         if normalized_businesses:
             placeholders = ",".join("?" for _ in normalized_businesses)
-            grouped_filters.append(f"business IN ({placeholders})")
-            grouped_params.extend(normalized_businesses)
+            conditions.append(f"business IN ({placeholders})")
+            params.extend(normalized_businesses)
         if terminal_codes is not None:
             normalized_terminal_codes = list(
                 dict.fromkeys(
@@ -471,15 +471,43 @@ class ImageLibraryStore:
             if normalized_terminal_codes:
                 placeholders = ",".join("?" for _ in normalized_terminal_codes)
                 operator = "IN" if terminal_code_match == "include" else "NOT IN"
-                grouped_filters.append(f"field {operator} ({placeholders})")
-                grouped_params.extend(normalized_terminal_codes)
+                conditions.append(f"field {operator} ({placeholders})")
+                params.extend(normalized_terminal_codes)
             else:
-                grouped_filters.append(
+                conditions.append(
                     "1 = 0" if terminal_code_match == "include" else "1 = 1"
                 )
-        if grouped_filters:
-            conditions.append(f"({' OR '.join(grouped_filters)})")
-            params.extend(grouped_params)
+        normalized_archive_policy_ids = list(
+            dict.fromkeys(
+                str(item).strip()
+                for item in archive_policy_ids or []
+                if str(item).strip()
+            )
+        )
+        if normalized_archive_policy_ids:
+            if archive_policy_match not in {"archived", "unarchived"}:
+                raise ValueError("归档条件必须为已归档或未归档")
+            placeholders = ",".join("?" for _ in normalized_archive_policy_ids)
+            exists_operator = (
+                "EXISTS"
+                if archive_policy_match == "archived"
+                else "NOT EXISTS"
+            )
+            conditions.append(
+                f"""
+                {exists_operator} (
+                    SELECT 1
+                    FROM image_policy_tags AS archive_tag
+                    JOIN extracted_images AS archived_image
+                      ON archived_image.id = archive_tag.image_id
+                    WHERE archived_image.deleted_at = ''
+                      AND archived_image.month = extracted_images.month
+                      AND archived_image.field = extracted_images.field
+                      AND archive_tag.policy_id IN ({placeholders})
+                )
+                """
+            )
+            params.extend(normalized_archive_policy_ids)
         if customer_name:
             conditions.append("customer_name LIKE ?")
             params.append(f"%{customer_name}%")
@@ -834,6 +862,20 @@ class ImageLibraryStore:
                 (policy_id.strip(),),
             ).fetchall()
         return {row["terminal_code"] for row in rows}
+
+    def archived_policy_ids(self, month: str) -> list[str]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT DISTINCT tags.policy_id
+                FROM image_policy_tags AS tags
+                JOIN extracted_images AS image ON image.id = tags.image_id
+                WHERE image.deleted_at = '' AND image.month = ?
+                ORDER BY tags.policy_id
+                """,
+                (month.strip(),),
+            ).fetchall()
+        return [row["policy_id"] for row in rows]
 
     def archived_policy_ids_by_image(
         self,

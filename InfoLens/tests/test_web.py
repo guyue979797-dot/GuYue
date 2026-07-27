@@ -1080,7 +1080,7 @@ class WebSecurityTests(unittest.TestCase):
         )
         self.assertEqual(policy_search.status_code, 200)
         policy_search_data = policy_search.get_json()
-        self.assertEqual(policy_search_data["image_count"], 2)
+        self.assertEqual(policy_search_data["image_count"], 1)
         tagged_item = next(
             item
             for item in policy_search_data["items"]

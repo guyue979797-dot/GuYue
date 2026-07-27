@@ -10,7 +10,7 @@ from infolens.image_library import ImageLibraryStore
 
 
 class ImageLibraryStoreTests(unittest.TestCase):
-    def test_query_orders_terminal_groups_by_latest_upload_and_business_or(self):
+    def test_query_orders_terminal_groups_and_combines_filter_groups_with_and(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             store = ImageLibraryStore(
@@ -66,6 +66,62 @@ class ImageLibraryStoreTests(unittest.TestCase):
                 [item["field"] for item in business_result["items"]],
                 ["1000000001"],
             )
+            included_policy_result = store.query(
+                month="2026-06",
+                businesses=["业务甲"],
+                terminal_codes=["1000000002"],
+            )
+            self.assertEqual(included_policy_result["items"], [])
+            excluded_policy_result = store.query(
+                month="2026-06",
+                businesses=["业务甲"],
+                terminal_codes=["1000000001"],
+                terminal_code_match="exclude",
+            )
+            self.assertEqual(excluded_policy_result["items"], [])
+
+            archived_image_id = store.query(
+                month="2026-06",
+                fields=["1000000001"],
+            )["items"][0]["images"][0]["id"]
+            store.archive_images(
+                [archived_image_id],
+                policy_id="POLICY-ARCHIVED",
+                month="2026-06",
+                actor="tester",
+                actor_name="测试用户",
+            )
+            self.assertEqual(
+                store.archived_policy_ids("2026-06"),
+                ["POLICY-ARCHIVED"],
+            )
+            archived_result = store.query(
+                month="2026-06",
+                businesses=["业务甲"],
+                archive_policy_ids=["POLICY-ARCHIVED"],
+                archive_policy_match="archived",
+            )
+            self.assertEqual(
+                [item["field"] for item in archived_result["items"]],
+                ["1000000001"],
+            )
+            unarchived_result = store.query(
+                month="2026-06",
+                businesses=["业务乙"],
+                archive_policy_ids=["POLICY-ARCHIVED"],
+                archive_policy_match="unarchived",
+            )
+            self.assertEqual(
+                [item["field"] for item in unarchived_result["items"]],
+                ["1000000002"],
+            )
+            archived_other_business = store.query(
+                month="2026-06",
+                businesses=["业务乙"],
+                archive_policy_ids=["POLICY-ARCHIVED"],
+                archive_policy_match="archived",
+            )
+            self.assertEqual(archived_other_business["items"], [])
 
     def test_add_query_and_export_images(self):
         with tempfile.TemporaryDirectory() as temporary:
