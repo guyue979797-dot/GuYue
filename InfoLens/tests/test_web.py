@@ -397,6 +397,205 @@ class WebSecurityTests(unittest.TestCase):
         ).get_json()
         self.assertEqual(empty_policy_filter["total"], 0)
 
+    def test_snow_policy_can_export_reimbursement_workbook(self):
+        self.client.post(
+            "/login",
+            data={"username": "team", "password": "correct horse"},
+        )
+        csrf_token = self.client.get("/api/session").get_json()["csrf_token"]
+
+        def create_product(code, short_name, full_name, settlement_price):
+            response = self.client.post(
+                "/api/products",
+                json={
+                    "product_codes": [code],
+                    "short_name": short_name,
+                    "product_name": full_name,
+                    "snow_inventory": 10,
+                    "housekeeper_codes": [f"GJ-{code}"],
+                    "specification": 12,
+                    "auxiliary_unit": "瓶",
+                    "settlement_price": settlement_price,
+                },
+                headers={"X-CSRF-Token": csrf_token},
+            )
+            self.assertEqual(response.status_code, 201)
+            return response.get_json()
+
+        priced_product = create_product(
+            "EXPORT-001",
+            "核销产品",
+            "核销产品商品全名",
+            12.5,
+        )
+        blank_price_product = create_product(
+            "EXPORT-002",
+            "无结算价产品",
+            "无结算价产品商品全名",
+            None,
+        )
+        policy_response = self.client.post(
+            "/api/snow-outbound/policies",
+            json={
+                "name": "导出测试",
+                "outbound_code": "PLX-EXPORT-001",
+                "explanation": "核销明细导出测试",
+                "requires_photo": True,
+                "set_limit": 10,
+                "year": 2026,
+                "month": 7,
+                "gift_type": "陈列赠酒",
+                "normal_sale_product_ids": [priced_product["id"]],
+                "gift_product_ids": [
+                    priced_product["id"],
+                    blank_price_product["id"],
+                ],
+                "conditions": [
+                    {
+                        "field": "outbound_remark",
+                        "operator": "contains",
+                        "value": "PLX-EXPORT-001",
+                    }
+                ],
+            },
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        self.assertEqual(policy_response.status_code, 201)
+        policy = policy_response.get_json()
+
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(
+            [
+                "票号",
+                "开票日期",
+                "业务员",
+                "对象编码",
+                "对象名称",
+                "折合箱数",
+                "售卖类型",
+                "出库单备注",
+                "商品简称",
+            ]
+        )
+        sheet.append(
+            [
+                "CK20260701-EXPORT-1",
+                "2026-07-01",
+                "陈俊杰",
+                "1000001001",
+                "核销客户甲",
+                2,
+                "陈列赠酒",
+                "前缀 PLX-EXPORT-001 后缀",
+                "核销产品商品全名",
+            ]
+        )
+        sheet.append(
+            [
+                "CK20260701-EXPORT-2",
+                "2026-07-01",
+                "陈俊杰",
+                "1000001002",
+                "核销客户乙",
+                3,
+                "陈列赠酒",
+                "PLX-EXPORT-001",
+                "无结算价产品商品全名",
+            ]
+        )
+        sheet.append(
+            [
+                "CK20260701-WRONG-TYPE",
+                "2026-07-01",
+                "陈俊杰",
+                "1000001003",
+                "售卖类型不匹配",
+                4,
+                "促销赠酒-临时搭赠",
+                "PLX-EXPORT-001",
+                "核销产品商品全名",
+            ]
+        )
+        sheet.append(
+            [
+                "CK20260701-NEGATIVE",
+                "2026-07-01",
+                "陈俊杰",
+                "1000001004",
+                "负数行",
+                -1,
+                "陈列赠酒",
+                "PLX-EXPORT-001",
+                "核销产品商品全名",
+            ]
+        )
+        source = io.BytesIO()
+        workbook.save(source)
+        source.seek(0)
+        preview = self.client.post(
+            "/api/snow-outbound/preview",
+            data={
+                "file": (source, "policy-export-source.xlsx"),
+                "update_policy": "true",
+            },
+            headers={"X-CSRF-Token": csrf_token},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(preview.status_code, 200)
+        imported = self.client.post(
+            "/api/snow-outbound/import",
+            json={"preview_id": preview.get_json()["preview_id"]},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        self.assertEqual(imported.status_code, 200)
+
+        listed_policies = self.client.get(
+            "/api/snow-outbound/policies?year=2026&month=7"
+        ).get_json()["items"]
+        listed_policy = next(
+            item for item in listed_policies if item["id"] == policy["id"]
+        )
+        self.assertEqual(listed_policy["reimbursement_quantity"], 5)
+        self.assertEqual(listed_policy["reimbursement_amount"], 25)
+
+        exported = self.client.post(
+            f"/api/snow-outbound/policies/{policy['id']}/export",
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        self.assertEqual(exported.status_code, 200)
+        self.assertIn(
+            "spreadsheetml.sheet",
+            exported.headers["Content-Type"],
+        )
+        exported_book = load_workbook(io.BytesIO(exported.data), data_only=False)
+        exported_sheet = exported_book["Sheet1"]
+        self.assertEqual(
+            [exported_sheet.cell(2, column).value for column in range(1, 9)],
+            [
+                "序号",
+                "对象编码",
+                "对象名称",
+                "产品",
+                "数量",
+                "单价",
+                "核销金额",
+                "是否达标",
+            ],
+        )
+        self.assertEqual(exported_sheet["B3"].value, "1000001001")
+        self.assertEqual(exported_sheet["D3"].value, "核销产品商品全名")
+        self.assertEqual(exported_sheet["F3"].value, 12.5)
+        self.assertEqual(exported_sheet["G3"].value, "=E3*F3")
+        self.assertEqual(exported_sheet["B4"].value, "1000001002")
+        self.assertIsNone(exported_sheet["F4"].value)
+        self.assertIsNone(exported_sheet["G4"].value)
+        self.assertEqual(exported_sheet["H4"].value, "是")
+        self.assertEqual(exported_sheet["D5"].value, "合计")
+        self.assertEqual(exported_sheet["E5"].value, "=SUM(E3:E4)")
+        self.assertTrue(str(exported_sheet["A6"].value).startswith("制表人："))
+        self.assertEqual(exported_sheet["D6"].value, "业务部经理签字：")
+
     def test_single_extract_creates_success_and_failure_records(self):
         with self.client.session_transaction() as current_session:
             current_session["user"] = "team"

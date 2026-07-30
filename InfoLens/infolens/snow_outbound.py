@@ -1089,6 +1089,7 @@ class SnowOutboundStore:
                     item["shipped_count"] = shipped_counts.get(item["id"], 0)
                     item["reversed_count"] = reversed_counts.get(item["id"], 0)
                     item["alert_count"] = alert_counts.get(item["id"], 0)
+                self._attach_policy_reimbursement_metrics(connection, items)
         return {
             "items": items,
             "total": total,
@@ -1596,6 +1597,160 @@ class SnowOutboundStore:
             if not _parse_reversal_ticket(row["ticket_no"])
             and row["ticket_no"] not in reversed_tickets
         ]
+
+    @staticmethod
+    def _product_settlement_prices(
+        connection: sqlite3.Connection,
+        product_names: list[str],
+    ) -> dict[str, float | None]:
+        normalized_names = list(
+            dict.fromkeys(name.strip() for name in product_names if name.strip())
+        )
+        if not normalized_names:
+            return {}
+        if connection.execute(
+            """
+            SELECT 1 FROM sqlite_master
+            WHERE type = 'table' AND name = 'products'
+            """
+        ).fetchone() is None:
+            return {}
+        placeholders = ",".join("?" for _ in normalized_names)
+        product_rows = connection.execute(
+            f"""
+            SELECT product_name, settlement_price, status, updated_at, id
+            FROM products
+            WHERE deleted_at = ''
+              AND product_name IN ({placeholders})
+            ORDER BY CASE status WHEN '正常' THEN 0 ELSE 1 END,
+                     updated_at DESC, id DESC
+            """,
+            normalized_names,
+        ).fetchall()
+        prices: dict[str, float | None] = {}
+        for product_row in product_rows:
+            if product_row["product_name"] in prices:
+                continue
+            prices[product_row["product_name"]] = (
+                float(product_row["settlement_price"])
+                if product_row["settlement_price"] is not None
+                else None
+            )
+        return prices
+
+    def _attach_policy_reimbursement_metrics(
+        self,
+        connection: sqlite3.Connection,
+        policies: list[dict[str, Any]],
+    ) -> None:
+        """批量附加政策核销箱数及金额，避免列表页逐标签查询数据库。"""
+
+        rows_by_period: dict[str, list[dict[str, Any]]] = {}
+        for policy in policies:
+            period = f"{int(policy['year']):04d}-{int(policy['month']):02d}"
+            if period not in rows_by_period:
+                rows_by_period[period] = self._effective_outbound_rows(
+                    connection,
+                    period,
+                )
+
+        product_names = [
+            str(row.get("product_name") or "").strip()
+            for rows in rows_by_period.values()
+            for row in rows
+        ]
+        prices = self._product_settlement_prices(connection, product_names)
+        for policy in policies:
+            outbound_code = str(policy.get("outbound_code") or "").strip()
+            sale_type = str(policy.get("gift_type") or "").strip()
+            period = f"{int(policy['year']):04d}-{int(policy['month']):02d}"
+            quantity_total = 0.0
+            amount_total = 0.0
+            if outbound_code and sale_type:
+                for row in rows_by_period.get(period, []):
+                    try:
+                        quantity = float(row.get("converted_boxes") or 0)
+                    except (TypeError, ValueError):
+                        continue
+                    if quantity < 0:
+                        continue
+                    if outbound_code not in str(row.get("outbound_remark") or ""):
+                        continue
+                    if str(row.get("sale_type") or "").strip() != sale_type:
+                        continue
+                    quantity_total += quantity
+                    price = prices.get(
+                        str(row.get("product_name") or "").strip()
+                    )
+                    if price is not None:
+                        amount_total += quantity * price
+            policy["reimbursement_quantity"] = round(quantity_total, 6)
+            policy["reimbursement_amount"] = round(amount_total, 2)
+
+    def policy_export_rows(
+        self,
+        policy_id: str,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """返回同时命中出库编码和售卖类型的有效出库明细。"""
+
+        normalized_id = policy_id.strip()
+        if not normalized_id:
+            raise ValueError("雪花政策标签不存在")
+        with self._connect() as connection:
+            policy_row = connection.execute(
+                """
+                SELECT * FROM snow_policies
+                WHERE id = ? AND deleted_at = ''
+                """,
+                (normalized_id,),
+            ).fetchone()
+            if policy_row is None:
+                raise ValueError("雪花政策标签不存在")
+            policy = self._hydrate_policy(connection, dict(policy_row))
+            outbound_code = str(policy.get("outbound_code") or "").strip()
+            sale_type = str(policy.get("gift_type") or "").strip()
+            if not outbound_code or not sale_type:
+                raise ValueError("请先补全标签的出库编码和售卖类型")
+
+            period = f"{int(policy['year']):04d}-{int(policy['month']):02d}"
+            matched_rows: list[dict[str, Any]] = []
+            for row in self._effective_outbound_rows(connection, period):
+                try:
+                    quantity = float(row.get("converted_boxes") or 0)
+                except (TypeError, ValueError):
+                    continue
+                if quantity < 0:
+                    continue
+                if outbound_code not in str(row.get("outbound_remark") or ""):
+                    continue
+                if str(row.get("sale_type") or "").strip() != sale_type:
+                    continue
+                matched_rows.append({**row, "quantity": quantity})
+
+            product_names = [
+                str(row.get("product_name") or "").strip()
+                for row in matched_rows
+            ]
+            prices_by_name = self._product_settlement_prices(
+                connection,
+                product_names,
+            )
+
+            export_rows = []
+            for row in matched_rows:
+                source_product_name = str(row.get("product_name") or "").strip()
+                export_rows.append(
+                    {
+                        "terminal_code": str(row.get("terminal_code") or ""),
+                        "customer_name": str(row.get("customer_name") or ""),
+                        "product_name": source_product_name,
+                        "quantity": row["quantity"],
+                        "settlement_price": prices_by_name.get(
+                            source_product_name
+                        ),
+                    }
+                )
+            return policy, export_rows
 
     def _rebuild_month_policy_results(
         self,

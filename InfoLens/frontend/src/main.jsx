@@ -147,6 +147,19 @@ function formatCompactDateTime(value) {
   }).format(date);
 }
 
+function formatPolicyQuantity(value) {
+  return Number(value || 0).toLocaleString("zh-CN", {
+    maximumFractionDigits: 6,
+  });
+}
+
+function formatPolicyAmount(value) {
+  return Number(value || 0).toLocaleString("zh-CN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 function getDateParts(value) {
   if (!value) return null;
   const [year, month, day] = String(value).slice(0, 10).split("-");
@@ -4019,6 +4032,7 @@ function SnowPolicyManagement({ csrfToken, isAdmin }) {
   const [alertListPolicy, setAlertListPolicy] = useState(null);
   const [alertListItems, setAlertListItems] = useState([]);
   const [alertListLoading, setAlertListLoading] = useState(false);
+  const [exportingPolicyId, setExportingPolicyId] = useState("");
   const latestUploadDate = getDateParts(latestUploadAt);
   const sequence = useRef(0);
   const monthOptions = Array.from({ length: 12 }, (_item, index) => index + 1);
@@ -4128,6 +4142,23 @@ function SnowPolicyManagement({ csrfToken, isAdmin }) {
     setForm(emptyPolicyForm());
     setFormError("");
     setFormOpen(true);
+  }
+
+  async function exportPolicy(policy) {
+    if (exportingPolicyId) return;
+    setExportingPolicyId(policy.id);
+    try {
+      const token = await latestCsrfToken(csrfToken);
+      await downloadPostFile(
+        `/api/snow-outbound/policies/${encodeURIComponent(policy.id)}/export`,
+        token,
+      );
+      Message.success(`“${policy.display_name}”核销明细已导出`);
+    } catch (error) {
+      Message.error(error.message);
+    } finally {
+      setExportingPolicyId("");
+    }
   }
 
   function openPolicyEdit(policy) {
@@ -4451,6 +4482,8 @@ function SnowPolicyManagement({ csrfToken, isAdmin }) {
                 <th>告警</th>
                 <th>正常销售产品</th>
                 <th>赠送产品</th>
+                <th>核销</th>
+                <th>核销金额</th>
                 <th>售卖类型</th>
                 <th>出库编码</th>
                 <th>出库解释</th>
@@ -4594,6 +4627,16 @@ function SnowPolicyManagement({ csrfToken, isAdmin }) {
                     ) : "-"}
                   </td>
                   <td>
+                    <span className="policy-reimbursement-quantity">
+                      {formatPolicyQuantity(policy.reimbursement_quantity)}
+                    </span>
+                  </td>
+                  <td>
+                    <span className="policy-reimbursement-amount">
+                      {formatPolicyAmount(policy.reimbursement_amount)}
+                    </span>
+                  </td>
+                  <td>
                     {policy.gift_type ? <Tag color="orange">{policy.gift_type}</Tag> : "-"}
                   </td>
                   <td><span className="policy-code">{policy.outbound_code}</span></td>
@@ -4635,6 +4678,14 @@ function SnowPolicyManagement({ csrfToken, isAdmin }) {
                   <td>{formatCompactDateTime(policy.created_at)}</td>
                   <td className="policy-actions-sticky">
                     <span className="customer-action-links">
+                      <button
+                        className="customer-action-link export"
+                        type="button"
+                        disabled={Boolean(exportingPolicyId)}
+                        onClick={() => exportPolicy(policy)}
+                      >
+                        {exportingPolicyId === policy.id ? "导出中" : "导出"}
+                      </button>
                       <button className="customer-action-link edit" type="button" onClick={() => openPolicyEdit(policy)}>编辑</button>
                       {isAdmin ? <button className="customer-action-link delete" type="button" onClick={() => deletePolicy(policy)}>删除</button> : null}
                     </span>

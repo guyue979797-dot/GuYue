@@ -68,6 +68,7 @@ from infolens.extractor import (
 )
 from infolens.image_library import ImageLibraryStore
 from infolens.products import ProductStore, parse_stock_workbook
+from infolens.policy_export import build_policy_reimbursement_workbook
 from infolens.snow_outbound import (
     POLICY_GIFT_TYPES,
     POLICY_TAGS,
@@ -93,6 +94,10 @@ from infolens.wecom_bot import (
 ROOT = Path(__file__).resolve().parent
 WEB_ROOT = ROOT / "web"
 OUTPUT_ROOT = Path(os.environ.get("INFOLENS_OUTPUT_ROOT", ROOT / "output")).resolve()
+POLICY_EXPORT_DISTRIBUTOR = os.environ.get(
+    "INFOLENS_DISTRIBUTOR_NAME",
+    "贵州鑫向晨商贸有限公司",
+).strip()
 AUTH_MODE = os.environ.get("INFOLENS_AUTH_MODE", "off").strip().lower()
 EXTRACT_LOCK = threading.Lock()
 RATE_LOCK = threading.Lock()
@@ -2318,6 +2323,48 @@ def create_app() -> Flask:
             )
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 404
+
+    @application.post("/api/snow-outbound/policies/<policy_id>/export")
+    @_login_required
+    def export_snow_policy(policy_id: str):
+        _check_csrf()
+        _operator, operator_name = _customer_operator()
+        try:
+            policy, rows = SNOW_OUTBOUND_STORE.policy_export_rows(policy_id)
+            if not rows:
+                return (
+                    jsonify(
+                        {
+                            "error": (
+                                "当前标签没有同时满足出库编码和售卖类型的"
+                                "有效出库数据"
+                            )
+                        }
+                    ),
+                    400,
+                )
+            output = build_policy_reimbursement_workbook(
+                policy,
+                rows,
+                operator_name=operator_name,
+                distributor_name=POLICY_EXPORT_DISTRIBUTOR,
+            )
+            filename = (
+                f"{int(policy['year']):04d}年{int(policy['month'])}月-"
+                f"{_safe_archive_part(policy['name'])}-核销明细-"
+                f"{datetime.now().strftime('%Y%m%d')}.xlsx"
+            )
+            return send_file(
+                output,
+                as_attachment=True,
+                download_name=filename,
+                mimetype=(
+                    "application/vnd.openxmlformats-officedocument."
+                    "spreadsheetml.sheet"
+                ),
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
 
     @application.get("/api/snow-outbound/policies/<policy_id>/pending-outbound")
     @_login_required

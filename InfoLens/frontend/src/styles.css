@@ -1839,7 +1839,7 @@ body {
 
 .policy-table {
   width: 100%;
-  min-width: 2180px;
+  min-width: 2380px;
   border-collapse: separate;
   border-spacing: 0;
   color: #1d2738;
@@ -1879,7 +1879,7 @@ body {
   z-index: 3;
   right: 0;
   width: 1%;
-  min-width: 96px;
+  min-width: 132px;
   box-shadow: -1px 0 #e5e8ef;
 }
 
@@ -1947,9 +1947,29 @@ body {
   color: #86909c;
 }
 
+.policy-reimbursement-quantity {
+  color: #165dff;
+  font-weight: 700;
+}
+
+.policy-reimbursement-amount {
+  color: #00a870;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 .policy-actions-sticky .customer-action-links {
   flex-wrap: nowrap;
   white-space: nowrap;
+}
+
+.customer-action-link.export {
+  color: #00a870;
+}
+
+.customer-action-link.export:disabled {
+  color: #c9cdd4;
+  cursor: not-allowed;
 }
 
 .policy-explanation,
