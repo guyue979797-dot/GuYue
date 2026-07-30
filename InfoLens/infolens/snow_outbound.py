@@ -233,10 +233,12 @@ def parse_outbound_workbook(file_stream: BinaryIO) -> list[dict[str, Any]]:
                     raise ValueError("票号不能为空")
                 invoice_date = _invoice_date(value("开票日期"))
                 reversal = _parse_reversal_ticket(ticket_no)
-                if reversal and reversal[0] != invoice_date[:7]:
-                    raise ValueError(
-                        "冲销票号中的发生月份与开票日期月份不一致"
-                    )
+                if reversal:
+                    original_month = _month_from_original_ticket(reversal[1])
+                    if original_month and reversal[0] != original_month:
+                        raise ValueError(
+                            "冲销票号中的发生月份与原票号月份不一致"
+                        )
                 terminal_code = normalize_terminal_code(value("对象编码"))
                 customer_name = _excel_text(value("对象名称"))
                 if not customer_name:

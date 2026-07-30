@@ -3060,6 +3060,7 @@ function SnowOutboundUploadModal({ visible, csrfToken, onClose, onImported }) {
   const [file, setFile] = useState(null);
   const [updatePolicy, setUpdatePolicy] = useState(true);
   const [preview, setPreview] = useState(null);
+  const [errorMessage, setErrorMessage] = useState("");
   const [previewing, setPreviewing] = useState(false);
   const [committing, setCommitting] = useState(false);
 
@@ -3068,11 +3069,13 @@ function SnowOutboundUploadModal({ visible, csrfToken, onClose, onImported }) {
     setFile(null);
     setUpdatePolicy(true);
     setPreview(null);
+    setErrorMessage("");
   }, [visible]);
 
   async function previewFile() {
     if (!file) return;
     setPreviewing(true);
+    setErrorMessage("");
     try {
       const token = await latestCsrfToken(csrfToken);
       const body = new FormData();
@@ -3085,9 +3088,18 @@ function SnowOutboundUploadModal({ visible, csrfToken, onClose, onImported }) {
         body,
       });
       setPreview(data);
-      Message.success("文件解析完成，请确认覆盖月份及命中结果");
+      try {
+        Message.success("文件解析完成，请确认覆盖月份及命中结果");
+      } catch (_messageError) {
+        // 预览区域本身会展示成功结果，不让消息组件异常影响主流程。
+      }
     } catch (error) {
-      Message.error(error.message);
+      setErrorMessage(error.message || "文件解析失败");
+      try {
+        Message.error(error.message || "文件解析失败");
+      } catch (_messageError) {
+        // 错误会固定展示在弹窗内。
+      }
     } finally {
       setPreviewing(false);
     }
@@ -3096,6 +3108,7 @@ function SnowOutboundUploadModal({ visible, csrfToken, onClose, onImported }) {
   async function commitImport() {
     if (!preview?.preview_id) return;
     setCommitting(true);
+    setErrorMessage("");
     try {
       const token = await latestCsrfToken(csrfToken);
       const data = await jsonFetch("/api/snow-outbound/import", {
@@ -3115,7 +3128,12 @@ function SnowOutboundUploadModal({ visible, csrfToken, onClose, onImported }) {
         `导入完成：${data.row_count}条明细，${data.tag_count}个政策标签，自动建档${data.auto_customer_count}家`
       );
     } catch (error) {
-      Message.error(error.message);
+      setErrorMessage(error.message || "导入失败");
+      try {
+        Message.error(error.message || "导入失败");
+      } catch (_messageError) {
+        // 错误会固定展示在弹窗内。
+      }
     } finally {
       setCommitting(false);
     }
@@ -3156,6 +3174,7 @@ function SnowOutboundUploadModal({ visible, csrfToken, onClose, onImported }) {
               onChange={(event) => {
                 setFile(event.target.files?.[0] || null);
                 setPreview(null);
+                setErrorMessage("");
               }}
             />
             <span className="snow-file-icon">XL</span>
@@ -3181,9 +3200,18 @@ function SnowOutboundUploadModal({ visible, csrfToken, onClose, onImported }) {
             onChange={(checked) => {
               setUpdatePolicy(checked);
               setPreview(null);
+              setErrorMessage("");
             }}
           />
         </section>
+
+        {errorMessage ? (
+          <Alert
+            type="error"
+            showIcon
+            content={errorMessage}
+          />
+        ) : null}
 
         {preview ? (
           <section className="snow-section snow-preview-section">

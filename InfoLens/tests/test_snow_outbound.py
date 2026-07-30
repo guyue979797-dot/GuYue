@@ -631,7 +631,7 @@ class SnowOutboundTests(unittest.TestCase):
         self.assertEqual(initial["shipped_count"], 1)
         self.assertEqual(initial["reversed_count"], 0)
 
-        reversal_ticket = f"CX1-202607-{original_ticket}"
+        reversal_ticket = f"CX1-202606-{original_ticket}"
         july_reversal_rows = self.parse(
             [
                 (
@@ -729,8 +729,8 @@ class SnowOutboundTests(unittest.TestCase):
         self.assertEqual(restored_policy["reversed_count"], 0)
         self.assertEqual(self.store.reversed_terminals(policy["id"]), [])
 
-    def test_reversal_ticket_month_must_match_invoice_month(self):
-        with self.assertRaisesRegex(ValueError, "发生月份与开票日期月份不一致"):
+    def test_reversal_ticket_month_must_match_original_ticket_month(self):
+        with self.assertRaisesRegex(ValueError, "发生月份与原票号月份不一致"):
             self.parse(
                 [
                     (
