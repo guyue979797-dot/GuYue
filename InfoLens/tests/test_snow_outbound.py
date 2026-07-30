@@ -7,6 +7,7 @@ from pathlib import Path
 from openpyxl import Workbook
 
 from infolens.customers import CustomerStore
+from infolens.products import ProductStore
 from infolens.snow_outbound import (
     SnowOutboundStore,
     parse_outbound_workbook,
@@ -580,6 +581,646 @@ class SnowOutboundTests(unittest.TestCase):
             policy_month="2026-07",
         )["items"][0]["policy_tag_details"]
         self.assertEqual(details[0]["policy_id"], policy["id"])
+
+    def test_cross_month_reversal_excludes_original_and_can_be_restored(self):
+        june_payload = self.policy_payload(
+            name="六月政策",
+            code="PLX-JUNE",
+            remark="MATCH",
+        )
+        june_payload["month"] = 6
+        policy = self.store.create_policy(
+            june_payload,
+            operator="admin",
+            operator_name="管理员",
+        )
+        original_ticket = "CK20260615-19593797700019304"
+        june_rows = self.parse(
+            [
+                (
+                    original_ticket,
+                    "2026-06-15",
+                    "罗伟",
+                    "1000000201",
+                    "跨月冲销客户",
+                    "",
+                    "",
+                    10,
+                    "正常",
+                    "MATCH",
+                )
+            ]
+        )
+        june_preview = self.store.create_preview(
+            filename="june.xlsx",
+            operator="worker",
+            operator_name="普通用户",
+            rows=june_rows,
+            update_policy=True,
+        )
+        self.store.commit_preview(
+            june_preview["preview_id"],
+            operator="worker",
+            operator_name="普通用户",
+        )
+        initial = next(
+            item
+            for item in self.store.list_policies(page_size=100)["items"]
+            if item["id"] == policy["id"]
+        )
+        self.assertEqual(initial["shipped_count"], 1)
+        self.assertEqual(initial["reversed_count"], 0)
+
+        reversal_ticket = f"CX1-202607-{original_ticket}"
+        july_reversal_rows = self.parse(
+            [
+                (
+                    reversal_ticket,
+                    "2026-07-20",
+                    "罗伟",
+                    "1000000201",
+                    "跨月冲销客户",
+                    "",
+                    "",
+                    -10,
+                    "冲销",
+                    "客户退货冲销",
+                )
+            ]
+        )
+        reversal_preview = self.store.create_preview(
+            filename="july-reversal.xlsx",
+            operator="worker",
+            operator_name="普通用户",
+            rows=july_reversal_rows,
+            update_policy=True,
+        )
+        self.assertEqual(reversal_preview["reversal_ticket_count"], 1)
+        self.store.commit_preview(
+            reversal_preview["preview_id"],
+            operator="worker",
+            operator_name="普通用户",
+        )
+
+        reversed_policy = next(
+            item
+            for item in self.store.list_policies(page_size=100)["items"]
+            if item["id"] == policy["id"]
+        )
+        self.assertEqual(reversed_policy["shipped_count"], 0)
+        self.assertEqual(reversed_policy["reversed_count"], 1)
+        reversed_terminals = self.store.reversed_terminals(policy["id"])
+        self.assertEqual(
+            reversed_terminals,
+            [
+                {
+                    "terminal_code": "1000000201",
+                    "customer_name": "跨月冲销客户",
+                    "salesperson": "罗伟",
+                    "reversal_date": "2026-07-20",
+                    "reason": "客户退货冲销",
+                }
+            ],
+        )
+        with sqlite3.connect(self.database_path) as connection:
+            stored_tickets = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT ticket_no FROM snow_outbound_tickets"
+                ).fetchall()
+            }
+        self.assertIn(original_ticket, stored_tickets)
+        self.assertIn(reversal_ticket, stored_tickets)
+
+        july_replacement_rows = self.parse(
+            [
+                (
+                    "CK20260721-NEW",
+                    "2026-07-21",
+                    "罗伟",
+                    "1000000202",
+                    "七月普通客户",
+                    "",
+                    "",
+                    1,
+                    "正常",
+                    "NONE",
+                )
+            ]
+        )
+        replacement_preview = self.store.create_preview(
+            filename="july-replacement.xlsx",
+            operator="worker",
+            operator_name="普通用户",
+            rows=july_replacement_rows,
+            update_policy=True,
+        )
+        self.store.commit_preview(
+            replacement_preview["preview_id"],
+            operator="worker",
+            operator_name="普通用户",
+        )
+        restored_policy = next(
+            item
+            for item in self.store.list_policies(page_size=100)["items"]
+            if item["id"] == policy["id"]
+        )
+        self.assertEqual(restored_policy["shipped_count"], 1)
+        self.assertEqual(restored_policy["reversed_count"], 0)
+        self.assertEqual(self.store.reversed_terminals(policy["id"]), [])
+
+    def test_reversal_ticket_month_must_match_invoice_month(self):
+        with self.assertRaisesRegex(ValueError, "发生月份与开票日期月份不一致"):
+            self.parse(
+                [
+                    (
+                        "CX1-202607-CK20260615-ORIGINAL",
+                        "2026-08-01",
+                        "罗伟",
+                        "1000000203",
+                        "月份错误客户",
+                        "",
+                        "",
+                        -1,
+                        "冲销",
+                        "冲销",
+                    )
+                ]
+            )
+
+    def test_policy_products_are_audit_rules_not_tag_match_conditions(self):
+        products = ProductStore(self.database_path)
+
+        def create_product(code, short_name):
+            return products.create_product(
+                {
+                    "product_codes": [code],
+                    "short_name": short_name,
+                    "product_name": f"{short_name}商品",
+                    "snow_inventory": 10,
+                    "housekeeper_codes": [f"GJ-{code}"],
+                    "specification": 12,
+                    "auxiliary_unit": "瓶",
+                    "settlement_price": 10,
+                },
+                operator="admin",
+                operator_name="管理员",
+            )
+
+        normal_product = create_product("SALE-001", "正常销售酒")
+        gift_product = create_product("GIFT-001", "赠送酒")
+        second_gift_product = create_product("GIFT-002", "第二赠送酒")
+        payload = self.policy_payload(
+            name="产品组合",
+            code="PLX-PRODUCT",
+            remark="MATCH",
+        )
+        payload.update(
+            {
+                "normal_sale_product_ids": [normal_product["id"]],
+                "gift_product_ids": [
+                    gift_product["id"],
+                    second_gift_product["id"],
+                ],
+                "gift_type": "陈列赠酒",
+            }
+        )
+        policy = self.store.create_policy(
+            payload,
+            operator="admin",
+            operator_name="管理员",
+        )
+        self.assertEqual(
+            policy["normal_sale_product_ids"],
+            [normal_product["id"]],
+        )
+        self.assertEqual(
+            policy["gift_product_ids"],
+            [gift_product["id"], second_gift_product["id"]],
+        )
+
+        product_headers = (*HEADERS, "商品编码", "商品名称")
+        matching_rows = parse_outbound_workbook(
+            workbook_bytes(
+                [
+                    (
+                        "CK20260720-PRODUCT",
+                        "2026-07-20",
+                        "罗伟",
+                        "1000000301",
+                        "产品组合客户",
+                        "",
+                        "",
+                        1,
+                        "正常销售",
+                        "MATCH",
+                        "SALE-001",
+                        "正常销售酒商品",
+                    ),
+                    (
+                        "CK20260720-PRODUCT",
+                        "2026-07-20",
+                        "罗伟",
+                        "1000000301",
+                        "产品组合客户",
+                        "",
+                        "",
+                        1,
+                        "陈列赠酒",
+                        "",
+                        "GIFT-001",
+                        "赠送酒商品",
+                    ),
+                ],
+                product_headers,
+            )
+        )
+        preview = self.store.create_preview(
+            filename="product-group.xlsx",
+            operator="worker",
+            operator_name="普通用户",
+            rows=matching_rows,
+            update_policy=True,
+        )
+        self.assertEqual(preview["tag_count"], 1)
+        self.store.commit_preview(
+            preview["preview_id"],
+            operator="worker",
+            operator_name="普通用户",
+        )
+        stored_policy = next(
+            item
+            for item in self.store.list_policies(page_size=100)["items"]
+            if item["id"] == policy["id"]
+        )
+        self.assertEqual(stored_policy["shipped_count"], 1)
+
+        matching_rows[1]["sale_type"] = "促销赠酒-临时搭赠"
+        mismatch_preview = self.store.create_preview(
+            filename="product-group-mismatch.xlsx",
+            operator="worker",
+            operator_name="普通用户",
+            rows=matching_rows,
+            update_policy=True,
+        )
+        self.assertEqual(mismatch_preview["tag_count"], 1)
+        self.store.commit_preview(
+            mismatch_preview["preview_id"],
+            operator="worker",
+            operator_name="普通用户",
+        )
+        alert = self.store.policy_alert_terminals(policy["id"])[0]
+        self.assertEqual(alert["alert_names"], ["售卖类型错误告警"])
+        self.assertNotIn("salesperson", alert)
+        self.assertEqual(alert["details"][0]["product_name"], "赠送酒商品")
+
+    def test_policy_alerts_use_any_conflict_and_distinct_ticket_limit(self):
+        conflict_one = self.store.create_policy(
+            self.policy_payload(name="冲突一", code="PLX-C1", remark="C1"),
+            operator="admin",
+            operator_name="管理员",
+        )
+        conflict_two = self.store.create_policy(
+            self.policy_payload(name="冲突二", code="PLX-C2", remark="C2"),
+            operator="admin",
+            operator_name="管理员",
+        )
+        target_payload = self.policy_payload(
+            name="目标政策",
+            code="PLX-TARGET",
+            remark="TARGET",
+        )
+        target_payload["set_limit"] = 1
+        target_payload["conflict_policy_ids"] = [
+            conflict_one["id"],
+            conflict_two["id"],
+        ]
+        target = self.store.create_policy(
+            target_payload,
+            operator="admin",
+            operator_name="管理员",
+        )
+
+        rows = self.parse(
+            [
+                (
+                    "A-1",
+                    "2026-07-10",
+                    "罗伟",
+                    "1000000101",
+                    "冲突且重复客户",
+                    "",
+                    "",
+                    1,
+                    "正常",
+                    "TARGET C2",
+                ),
+                (
+                    "A-2",
+                    "2026-07-11",
+                    "罗伟",
+                    "1000000101",
+                    "冲突且重复客户",
+                    "",
+                    "",
+                    1,
+                    "正常",
+                    "TARGET C2",
+                ),
+                (
+                    "B-1",
+                    "2026-07-12",
+                    "韦春云",
+                    "1000000102",
+                    "仅冲突客户",
+                    "",
+                    "",
+                    1,
+                    "正常",
+                    "TARGET C1",
+                ),
+            ]
+        )
+        preview = self.store.create_preview(
+            filename="alerts.xlsx",
+            operator="worker",
+            operator_name="普通用户",
+            rows=rows,
+            update_policy=True,
+        )
+        self.store.commit_preview(
+            preview["preview_id"],
+            operator="worker",
+            operator_name="普通用户",
+        )
+
+        alerts = {
+            item["terminal_code"]: item
+            for item in self.store.policy_alert_terminals(target["id"])
+        }
+        self.assertEqual(set(alerts), {"1000000101", "1000000102"})
+        self.assertEqual(
+            set(alerts["1000000101"]["alert_names"]),
+            {"雪花政策冲突告警", "政策重复出库告警"},
+        )
+        self.assertEqual(
+            alerts["1000000101"]["conflict_policy_names"],
+            ["7月-冲突二"],
+        )
+        self.assertEqual(alerts["1000000101"]["ticket_count"], 2)
+        self.assertEqual(alerts["1000000101"]["set_limit"], 1)
+        self.assertEqual(
+            alerts["1000000102"]["alert_names"],
+            ["雪花政策冲突告警"],
+        )
+        listing = self.store.list_policies(page_size=100)
+        target_item = next(
+            item for item in listing["items"] if item["id"] == target["id"]
+        )
+        self.assertEqual(target_item["alert_count"], 2)
+
+        self.store.set_policy_enabled(
+            target["id"],
+            False,
+            operator="admin",
+            operator_name="管理员",
+        )
+        self.assertEqual(self.store.policy_alert_terminals(target["id"]), [])
+
+    def test_policy_product_compliance_alerts_report_each_error_type(self):
+        products = ProductStore(self.database_path)
+
+        def create_product(code, name):
+            return products.create_product(
+                {
+                    "product_codes": [code],
+                    "short_name": f"{name}简称",
+                    "product_name": name,
+                    "snow_inventory": 10,
+                    "housekeeper_codes": [f"GJ-{code}"],
+                    "specification": 12,
+                    "auxiliary_unit": "瓶",
+                    "settlement_price": 10,
+                },
+                operator="admin",
+                operator_name="管理员",
+            )
+
+        normal = create_product("SALE-ALLOWED", "允许正常销售商品")
+        gift = create_product("GIFT-ALLOWED", "允许赠送商品")
+        payload = self.policy_payload(
+            name="合规检查",
+            code="PLX-AUDIT",
+            remark="AUDIT",
+        )
+        payload.update(
+            {
+                "normal_sale_product_ids": [normal["id"]],
+                "gift_product_ids": [gift["id"]],
+                "gift_type": "陈列赠酒",
+            }
+        )
+        policy = self.store.create_policy(
+            payload,
+            operator="admin",
+            operator_name="管理员",
+        )
+        headers = (*HEADERS, "商品编码", "商品名称")
+        rows = parse_outbound_workbook(
+            workbook_bytes(
+                [
+                    (
+                        "AUDIT-1",
+                        "2026-07-20",
+                        "罗伟",
+                        "1000000401",
+                        "正常产品错误客户",
+                        "",
+                        "",
+                        1,
+                        "正常销售",
+                        "AUDIT",
+                        "SALE-WRONG",
+                        "错误正常销售商品",
+                    ),
+                    (
+                        "AUDIT-1",
+                        "2026-07-20",
+                        "罗伟",
+                        "1000000401",
+                        "正常产品错误客户",
+                        "",
+                        "",
+                        1,
+                        "陈列赠酒",
+                        "",
+                        "GIFT-ALLOWED",
+                        "允许赠送商品",
+                    ),
+                    (
+                        "AUDIT-2",
+                        "2026-07-20",
+                        "罗伟",
+                        "1000000402",
+                        "赠品错误客户",
+                        "",
+                        "",
+                        1,
+                        "正常销售",
+                        "",
+                        "SALE-ALLOWED",
+                        "允许正常销售商品",
+                    ),
+                    (
+                        "AUDIT-2",
+                        "2026-07-20",
+                        "罗伟",
+                        "1000000402",
+                        "赠品错误客户",
+                        "",
+                        "",
+                        1,
+                        "陈列赠酒",
+                        "AUDIT",
+                        "GIFT-WRONG",
+                        "错误赠送商品",
+                    ),
+                    (
+                        "AUDIT-3",
+                        "2026-07-20",
+                        "罗伟",
+                        "1000000403",
+                        "类型错误客户",
+                        "",
+                        "",
+                        1,
+                        "正常销售",
+                        "",
+                        "SALE-ALLOWED",
+                        "允许正常销售商品",
+                    ),
+                    (
+                        "AUDIT-3",
+                        "2026-07-20",
+                        "罗伟",
+                        "1000000403",
+                        "类型错误客户",
+                        "",
+                        "",
+                        1,
+                        "促销赠酒-临时搭赠",
+                        "AUDIT",
+                        "GIFT-ALLOWED",
+                        "允许赠送商品",
+                    ),
+                ],
+                headers,
+            )
+        )
+        preview = self.store.create_preview(
+            filename="product-audits.xlsx",
+            operator="worker",
+            operator_name="普通用户",
+            rows=rows,
+            update_policy=True,
+        )
+        self.store.commit_preview(
+            preview["preview_id"],
+            operator="worker",
+            operator_name="普通用户",
+        )
+        alerts = {
+            item["terminal_code"]: item
+            for item in self.store.policy_alert_terminals(policy["id"])
+        }
+        self.assertEqual(
+            alerts["1000000401"]["alert_names"],
+            ["正常销售产品错误告警"],
+        )
+        self.assertEqual(
+            alerts["1000000402"]["alert_names"],
+            ["赠送产品错误告警"],
+        )
+        self.assertEqual(
+            alerts["1000000403"]["alert_names"],
+            ["售卖类型错误告警"],
+        )
+        self.assertEqual(
+            alerts["1000000402"]["details"][0]["product_name"],
+            "错误赠送商品",
+        )
+        self.assertNotIn("salesperson", alerts["1000000402"])
+
+    def test_incomplete_policy_is_automatically_disabled_when_products_exist(self):
+        products = ProductStore(self.database_path)
+        products.create_product(
+            {
+                "product_codes": ["ACTIVE-001"],
+                "short_name": "正常产品",
+                "product_name": "正常产品全名",
+                "snow_inventory": 10,
+                "housekeeper_codes": ["GJ-ACTIVE-001"],
+                "specification": 12,
+                "auxiliary_unit": "瓶",
+                "settlement_price": 10,
+            },
+            operator="admin",
+            operator_name="管理员",
+        )
+        policy = self.store.create_policy(
+            self.policy_payload(
+                name="待补全政策",
+                code="PLX-INCOMPLETE",
+                remark="INCOMPLETE",
+            ),
+            operator="admin",
+            operator_name="管理员",
+        )
+        listed = next(
+            item
+            for item in self.store.list_policies(page_size=100)["items"]
+            if item["id"] == policy["id"]
+        )
+        self.assertFalse(listed["enabled"])
+        self.assertFalse(listed["required_fields_complete"])
+        with self.assertRaisesRegex(ValueError, "补全所有必填项"):
+            self.store.set_policy_enabled(
+                policy["id"],
+                True,
+                operator="admin",
+                operator_name="管理员",
+            )
+
+    def test_conflict_policy_must_be_same_month_and_not_self(self):
+        july = self.store.create_policy(
+            self.policy_payload(name="七月", code="PLX-JULY"),
+            operator="admin",
+            operator_name="管理员",
+        )
+        august_payload = self.policy_payload(name="八月", code="PLX-AUG")
+        august_payload["month"] = 8
+        august = self.store.create_policy(
+            august_payload,
+            operator="admin",
+            operator_name="管理员",
+        )
+        changed = self.policy_payload(name="七月", code="PLX-JULY")
+        changed["conflict_policy_ids"] = [july["id"]]
+        with self.assertRaisesRegex(ValueError, "不能选择当前标签"):
+            self.store.update_policy(
+                july["id"],
+                changed,
+                operator="admin",
+                operator_name="管理员",
+            )
+        changed["conflict_policy_ids"] = [august["id"]]
+        with self.assertRaisesRegex(ValueError, "同一月份"):
+            self.store.update_policy(
+                july["id"],
+                changed,
+                operator="admin",
+                operator_name="管理员",
+            )
 
 
 if __name__ == "__main__":

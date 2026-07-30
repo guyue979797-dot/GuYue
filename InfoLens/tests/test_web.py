@@ -1380,6 +1380,81 @@ class WebSecurityTests(unittest.TestCase):
             404,
         )
 
+    def test_product_crud_and_stock_upload(self):
+        self.client.post(
+            "/login",
+            data={"username": "team", "password": "correct horse"},
+        )
+        csrf_token = self.client.get("/api/session").get_json()["csrf_token"]
+        created = self.client.post(
+            "/api/products",
+            json={
+                "product_codes": ["P001", "P001-A"],
+                "short_name": "蓝听",
+                "product_name": "雪花蓝听500ml听1*12",
+                "snow_inventory": 10.5,
+                "housekeeper_codes": ["G001"],
+                "specification": 12,
+                "auxiliary_unit": "听",
+                "settlement_price": 50,
+            },
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        self.assertEqual(created.status_code, 201)
+        product = created.get_json()
+        self.assertEqual(product["status"], "正常")
+
+        listed = self.client.get("/api/products?product_code=P001")
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(listed.get_json()["total"], 1)
+
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(
+            ["年月", "商品编号", "商品名称", "单位", "入库千升数", "可用（箱）"]
+        )
+        sheet.append(
+            [
+                "202607",
+                "P001",
+                "雪花蓝听500ml听1*12纸箱",
+                "箱",
+                1.5,
+                20.25,
+            ]
+        )
+        sheet.append(["202607", "PROMO", "太阳伞", "顶", 0, 5])
+        stream = io.BytesIO()
+        workbook.save(stream)
+        preview = self.client.post(
+            "/api/products/import/preview",
+            data={"file": (io.BytesIO(stream.getvalue()), "stock.xlsx")},
+            headers={"X-CSRF-Token": csrf_token},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(preview.status_code, 200)
+        preview_data = preview.get_json()
+        self.assertEqual(preview_data["updated_count"], 1)
+        self.assertEqual(preview_data["skipped_count"], 1)
+
+        committed = self.client.post(
+            "/api/products/import",
+            json={"preview_id": preview_data["preview_id"]},
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        self.assertEqual(committed.status_code, 200)
+        updated = self.client.get("/api/products?product_code=P001").get_json()
+        self.assertEqual(updated["items"][0]["snow_inventory"], 20.25)
+        self.assertTrue(updated["latest_upload_at"])
+        self.assertEqual(updated["monthly_inbound_tons"], 1.5)
+        self.assertEqual(updated["snow_inventory_boxes"], 20.25)
+
+        deleted = self.client.delete(
+            f"/api/products/{product['id']}",
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        self.assertEqual(deleted.status_code, 200)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -183,6 +183,17 @@ function BrandMark() {
 }
 
 function NavIcon({ type }) {
+  if (type === "products") {
+    return (
+      <span className="nav-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24">
+          <path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5z" />
+          <path d="m4 7.5 8 4.5 8-4.5M12 12v9" />
+          <path d="m8 5.2 8 4.5" />
+        </svg>
+      </span>
+    );
+  }
   if (type === "customers") {
     return (
       <span className="nav-icon" aria-hidden="true">
@@ -380,6 +391,7 @@ function TerminalListModal({
   loading = false,
   summaryLabel = "家终端",
   emptyText = "暂无终端",
+  showReversalDetails = false,
   onClose,
 }) {
   const [business, setBusiness] = useState("");
@@ -422,7 +434,11 @@ function TerminalListModal({
       visible={visible}
       footer={null}
       onCancel={onClose}
-      className="missing-terminals-modal"
+      className={
+        showReversalDetails
+          ? "missing-terminals-modal reversed-terminals-modal"
+          : "missing-terminals-modal"
+      }
       unmountOnExit
     >
       <div className="missing-terminals-toolbar">
@@ -458,6 +474,8 @@ function TerminalListModal({
                 <th>终端编码</th>
                 <th>客户全名</th>
                 <th>业务员</th>
+                {showReversalDetails ? <th>冲销时间</th> : null}
+                {showReversalDetails ? <th>原因（出库单备注）</th> : null}
               </tr>
             </thead>
             <tbody>
@@ -477,6 +495,17 @@ function TerminalListModal({
                       maxWidth={90}
                     />
                   </td>
+                  {showReversalDetails ? (
+                    <td>{terminal.reversal_date || "-"}</td>
+                  ) : null}
+                  {showReversalDetails ? (
+                    <td>
+                      <TableEllipsis
+                        value={terminal.reason || "-"}
+                        maxWidth={260}
+                      />
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
@@ -1904,6 +1933,13 @@ const SNOW_RULE_OPERATORS = {
   greater_than: "大于",
   less_than: "小于",
 };
+const POLICY_GIFT_TYPES = [
+  "试业用酒-协议终端",
+  "促销赠酒-临时搭赠",
+  "促销赠酒-渠道营销",
+  "促销赠酒-置换用酒",
+  "陈列赠酒",
+];
 
 function newSnowCondition() {
   return { field: "outbound_remark", operator: "contains", value: "" };
@@ -3186,6 +3222,702 @@ function SnowOutboundUploadModal({ visible, csrfToken, onClose, onImported }) {
   );
 }
 
+const EMPTY_PRODUCT_FILTERS = {
+  name: "",
+  product_code: "",
+  housekeeper_code: "",
+  status: "",
+};
+
+function emptyProductForm() {
+  return {
+    id: null,
+    version: null,
+    product_codes: [],
+    short_name: "",
+    product_name: "",
+    snow_inventory: "0",
+    housekeeper_codes: [],
+    specification: "",
+    auxiliary_unit: "",
+    settlement_price: "",
+  };
+}
+
+function MultiValueInput({ value, onChange, placeholder }) {
+  const [draft, setDraft] = useState("");
+
+  function append(raw) {
+    const additions = String(raw || "")
+      .split(/[,，;；\n]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (!additions.length) return;
+    onChange(Array.from(new Set([...(value || []), ...additions])));
+    setDraft("");
+  }
+
+  return (
+    <div className="product-multi-input">
+      {(value || []).map((item) => (
+        <span className="product-code-tag" key={item}>
+          {item}
+          <button
+            type="button"
+            aria-label={`移除${item}`}
+            onClick={() => onChange(value.filter((current) => current !== item))}
+          >×</button>
+        </span>
+      ))}
+      <Input
+        value={draft}
+        placeholder={value?.length ? "继续输入" : placeholder}
+        onChange={setDraft}
+        onBlur={() => append(draft)}
+        onPaste={(event) => {
+          const text = event.clipboardData?.getData("text") || "";
+          if (/[,，;；\n]/.test(text)) {
+            event.preventDefault();
+            append(text);
+          }
+        }}
+        onKeyDown={(event) => {
+          if (["Enter", ",", "，", ";", "；"].includes(event.key)) {
+            event.preventDefault();
+            append(draft);
+          }
+        }}
+      />
+    </div>
+  );
+}
+
+function ProductCodeTags({ values }) {
+  const items = values || [];
+  if (!items.length) return <span className="product-empty-value">-</span>;
+  return (
+    <div className="product-code-tags">
+      {items.slice(0, 2).map((value) => (
+        <span className="product-code-tag" key={value}>{value}</span>
+      ))}
+      {items.length > 2 ? (
+        <Tooltip content={items.slice(2).join("、")}>
+          <span className="product-code-more">+{items.length - 2}</span>
+        </Tooltip>
+      ) : null}
+    </div>
+  );
+}
+
+const PRODUCT_SHORT_TAG_TONES = [
+  "blue",
+  "cyan",
+  "green",
+  "lime",
+  "orange",
+  "red",
+  "purple",
+  "magenta",
+];
+
+function productShortTagTone(value) {
+  let hash = 0;
+  for (const character of String(value || "")) {
+    hash = (hash * 31 + character.codePointAt(0)) >>> 0;
+  }
+  return `tone-${PRODUCT_SHORT_TAG_TONES[hash % PRODUCT_SHORT_TAG_TONES.length]}`;
+}
+
+function ProductImportModal({ visible, csrfToken, onClose, onImported }) {
+  const [file, setFile] = useState(null);
+  const [preview, setPreview] = useState(null);
+  const [previewing, setPreviewing] = useState(false);
+  const [committing, setCommitting] = useState(false);
+
+  useEffect(() => {
+    if (!visible) return;
+    setFile(null);
+    setPreview(null);
+  }, [visible]);
+
+  async function previewFile() {
+    if (!file) return;
+    setPreviewing(true);
+    try {
+      const token = await latestCsrfToken(csrfToken);
+      const body = new FormData();
+      body.append("file", file);
+      const data = await jsonFetch("/api/products/import/preview", {
+        method: "POST",
+        headers: { "X-CSRF-Token": token },
+        body,
+      });
+      setPreview(data);
+      Message.success("文件解析完成，请确认合并更新结果");
+    } catch (error) {
+      Message.error(error.message);
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
+  async function commitImport() {
+    if (!preview?.preview_id) return;
+    setCommitting(true);
+    try {
+      const token = await latestCsrfToken(csrfToken);
+      const result = await jsonFetch("/api/products/import", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": token,
+        },
+        body: JSON.stringify({ preview_id: preview.preview_id }),
+      });
+      onClose();
+      await onImported?.();
+      Message.success(
+        `更新完成：新增待完善${result.created_count}条，更新${result.updated_count}条，` +
+        `仅月度汇总${result.summary_only_count || 0}条，跳过${result.skipped_count}条`
+      );
+    } catch (error) {
+      Message.error(error.message);
+    } finally {
+      setCommitting(false);
+    }
+  }
+
+  return (
+    <Modal
+      title="上传产品明细"
+      visible={visible}
+      onCancel={() => {
+        if (!committing) onClose();
+      }}
+      onOk={preview ? commitImport : previewFile}
+      okText={preview ? "确认合并更新" : "解析并预览"}
+      okButtonProps={{
+        loading: preview ? committing : previewing,
+        disabled: preview ? Boolean(preview.failed_count) : !file,
+      }}
+      cancelButtonProps={{ disabled: committing }}
+      className="product-upload-modal"
+      unmountOnExit
+    >
+      <div className="product-upload-layout">
+        <Alert
+          type="info"
+          showIcon
+          content="读取“年月、商品编号、商品名称、单位、入库千升数、可用（箱）”；本月箱装商品合并到产品明细，历史月份仅保存月度汇总。"
+        />
+        <label className="snow-file-picker">
+          <input
+            type="file"
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            onChange={(event) => {
+              setFile(event.target.files?.[0] || null);
+              setPreview(null);
+            }}
+          />
+          <span className="snow-file-icon">XL</span>
+          <span>
+            <strong>{file ? file.name : "请选择雪花库存 Excel"}</strong>
+            <small>
+              {file ? `${(file.size / 1024).toFixed(1)} KB` : "库存取“可用（箱）”，上传采用合并更新"}
+            </small>
+          </span>
+        </label>
+        {preview ? (
+          <>
+            <div className="product-import-summary">
+              <div><strong>{preview.total_count}</strong><span>总行数</span></div>
+              <div className="success"><strong>{preview.created_count}</strong><span>新增待完善</span></div>
+              <div><strong>{preview.updated_count}</strong><span>更新</span></div>
+              <div><strong>{preview.unchanged_count}</strong><span>无变化</span></div>
+              <div className="warning"><strong>{preview.skipped_count}</strong><span>跳过</span></div>
+              <div><strong>{preview.summary_only_count || 0}</strong><span>仅月度汇总</span></div>
+              <div className="warning"><strong>{preview.warning_count}</strong><span>解析提示</span></div>
+              <div className="danger"><strong>{preview.failed_count}</strong><span>失败</span></div>
+            </div>
+            {preview.failed_count ? (
+              <Alert type="error" showIcon content="文件存在失败记录，请修正后重新上传。" />
+            ) : null}
+            <div className="product-import-table-wrap">
+              <table className="product-import-table">
+                <thead>
+                  <tr>
+                    <th>行号</th>
+                    <th>商品编号</th>
+                    <th>商品名称</th>
+                    <th>处理结果</th>
+                    <th>提示</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(preview.details || []).map((item) => (
+                    <tr key={`${item.row_number}-${item.product_code}`}>
+                      <td>{item.row_number}</td>
+                      <td><span className="product-mono">{item.product_code}</span></td>
+                      <td><TableEllipsis value={item.product_name} maxWidth={260} /></td>
+                      <td>
+                        <Tag
+                          color={
+                            item.result === "失败"
+                              ? "red"
+                              : item.result === "跳过"
+                                ? "orange"
+                                : item.result === "新增待完善"
+                                  ? "arcoblue"
+                                  : "green"
+                          }
+                        >
+                          {item.result}
+                        </Tag>
+                      </td>
+                      <td>{item.message || "-"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : null}
+      </div>
+    </Modal>
+  );
+}
+
+function ProductManagement({ csrfToken }) {
+  const [items, setItems] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [filters, setFilters] = useState({ ...EMPTY_PRODUCT_FILTERS });
+  const [appliedFilters, setAppliedFilters] = useState({ ...EMPTY_PRODUCT_FILTERS });
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState(null);
+  const [latestUploadAt, setLatestUploadAt] = useState("");
+  const [monthlyInboundTons, setMonthlyInboundTons] = useState(0);
+  const [snowInventoryBoxes, setSnowInventoryBoxes] = useState(0);
+  const [summaryMonth, setSummaryMonth] = useState("");
+  const [summaryMonths, setSummaryMonths] = useState([]);
+  const [inventorySort, setInventorySort] = useState("");
+  const [formOpen, setFormOpen] = useState(false);
+  const [form, setForm] = useState(emptyProductForm());
+  const [saving, setSaving] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const sequence = useRef(0);
+
+  async function loadProducts() {
+    const requestId = ++sequence.current;
+    setLoading(true);
+    const params = new URLSearchParams({
+      ...appliedFilters,
+      inventory_sort: inventorySort,
+      summary_month: summaryMonth,
+      page: String(page),
+      page_size: String(pageSize),
+    });
+    try {
+      const data = await jsonFetch(`/api/products?${params}`);
+      if (requestId !== sequence.current) return;
+      setItems(data.items || []);
+      setTotal(data.total || 0);
+      setLatestUploadAt(data.latest_upload_at || "");
+      setMonthlyInboundTons(Number(data.monthly_inbound_tons) || 0);
+      setSnowInventoryBoxes(Number(data.snow_inventory_boxes) || 0);
+      setSummaryMonth(data.summary_month || "");
+      setSummaryMonths(data.summary_months || []);
+      setStatus(null);
+    } catch (error) {
+      if (requestId === sequence.current) {
+        setStatus({ type: "error", message: error.message });
+      }
+    } finally {
+      if (requestId === sequence.current) setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadProducts();
+  }, [page, pageSize, appliedFilters, inventorySort, summaryMonth]);
+
+  function applySearch() {
+    setPage(1);
+    setAppliedFilters({ ...filters });
+  }
+
+  function openCreate() {
+    setForm(emptyProductForm());
+    setFormOpen(true);
+  }
+
+  function openEdit(product) {
+    setForm({
+      ...product,
+      snow_inventory: String(product.snow_inventory ?? 0),
+      specification: product.specification === null ? "" : String(product.specification),
+      settlement_price: product.settlement_price === null ? "" : String(product.settlement_price),
+    });
+    setFormOpen(true);
+  }
+
+  async function saveProduct() {
+    setSaving(true);
+    try {
+      const token = await latestCsrfToken(csrfToken);
+      await jsonFetch(form.id ? `/api/products/${form.id}` : "/api/products", {
+        method: form.id ? "PATCH" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRF-Token": token,
+        },
+        body: JSON.stringify({
+          ...form,
+          snow_inventory: Number(form.snow_inventory),
+          specification: Number(form.specification),
+          settlement_price: form.settlement_price === "" ? null : Number(form.settlement_price),
+        }),
+      });
+      Message.success(form.id ? "产品档案已更新" : "产品档案已新建");
+      setFormOpen(false);
+      await loadProducts();
+    } catch (error) {
+      Message.error(error.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function deleteProduct(product) {
+    Modal.confirm({
+      title: "删除产品档案",
+      content: `确定删除“${product.short_name || product.product_name}”吗？`,
+      okText: "删除",
+      okButtonProps: { status: "danger" },
+      onOk: async () => {
+        try {
+          const token = await latestCsrfToken(csrfToken);
+          await jsonFetch(`/api/products/${product.id}`, {
+            method: "DELETE",
+            headers: { "X-CSRF-Token": token },
+          });
+          Message.success("产品档案已删除");
+          if (items.length === 1 && page > 1) setPage(page - 1);
+          else await loadProducts();
+        } catch (error) {
+          Message.error(error.message);
+        }
+      },
+    });
+  }
+
+  const validNonnegative = (value) =>
+    value !== "" && Number.isFinite(Number(value)) && Number(value) >= 0;
+  const formReady =
+    form.product_codes.length > 0 &&
+    form.short_name.trim() &&
+    form.product_name.trim() &&
+    form.housekeeper_codes.length > 0 &&
+    /^\d+$/.test(form.specification) &&
+    form.auxiliary_unit &&
+    validNonnegative(form.snow_inventory) &&
+    (form.settlement_price === "" || validNonnegative(form.settlement_price));
+  const latestUploadDate = getDateParts(latestUploadAt);
+  return (
+    <div className="product-page">
+      <Card bordered className="product-filter-card">
+        <div className="product-filter-grid">
+          <Input
+            value={filters.name}
+            placeholder="名称"
+            onChange={(value) => setFilters({ ...filters, name: value })}
+            onPressEnter={applySearch}
+          />
+          <Input
+            value={filters.product_code}
+            placeholder="商品编码"
+            onChange={(value) => setFilters({ ...filters, product_code: value })}
+            onPressEnter={applySearch}
+          />
+          <Input
+            value={filters.housekeeper_code}
+            placeholder="管家婆编码"
+            onChange={(value) => setFilters({ ...filters, housekeeper_code: value })}
+            onPressEnter={applySearch}
+          />
+          <Select
+            value={filters.status || undefined}
+            allowClear
+            placeholder="档案状态"
+            onChange={(value) => setFilters({ ...filters, status: value || "" })}
+          >
+            <Option value="正常">正常</Option>
+            <Option value="待完善">待完善</Option>
+          </Select>
+          <Space>
+            <Button type="primary" loading={loading} onClick={applySearch}>查询</Button>
+            <Button onClick={() => {
+              setFilters({ ...EMPTY_PRODUCT_FILTERS });
+              setPage(1);
+              setAppliedFilters({ ...EMPTY_PRODUCT_FILTERS });
+            }}>重置</Button>
+          </Space>
+        </div>
+      </Card>
+
+      <Card bordered className="product-list-card">
+        <div className="product-toolbar">
+          <div className="product-toolbar-title">
+            <strong>产品明细</strong>
+            <span>本月共 {total} 条</span>
+          </div>
+          <div className="product-overview">
+            <div className="product-latest-upload">
+              <span>产品明细最新更新时间</span>
+              {latestUploadDate ? (
+                <strong
+                  className="product-date-display"
+                  aria-label={formatDateTime(latestUploadAt)}
+                >
+                  <span className="product-date-tag">{latestUploadDate.year}</span><em>年</em>
+                  <span className="product-date-tag">{latestUploadDate.month}</span><em>月</em>
+                  <span className="product-date-tag">{latestUploadDate.day}</span><em>日</em>
+                </strong>
+              ) : (
+                <strong className="product-date-empty">暂无上传记录</strong>
+              )}
+            </div>
+            <div className="product-summary-metrics">
+              <span className="product-summary-metric">
+                <Select
+                  className="product-month-select"
+                  size="small"
+                  value={summaryMonth || undefined}
+                  placeholder="选择月份"
+                  onChange={(value) => setSummaryMonth(value || "")}
+                >
+                  <Option value="all">所有</Option>
+                  {summaryMonths.map((month) => (
+                    <Option key={month} value={month}>{month}</Option>
+                  ))}
+                </Select>
+                <span>已入库</span>
+                <strong className="product-summary-tag inbound">
+                  {monthlyInboundTons.toLocaleString("zh-CN", { maximumFractionDigits: 0 })}
+                </strong>
+                <span className="product-summary-unit">吨</span>
+              </span>
+              <span className="product-summary-metric">
+                <span>现雪花库存</span>
+                <strong className="product-summary-tag inventory">
+                  {snowInventoryBoxes.toLocaleString("zh-CN", { maximumFractionDigits: 0 })}
+                </strong>
+                <span className="product-summary-unit">箱</span>
+              </span>
+            </div>
+          </div>
+          <Space>
+            <Button onClick={() => setUploadOpen(true)}>上传产品明细</Button>
+            <Button type="primary" onClick={openCreate}>新增商品</Button>
+          </Space>
+        </div>
+        <Status status={status} />
+        <div className="product-table-wrap">
+          <table className="product-table">
+            <thead>
+              <tr>
+                <th>商品简称</th>
+                <th>商品名称</th>
+                <th>
+                  <button
+                    className={inventorySort ? "product-sort-button active" : "product-sort-button"}
+                    type="button"
+                    title="点击切换雪花库存排序"
+                    aria-label={`雪花库存排序：${inventorySort === "asc" ? "升序" : inventorySort === "desc" ? "降序" : "默认"}`}
+                    onClick={() => {
+                      setPage(1);
+                      setInventorySort((current) =>
+                        current === "" ? "desc" : current === "desc" ? "asc" : ""
+                      );
+                    }}
+                  >
+                    <span>雪花库存（箱）</span>
+                    <span className="product-sort-arrows" aria-hidden="true">
+                      <i className={inventorySort === "asc" ? "selected" : ""}>▲</i>
+                      <i className={inventorySort === "desc" ? "selected" : ""}>▼</i>
+                    </span>
+                  </button>
+                </th>
+                <th>结算价</th>
+                <th>商品编码</th>
+                <th>管家婆编码</th>
+                <th>规格</th>
+                <th>档案状态</th>
+                <th>最后修改</th>
+                <th className="product-actions-sticky">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((product) => (
+                <tr key={product.id}>
+                  <td>
+                    {product.short_name ? (
+                      <span
+                        className={`product-short-tag ${productShortTagTone(product.short_name)}`}
+                      >
+                        {product.short_name}
+                      </span>
+                    ) : <span className="product-empty-value">待补充</span>}
+                  </td>
+                  <td><TableEllipsis value={product.product_name} maxWidth={320} /></td>
+                  <td><span className="product-number">{Number(product.snow_inventory).toLocaleString("zh-CN", { maximumFractionDigits: 6 })}</span></td>
+                  <td>
+                    {product.settlement_price === null
+                      ? "-"
+                      : <span className="product-number">¥{Number(product.settlement_price).toFixed(2)}</span>}
+                  </td>
+                  <td><ProductCodeTags values={product.product_codes} /></td>
+                  <td><ProductCodeTags values={product.housekeeper_codes} /></td>
+                  <td>
+                    {product.specification !== null && product.auxiliary_unit
+                      ? `1箱 = ${product.specification}${product.auxiliary_unit}`
+                      : <span className="product-empty-value">待补充</span>}
+                  </td>
+                  <td>
+                    <Tag color={product.status === "正常" ? "green" : "orange"}>
+                      {product.status}
+                    </Tag>
+                  </td>
+                  <td>
+                    <span className="updated-cell" title={formatDateTime(product.updated_at)}>
+                      <span className="updated-time">{formatCompactDateTime(product.updated_at)}</span>
+                      <span className="updated-user">{product.updated_by_name || "-"}</span>
+                    </span>
+                  </td>
+                  <td className="product-actions-sticky">
+                    <span className="customer-action-links">
+                      <button className="customer-action-link edit" type="button" onClick={() => openEdit(product)}>编辑</button>
+                      <button className="customer-action-link delete" type="button" onClick={() => deleteProduct(product)}>删除</button>
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!loading && !items.length ? <div className="product-empty">暂无符合条件的产品档案</div> : null}
+          {loading ? <div className="customer-loading"><Spin size={30} /></div> : null}
+        </div>
+        <div className="customer-pagination">
+          <span>每页</span>
+          <Select size="small" value={pageSize} onChange={(value) => {
+            setPage(1);
+            setPageSize(value);
+          }}>
+            {CUSTOMER_OPTIONS.pageSizes.map((size) => <Option key={size} value={size}>{size} 条</Option>)}
+          </Select>
+          <Pagination current={page} pageSize={pageSize} total={total} size="small" onChange={setPage} />
+        </div>
+      </Card>
+
+      <Modal
+        title={form.id ? "编辑产品档案" : "新增产品档案"}
+        visible={formOpen}
+        onCancel={() => setFormOpen(false)}
+        onOk={saveProduct}
+        okText={form.id ? "保存修改" : "确认新增"}
+        okButtonProps={{ loading: saving, disabled: !formReady }}
+        className="product-form-modal"
+        unmountOnExit
+      >
+        <div className="product-form-grid">
+          <div className="full-row">
+            <label><i>*</i>商品编码</label>
+            <MultiValueInput
+              value={form.product_codes}
+              placeholder="输入后按回车，可粘贴多个编码"
+              onChange={(value) => setForm({ ...form, product_codes: value })}
+            />
+          </div>
+          <div>
+            <label><i>*</i>商品简称</label>
+            <Input value={form.short_name} maxLength={100} onChange={(value) => setForm({ ...form, short_name: value })} />
+          </div>
+          <div>
+            <label><i>*</i>雪花库存（箱）</label>
+            <Input
+              value={form.snow_inventory}
+              onChange={(value) => {
+                if (/^\d*(\.\d*)?$/.test(value)) setForm({ ...form, snow_inventory: value });
+              }}
+            />
+          </div>
+          <div className="full-row">
+            <label><i>*</i>商品名称</label>
+            <Input value={form.product_name} maxLength={500} onChange={(value) => setForm({ ...form, product_name: value })} />
+          </div>
+          <div className="full-row">
+            <label><i>*</i>管家婆编码</label>
+            <MultiValueInput
+              value={form.housekeeper_codes}
+              placeholder="输入后按回车，可粘贴多个编码"
+              onChange={(value) => setForm({ ...form, housekeeper_codes: value })}
+            />
+          </div>
+          <div>
+            <label><i>*</i>规格</label>
+            <Input
+              value={form.specification}
+              placeholder="每箱包含数量"
+              onChange={(value) => setForm({ ...form, specification: value.replace(/\D/g, "") })}
+            />
+          </div>
+          <div>
+            <label><i>*</i>辅助单位</label>
+            <Select
+              value={form.auxiliary_unit || undefined}
+              placeholder="瓶、听或罐"
+              onChange={(value) => setForm({ ...form, auxiliary_unit: value })}
+            >
+              <Option value="瓶">瓶</Option>
+              <Option value="听">听</Option>
+              <Option value="罐">罐</Option>
+            </Select>
+          </div>
+          <div>
+            <label>结算价</label>
+            <Input
+              value={form.settlement_price}
+              prefix="¥"
+              onChange={(value) => {
+                if (/^\d*(\.\d{0,2})?$/.test(value)) setForm({ ...form, settlement_price: value });
+              }}
+            />
+          </div>
+          <div className="product-spec-preview">
+            <label>换算关系</label>
+            <strong>
+              {form.specification && form.auxiliary_unit
+                ? `1箱 = ${form.specification}${form.auxiliary_unit}`
+                : "请填写规格和辅助单位"}
+            </strong>
+          </div>
+        </div>
+      </Modal>
+
+      <ProductImportModal
+        visible={uploadOpen}
+        csrfToken={csrfToken}
+        onClose={() => setUploadOpen(false)}
+        onImported={async () => {
+          setPage(1);
+          await loadProducts();
+        }}
+      />
+    </div>
+  );
+}
+
 const EMPTY_POLICY_FILTERS = {
   year: "",
   month: "",
@@ -3193,6 +3925,17 @@ const EMPTY_POLICY_FILTERS = {
   name: "",
   enabled: "",
 };
+
+function policyAlertTypeClass(name) {
+  const variants = {
+    雪花政策冲突告警: "conflict",
+    政策重复出库告警: "duplicate",
+    正常销售产品错误告警: "normal-product",
+    赠送产品错误告警: "gift-product",
+    售卖类型错误告警: "sale-type",
+  };
+  return `policy-alert-type policy-alert-type-${variants[name] || "default"}`;
+}
 
 function emptyPolicyForm() {
   return {
@@ -3203,6 +3946,10 @@ function emptyPolicyForm() {
     requires_photo: false,
     set_limit: "",
     month_target: "",
+    conflict_policy_ids: [],
+    normal_sale_product_ids: [],
+    gift_product_ids: [],
+    gift_type: "",
     year: 2026,
     month: new Date().getMonth() + 1,
     conditions: [
@@ -3236,6 +3983,14 @@ function SnowPolicyManagement({ csrfToken, isAdmin }) {
   const [terminalListKind, setTerminalListKind] = useState("pending");
   const [terminalListItems, setTerminalListItems] = useState([]);
   const [terminalListLoading, setTerminalListLoading] = useState(false);
+  const [conflictPolicyOptions, setConflictPolicyOptions] = useState([]);
+  const [conflictPolicyLoading, setConflictPolicyLoading] = useState(false);
+  const [productOptions, setProductOptions] = useState([]);
+  const [productOptionsLoading, setProductOptionsLoading] = useState(false);
+  const [alertListOpen, setAlertListOpen] = useState(false);
+  const [alertListPolicy, setAlertListPolicy] = useState(null);
+  const [alertListItems, setAlertListItems] = useState([]);
+  const [alertListLoading, setAlertListLoading] = useState(false);
   const latestUploadDate = getDateParts(latestUploadAt);
   const sequence = useRef(0);
   const monthOptions = Array.from({ length: 12 }, (_item, index) => index + 1);
@@ -3246,6 +4001,13 @@ function SnowPolicyManagement({ csrfToken, isAdmin }) {
       title: "已出库终端",
       summaryLabel: "家已出库终端",
       emptyText: "暂无已出库终端",
+    },
+    reversed: {
+      countField: "reversed_count",
+      endpoint: "reversed-terminals",
+      title: "已冲销终端",
+      summaryLabel: "家已冲销终端",
+      emptyText: "暂无已冲销终端",
     },
     photographed: {
       countField: "photographed_count",
@@ -3291,6 +4053,49 @@ function SnowPolicyManagement({ csrfToken, isAdmin }) {
     loadPolicies();
   }, [page, pageSize, appliedFilters]);
 
+  useEffect(() => {
+    if (!formOpen) return;
+    let active = true;
+    setConflictPolicyLoading(true);
+    const params = new URLSearchParams({
+      year: String(form.year),
+      month: String(form.month),
+      exclude_id: form.id || "",
+    });
+    jsonFetch(`/api/snow-outbound/policies/options?${params}`)
+      .then((data) => {
+        if (active) setConflictPolicyOptions(data.items || []);
+      })
+      .catch((error) => {
+        if (active) Message.error(error.message);
+      })
+      .finally(() => {
+        if (active) setConflictPolicyLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [formOpen, form.id, form.year, form.month]);
+
+  useEffect(() => {
+    if (!formOpen) return;
+    let active = true;
+    setProductOptionsLoading(true);
+    jsonFetch("/api/products/options")
+      .then((data) => {
+        if (active) setProductOptions(data.items || []);
+      })
+      .catch((error) => {
+        if (active) Message.error(error.message);
+      })
+      .finally(() => {
+        if (active) setProductOptionsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [formOpen]);
+
   function openPolicyCreate() {
     setForm(emptyPolicyForm());
     setFormError("");
@@ -3302,6 +4107,12 @@ function SnowPolicyManagement({ csrfToken, isAdmin }) {
       ...policy,
       set_limit: policy.set_limit ?? "",
       month_target: policy.month_target ?? "",
+      conflict_policy_ids: policy.conflict_policy_ids || [],
+      normal_sale_product_ids: policy.normal_sale_product_ids || [],
+      gift_product_ids: policy.gift_product_ids || (
+        policy.gift_product_id ? [policy.gift_product_id] : []
+      ),
+      gift_type: policy.gift_type || "",
       conditions: (policy.conditions || []).map((condition) => ({
         ...condition,
         value: String(condition.value ?? ""),
@@ -3452,6 +4263,25 @@ function SnowPolicyManagement({ csrfToken, isAdmin }) {
     }
   }
 
+  async function openPolicyAlerts(policy) {
+    if (!policy.alert_count) return;
+    setAlertListPolicy(policy);
+    setAlertListItems([]);
+    setAlertListOpen(true);
+    setAlertListLoading(true);
+    try {
+      const result = await jsonFetch(
+        `/api/snow-outbound/policies/${encodeURIComponent(policy.id)}/alerts`
+      );
+      setAlertListItems(result.items || []);
+    } catch (error) {
+      Message.error(error.message);
+      setAlertListOpen(false);
+    } finally {
+      setAlertListLoading(false);
+    }
+  }
+
   function deletePolicy(policy) {
     Modal.confirm({
       title: "删除政策标签",
@@ -3483,6 +4313,9 @@ function SnowPolicyManagement({ csrfToken, isAdmin }) {
     form.explanation.trim().length <= 50 &&
     form.conditions.length >= 1 &&
     form.conditions.every((condition) => String(condition.value || "").trim()) &&
+    form.normal_sale_product_ids.length > 0 &&
+    form.gift_product_ids.length > 0 &&
+    form.gift_type &&
     new Set(form.conditions.map((condition) => condition.field)).size === form.conditions.length &&
     (form.set_limit === "" || /^\d+$/.test(String(form.set_limit))) &&
     (form.month_target === "" || /^\d+$/.test(String(form.month_target)));
@@ -3582,11 +4415,16 @@ function SnowPolicyManagement({ csrfToken, isAdmin }) {
                 <th>年月</th>
                 <th>启用</th>
                 <th>标签名</th>
-                <th>出库编码</th>
                 <th>月目标</th>
                 <th>已出库</th>
+                <th>已冲销</th>
                 <th>已拍照</th>
                 <th>待出库</th>
+                <th>告警</th>
+                <th>正常销售产品</th>
+                <th>赠送产品</th>
+                <th>售卖类型</th>
+                <th>出库编码</th>
                 <th>出库解释</th>
                 <th>是否拍照</th>
                 <th>套数限制</th>
@@ -3602,13 +4440,24 @@ function SnowPolicyManagement({ csrfToken, isAdmin }) {
                 <tr key={policy.id}>
                   <td>{policy.year}年{policy.month}月</td>
                   <td>
-                    <Switch
-                      size="small"
-                      checked={policy.enabled}
-                      checkedText="启用"
-                      uncheckedText="停用"
-                      onChange={() => togglePolicy(policy)}
-                    />
+                    <Tooltip
+                      content={
+                        policy.required_fields_complete
+                          ? policy.enabled ? "点击停用" : "点击启用"
+                          : "请先编辑并补全所有必填项"
+                      }
+                    >
+                      <span className="policy-enable-switch">
+                        <Switch
+                          size="small"
+                          checked={policy.enabled}
+                          disabled={!policy.required_fields_complete}
+                          checkedText="启用"
+                          uncheckedText="停用"
+                          onChange={() => togglePolicy(policy)}
+                        />
+                      </span>
+                    </Tooltip>
                   </td>
                   <td>
                     <TableEllipsis value={policy.display_name} maxWidth={150}>
@@ -3617,7 +4466,6 @@ function SnowPolicyManagement({ csrfToken, isAdmin }) {
                       </span>
                     </TableEllipsis>
                   </td>
-                  <td><span className="policy-code">{policy.outbound_code}</span></td>
                   <td>{policy.month_target ?? "-"}</td>
                   <td>
                     <Button
@@ -3628,6 +4476,17 @@ function SnowPolicyManagement({ csrfToken, isAdmin }) {
                       onClick={() => openPolicyTerminals(policy, "shipped")}
                     >
                       {policy.shipped_count ?? 0}
+                    </Button>
+                  </td>
+                  <td>
+                    <Button
+                      className="policy-stat-button policy-stat-reversed"
+                      type="text"
+                      size="small"
+                      disabled={!policy.reversed_count}
+                      onClick={() => openPolicyTerminals(policy, "reversed")}
+                    >
+                      {policy.reversed_count ?? 0}
                     </Button>
                   </td>
                   <td>
@@ -3652,6 +4511,64 @@ function SnowPolicyManagement({ csrfToken, isAdmin }) {
                       {policy.pending_outbound_count ?? 0}
                     </Button>
                   </td>
+                  <td>
+                    {policy.enabled && policy.alert_count ? (
+                      <Button
+                        className="policy-alert-button"
+                        type="text"
+                        size="small"
+                        onClick={() => openPolicyAlerts(policy)}
+                      >
+                        {policy.alert_count}
+                      </Button>
+                    ) : policy.enabled ? (
+                      <span className="policy-alert-normal">
+                        {(policy.conflict_policy_ids || []).length ||
+                        policy.set_limit !== null ||
+                        (policy.normal_sale_product_ids || []).length ||
+                        (policy.gift_product_ids || []).length ||
+                        policy.gift_type
+                          ? "正常"
+                          : "-"}
+                      </span>
+                    ) : (
+                      <span className="policy-alert-disabled">
+                        {(policy.conflict_policy_ids || []).length ||
+                        policy.set_limit !== null ||
+                        (policy.normal_sale_product_ids || []).length ||
+                        (policy.gift_product_ids || []).length ||
+                        policy.gift_type
+                          ? "未启用"
+                          : "-"}
+                      </span>
+                    )}
+                  </td>
+                  <td>
+                    {(policy.normal_sale_products || []).length ? (
+                      <div className="policy-product-tags">
+                        {policy.normal_sale_products.map((product) => (
+                          <Tag key={product.id} color="arcoblue">
+                            {product.short_name || product.product_name}
+                          </Tag>
+                        ))}
+                      </div>
+                    ) : "-"}
+                  </td>
+                  <td>
+                    {(policy.gift_products || []).length ? (
+                      <div className="policy-product-tags">
+                        {policy.gift_products.map((product) => (
+                          <Tag key={product.id} color="cyan">
+                            {product.short_name || product.product_name}
+                          </Tag>
+                        ))}
+                      </div>
+                    ) : "-"}
+                  </td>
+                  <td>
+                    {policy.gift_type ? <Tag color="orange">{policy.gift_type}</Tag> : "-"}
+                  </td>
+                  <td><span className="policy-code">{policy.outbound_code}</span></td>
                   <td>
                     <TableEllipsis
                       value={policy.explanation}
@@ -3720,8 +4637,110 @@ function SnowPolicyManagement({ csrfToken, isAdmin }) {
         loading={terminalListLoading}
         summaryLabel={terminalListMeta[terminalListKind].summaryLabel}
         emptyText={terminalListMeta[terminalListKind].emptyText}
+        showReversalDetails={terminalListKind === "reversed"}
         onClose={() => setTerminalListOpen(false)}
       />
+
+      <Modal
+        title={`标签告警明细 · ${alertListPolicy?.display_name || ""}`}
+        visible={alertListOpen}
+        footer={null}
+        onCancel={() => setAlertListOpen(false)}
+        className="policy-alert-modal"
+        unmountOnExit
+      >
+        <div className="policy-alert-summary">
+          共 <strong>{alertListItems.length}</strong> 家终端触发告警
+        </div>
+        <div className="policy-alert-table-wrap">
+          <table className="policy-alert-table">
+            <thead>
+              <tr>
+                <th>终端编码</th>
+                <th>客户全名</th>
+                <th>命中告警</th>
+                <th>票号</th>
+                <th>商品简称</th>
+                <th>实际售卖类型</th>
+                <th>错误原因</th>
+              </tr>
+            </thead>
+            <tbody>
+              {alertListItems.map((item) => (
+                <tr key={item.terminal_code}>
+                  <td><span className="policy-code">{item.terminal_code}</span></td>
+                  <td><TableEllipsis value={item.customer_name || "-"} maxWidth={220} /></td>
+                  <td>
+                    <div className="policy-alert-name-list">
+                      {(item.alert_names || []).map((name) => (
+                        <span
+                          key={name}
+                          className={policyAlertTypeClass(name)}
+                        >
+                          {name}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="policy-alert-evidence">
+                      {(item.details || []).map((detail, index) => (
+                        <span key={`${detail.ticket_no}-${detail.row_number}-${index}`}>
+                          {detail.ticket_no || "-"}
+                        </span>
+                      ))}
+                      {!(item.details || []).length ? <span>-</span> : null}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="policy-alert-evidence">
+                      {(item.details || []).map((detail, index) => (
+                        <TableEllipsis
+                          key={`${detail.ticket_no}-${detail.row_number}-${index}`}
+                          value={detail.product_name || "-"}
+                          maxWidth={180}
+                        />
+                      ))}
+                      {!(item.details || []).length ? <span>-</span> : null}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="policy-alert-evidence">
+                      {(item.details || []).map((detail, index) => (
+                        <span key={`${detail.ticket_no}-${detail.row_number}-${index}`}>
+                          {detail.actual_sale_type || "-"}
+                        </span>
+                      ))}
+                      {!(item.details || []).length ? <span>-</span> : null}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="policy-alert-evidence">
+                      {(item.conflict_policy_names || []).length ? (
+                        <span>
+                          同时命中：{item.conflict_policy_names.join("、")}
+                        </span>
+                      ) : null}
+                      {item.ticket_count !== null ? (
+                        <span>票号去重 {item.ticket_count}，套数限制 {item.set_limit}</span>
+                      ) : null}
+                      {(item.details || []).map((detail, index) => (
+                        <span key={`${detail.ticket_no}-${detail.row_number}-${index}`}>
+                          {detail.reason}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {alertListLoading ? <div className="customer-loading"><Spin size={30} /></div> : null}
+          {!alertListLoading && !alertListItems.length ? (
+            <div className="policy-alert-empty">暂无告警终端</div>
+          ) : null}
+        </div>
+      </Modal>
 
       <Modal
         title={form.id ? `编辑标签｜${form.id}` : "新增雪花出库政策标签"}
@@ -3743,7 +4762,11 @@ function SnowPolicyManagement({ csrfToken, isAdmin }) {
               value={`2026-${String(form.month).padStart(2, "0")}`}
               onChange={(value) => {
                 const month = Number(value.split("-")[1]);
-                updatePolicyForm({ year: 2026, month });
+                updatePolicyForm({
+                  year: 2026,
+                  month,
+                  conflict_policy_ids: [],
+                });
               }}
             >
               {monthOptions.map((month) => (
@@ -3784,6 +4807,104 @@ function SnowPolicyManagement({ csrfToken, isAdmin }) {
             <label>套数限制</label>
             <Input value={String(form.set_limit)} placeholder="选填，非负整数" onChange={(value) => updatePolicyForm({ set_limit: value.replace(/\D/g, "") })} />
           </div>
+          <div className="full-row policy-product-field">
+            <label><i>*</i>正常销售产品</label>
+            <Select
+              mode="multiple"
+              value={form.normal_sale_product_ids || []}
+              loading={productOptionsLoading}
+              allowClear
+              showSearch
+              placeholder="请选择一个或多个状态为正常的产品"
+              onChange={(value) => updatePolicyForm({ normal_sale_product_ids: value || [] })}
+              filterOption={(inputValue, option) =>
+                String(option.props.children || "").toLowerCase()
+                  .includes(String(inputValue || "").toLowerCase())
+              }
+            >
+              {productOptions.map((product) => (
+                <Option key={product.id} value={product.id}>
+                  {product.short_name || product.product_name}
+                </Option>
+              ))}
+            </Select>
+          </div>
+          <div className="full-row policy-gift-condition-group">
+            <div>
+              <label><i>*</i>赠送产品</label>
+              <Select
+                mode="multiple"
+                value={form.gift_product_ids || []}
+                loading={productOptionsLoading}
+                allowClear
+                showSearch
+                placeholder="请选择一个或多个状态为正常的赠送产品"
+                onChange={(value) => updatePolicyForm({ gift_product_ids: value || [] })}
+                filterOption={(inputValue, option) =>
+                  String(option.props.children || "").toLowerCase()
+                    .includes(String(inputValue || "").toLowerCase())
+                }
+              >
+                {productOptions.map((product) => (
+                  <Option key={product.id} value={product.id}>
+                    {product.short_name || product.product_name}
+                  </Option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <label><i>*</i>售卖类型</label>
+              <Select
+                value={form.gift_type || undefined}
+                placeholder="请选择售卖类型"
+                onChange={(value) => updatePolicyForm({ gift_type: value || "" })}
+              >
+                {POLICY_GIFT_TYPES.map((type) => (
+                  <Option key={type} value={type}>{type}</Option>
+                ))}
+              </Select>
+            </div>
+            <small className="policy-product-group-help">
+              产品与售卖类型不参与标签命中，仅用于命中后的出库合规告警。
+            </small>
+          </div>
+          <div className="full-row">
+            <label>冲突政策</label>
+            <Select
+              className="policy-conflict-select"
+              mode="multiple"
+              value={form.conflict_policy_ids || []}
+              loading={conflictPolicyLoading}
+              allowClear
+              placeholder="选填；命中任一所选政策即触发冲突告警"
+              onChange={(value) => updatePolicyForm({ conflict_policy_ids: value || [] })}
+              renderFormat={(_option, value) => {
+                const policy = conflictPolicyOptions.find((item) => item.id === value);
+                return policy ? (
+                  <span className="policy-conflict-selection">
+                    <i className={`policy-color-dot ${policyColorClass(policy.color)}`} />
+                    <span>{policy.display_name}</span>
+                  </span>
+                ) : value;
+              }}
+            >
+              {conflictPolicyOptions.map((policy) => (
+                <Option key={policy.id} value={policy.id}>
+                  <span className="policy-conflict-option">
+                    <span className={`policy-tag ${policyColorClass(policy.color)}`}>
+                      {policy.display_name}
+                    </span>
+                    <span className={policy.enabled ? "policy-option-status enabled" : "policy-option-status disabled"}>
+                      {policy.enabled ? "启用" : "停用"}
+                    </span>
+                  </span>
+                </Option>
+              ))}
+            </Select>
+            <small className="policy-conflict-help">
+              可多选同月政策；当前终端同时命中其中任意一项时触发告警。
+            </small>
+          </div>
         </div>
 
         <div className="policy-condition-editor">
@@ -3819,6 +4940,43 @@ function SnowPolicyManagement({ csrfToken, isAdmin }) {
               </div>
             );
           })}
+        </div>
+        <div className="policy-alert-notices">
+          {(form.conflict_policy_ids || []).length ? (
+            <Alert
+              type="warning"
+              showIcon
+              content="已开启雪花政策冲突告警"
+            />
+          ) : null}
+          {form.set_limit !== "" ? (
+            <Alert
+              type="warning"
+              showIcon
+              content="已开启政策重复出库告警"
+            />
+          ) : null}
+          {(form.normal_sale_product_ids || []).length ? (
+            <Alert
+              type="warning"
+              showIcon
+              content="已开启正常销售产品错误告警"
+            />
+          ) : null}
+          {(form.gift_product_ids || []).length ? (
+            <Alert
+              type="warning"
+              showIcon
+              content="已开启赠送产品错误告警"
+            />
+          ) : null}
+          {form.gift_type ? (
+            <Alert
+              type="warning"
+              showIcon
+              content="已开启售卖类型错误告警"
+            />
+          ) : null}
         </div>
         {formError ? (
           <Alert
@@ -4125,6 +5283,8 @@ function App() {
   const pageTitle =
     activePage === "users"
       ? "权限管理"
+      : activePage === "products"
+        ? "产品明细"
       : activePage === "customers"
         ? customerSection === "policies" ? "雪花出库政策" : "终端明细"
         : "CRM图片处理";
@@ -4201,6 +5361,30 @@ function App() {
                 </button>
               </div>
             ) : null}
+            <button
+              type="button"
+              className={activePage === "products" ? "nav-item active" : "nav-item"}
+              title={collapsed ? "产品档案" : undefined}
+              onClick={() => setActivePage("products")}
+            >
+              <NavIcon type="products" />
+              {!collapsed ? (
+                <span className="nav-copy">
+                  <span>产品档案</span>
+                </span>
+              ) : null}
+            </button>
+            {activePage === "products" && !collapsed ? (
+              <div className="sub-nav customer-sub-nav">
+                <button
+                  type="button"
+                  className="sub-nav-item active"
+                  onClick={() => setActivePage("products")}
+                >
+                  产品明细
+                </button>
+              </div>
+            ) : null}
             {session.is_admin ? (
               <button
                 type="button"
@@ -4245,13 +5429,15 @@ function App() {
             className={
               activePage === "library"
                 ? "app-content library-content"
-                : activePage === "customers"
+                : activePage === "customers" || activePage === "products"
                   ? "app-content customer-content"
                   : "app-content"
             }
           >
             {activePage === "users" ? (
               <UserManagement csrfToken={session.csrf_token} />
+            ) : activePage === "products" ? (
+              <ProductManagement csrfToken={session.csrf_token} />
             ) : activePage === "customers" ? (
               customerSection === "policies" ? (
                 <SnowPolicyManagement

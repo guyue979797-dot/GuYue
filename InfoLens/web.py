@@ -67,7 +67,9 @@ from infolens.extractor import (
     photoid_name_field,
 )
 from infolens.image_library import ImageLibraryStore
+from infolens.products import ProductStore, parse_stock_workbook
 from infolens.snow_outbound import (
+    POLICY_GIFT_TYPES,
     POLICY_TAGS,
     RULE_FIELDS,
     RULE_OPERATOR_LABELS,
@@ -136,6 +138,9 @@ IMAGE_LIBRARY = ImageLibraryStore(
 )
 USER_STORE = UserStore(OUTPUT_ROOT / "_system" / "users.sqlite3")
 CUSTOMER_STORE = CustomerStore(
+    OUTPUT_ROOT / "_system" / "customer_profiles.sqlite3"
+)
+PRODUCT_STORE = ProductStore(
     OUTPUT_ROOT / "_system" / "customer_profiles.sqlite3"
 )
 SNOW_OUTBOUND_STORE = SnowOutboundStore(
@@ -2107,11 +2112,136 @@ def create_app() -> Flask:
                     for field, config in RULE_FIELDS.items()
                 ],
                 "operators": RULE_OPERATOR_LABELS,
+                "gift_types": list(POLICY_GIFT_TYPES),
                 "months": SNOW_OUTBOUND_STORE.list_months(),
                 "current_month": datetime.now().strftime("%Y-%m"),
                 "years": list(range(2026, 2036)),
             }
         )
+
+    @application.get("/api/products")
+    @_login_required
+    def list_products():
+        try:
+            return jsonify(
+                PRODUCT_STORE.list_products(
+                    name=request.args.get("name", ""),
+                    product_code=request.args.get("product_code", ""),
+                    housekeeper_code=request.args.get("housekeeper_code", ""),
+                    status=request.args.get("status", ""),
+                    inventory_sort=request.args.get("inventory_sort", ""),
+                    summary_month=request.args.get("summary_month", ""),
+                    page=int(request.args.get("page", "1")),
+                    page_size=int(request.args.get("page_size", "20")),
+                )
+            )
+        except (TypeError, ValueError) as exc:
+            return jsonify({"error": str(exc) or "分页参数不正确"}), 400
+
+    @application.get("/api/products/options")
+    @_login_required
+    def product_options():
+        return jsonify({"items": PRODUCT_STORE.normal_product_options()})
+
+    @application.post("/api/products")
+    @_login_required
+    def create_product():
+        _check_csrf()
+        operator, operator_name = _customer_operator()
+        try:
+            return (
+                jsonify(
+                    PRODUCT_STORE.create_product(
+                        request.get_json(silent=True) or {},
+                        operator=operator,
+                        operator_name=operator_name,
+                    )
+                ),
+                201,
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @application.patch("/api/products/<int:product_id>")
+    @_login_required
+    def update_product(product_id: int):
+        _check_csrf()
+        operator, operator_name = _customer_operator()
+        try:
+            return jsonify(
+                PRODUCT_STORE.update_product(
+                    product_id,
+                    request.get_json(silent=True) or {},
+                    operator=operator,
+                    operator_name=operator_name,
+                )
+            )
+        except ValueError as exc:
+            message = str(exc)
+            return jsonify({"error": message}), (
+                409 if "其他人修改" in message else 400
+            )
+
+    @application.delete("/api/products/<int:product_id>")
+    @_login_required
+    def delete_product(product_id: int):
+        _check_csrf()
+        operator, operator_name = _customer_operator()
+        try:
+            PRODUCT_STORE.delete_product(
+                product_id,
+                operator=operator,
+                operator_name=operator_name,
+            )
+            return jsonify({"message": "产品档案已删除"})
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @application.post("/api/products/import/preview")
+    @_login_required
+    def preview_product_import():
+        _check_csrf()
+        upload = request.files.get("file")
+        if not upload or not upload.filename:
+            return jsonify({"error": "请选择雪花库存Excel文件"}), 400
+        if Path(upload.filename).suffix.lower() != ".xlsx":
+            return jsonify({"error": "仅支持.xlsx格式的Excel文件"}), 400
+        operator, operator_name = _customer_operator()
+        try:
+            rows = parse_stock_workbook(io.BytesIO(upload.read()))
+            if not rows:
+                return jsonify({"error": "Excel中没有可导入的商品数据"}), 400
+            return jsonify(
+                PRODUCT_STORE.create_import_preview(
+                    filename=Path(upload.filename).name,
+                    operator=operator,
+                    operator_name=operator_name,
+                    rows=rows,
+                )
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @application.post("/api/products/import")
+    @_login_required
+    def commit_product_import():
+        _check_csrf()
+        preview_id = str(
+            (request.get_json(silent=True) or {}).get("preview_id") or ""
+        )
+        if not preview_id:
+            return jsonify({"error": "缺少导入预览标识"}), 400
+        operator, operator_name = _customer_operator()
+        try:
+            return jsonify(
+                PRODUCT_STORE.commit_import_preview(
+                    preview_id,
+                    operator=operator,
+                    operator_name=operator_name,
+                )
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
 
     @application.get("/api/customers/policy-options")
     @_login_required
@@ -2158,6 +2288,37 @@ def create_app() -> Flask:
         except (TypeError, ValueError) as exc:
             return jsonify({"error": str(exc)}), 400
 
+    @application.get("/api/snow-outbound/policies/options")
+    @_login_required
+    def snow_policy_options():
+        try:
+            return jsonify(
+                {
+                    "items": SNOW_OUTBOUND_STORE.policy_options(
+                        year=int(request.args.get("year", "2026")),
+                        month=int(request.args.get("month", "0")),
+                        exclude_id=request.args.get("exclude_id", ""),
+                    )
+                }
+            )
+        except (TypeError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @application.get("/api/snow-outbound/policies/<policy_id>/alerts")
+    @_login_required
+    def snow_policy_alerts(policy_id: str):
+        try:
+            items = SNOW_OUTBOUND_STORE.policy_alert_terminals(policy_id)
+            return jsonify(
+                {
+                    "items": items,
+                    "total": len(items),
+                    "policy_id": policy_id,
+                }
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 404
+
     @application.get("/api/snow-outbound/policies/<policy_id>/pending-outbound")
     @_login_required
     def pending_outbound_terminals(policy_id: str):
@@ -2197,6 +2358,25 @@ def create_app() -> Flask:
                 "policy_name": policy["display_name"],
             }
         )
+
+    @application.get("/api/snow-outbound/policies/<policy_id>/reversed-terminals")
+    @_login_required
+    def reversed_policy_terminals(policy_id: str):
+        try:
+            policy = SNOW_OUTBOUND_STORE.get_policy(policy_id)
+            if not policy:
+                return jsonify({"error": "雪花政策标签不存在"}), 404
+            items = SNOW_OUTBOUND_STORE.reversed_terminals(policy_id)
+            return jsonify(
+                {
+                    "items": items,
+                    "total": len(items),
+                    "policy_id": policy_id,
+                    "policy_name": policy["display_name"],
+                }
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 404
 
     @application.get(
         "/api/snow-outbound/policies/<policy_id>/photographed-terminals"
@@ -2756,6 +2936,7 @@ def create_app() -> Flask:
         policies = SNOW_OUTBOUND_STORE.list_policies(
             year=match.group(1),
             month=str(int(match.group(2))),
+            requires_photo=True,
             page=page,
             page_size=page_size,
         )
@@ -2816,7 +2997,9 @@ def create_app() -> Flask:
                 "page": policies["page"],
                 "page_size": policies["page_size"],
                 "month": month,
-                "months": SNOW_OUTBOUND_STORE.policy_months(),
+                "months": SNOW_OUTBOUND_STORE.policy_months(
+                    requires_photo_only=True
+                ),
             }
         )
 
