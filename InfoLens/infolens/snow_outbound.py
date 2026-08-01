@@ -997,6 +997,8 @@ class SnowOutboundStore:
         name: str = "",
         enabled: str = "",
         requires_photo: bool | None = None,
+        sort_by: str = "",
+        sort_order: str = "desc",
         page: int = 1,
         page_size: int = 20,
     ) -> dict[str, Any]:
@@ -1022,6 +1024,17 @@ class SnowOutboundStore:
         if requires_photo is not None:
             conditions.append("requires_photo = ?")
             parameters.append(int(requires_photo))
+        normalized_sort = sort_by.strip()
+        sortable_fields = {
+            "reimbursement_amount",
+            "shipped_count",
+            "pending_outbound_count",
+        }
+        if normalized_sort and normalized_sort not in sortable_fields:
+            raise ValueError("不支持的排序字段")
+        normalized_order = sort_order.strip().lower() or "desc"
+        if normalized_order not in {"asc", "desc"}:
+            raise ValueError("排序方向只能是 asc 或 desc")
         where = " AND ".join(conditions)
         with self._connect() as connection:
             self._disable_incomplete_policies(connection)
@@ -1032,14 +1045,24 @@ class SnowOutboundStore:
                 f"SELECT COUNT(*) FROM snow_policies WHERE {where}",
                 parameters,
             ).fetchone()[0]
+            pagination_sql = (
+                ""
+                if normalized_sort
+                else "LIMIT ? OFFSET ?"
+            )
+            query_parameters = (
+                parameters
+                if normalized_sort
+                else [*parameters, page_size, (page - 1) * page_size]
+            )
             rows = connection.execute(
                 f"""
                 SELECT * FROM snow_policies
                 WHERE {where}
                 ORDER BY year DESC, month DESC, updated_at DESC, rowid ASC
-                LIMIT ? OFFSET ?
+                {pagination_sql}
                 """,
-                [*parameters, page_size, (page - 1) * page_size],
+                query_parameters,
             ).fetchall()
             items = [self._hydrate_policy(connection, dict(row)) for row in rows]
             if items:
@@ -1090,12 +1113,83 @@ class SnowOutboundStore:
                     item["reversed_count"] = reversed_counts.get(item["id"], 0)
                     item["alert_count"] = alert_counts.get(item["id"], 0)
                 self._attach_policy_reimbursement_metrics(connection, items)
+                pending_counts = self._pending_outbound_counts(
+                    connection,
+                    policy_ids,
+                )
+                for item in items:
+                    item["pending_outbound_count"] = pending_counts.get(
+                        item["id"],
+                        0,
+                    )
+                if normalized_sort:
+                    items.sort(
+                        key=lambda item: (
+                            float(item.get(normalized_sort) or 0),
+                            item.get("updated_at") or "",
+                            item["id"],
+                        ),
+                        reverse=normalized_order == "desc",
+                    )
+                    offset = (page - 1) * page_size
+                    items = items[offset : offset + page_size]
         return {
             "items": items,
             "total": total,
             "page": page,
             "page_size": page_size,
             "latest_upload_at": latest_upload_at or "",
+        }
+
+    @staticmethod
+    def _pending_outbound_counts(
+        connection: sqlite3.Connection,
+        policy_ids: list[str],
+    ) -> dict[str, int]:
+        if not policy_ids:
+            return {}
+        available_tables = {
+            row["name"]
+            for row in connection.execute(
+                """
+                SELECT name FROM sqlite_master
+                WHERE type = 'table'
+                  AND name IN (
+                    'image_policy_tags',
+                    'extracted_images',
+                    'customer_policy_tags'
+                  )
+                """
+            ).fetchall()
+        }
+        if available_tables != {
+            "image_policy_tags",
+            "extracted_images",
+            "customer_policy_tags",
+        }:
+            return {}
+        placeholders = ",".join("?" for _ in policy_ids)
+        rows = connection.execute(
+            f"""
+            SELECT tags.policy_id,
+                   COUNT(DISTINCT tags.terminal_code) AS pending_count
+            FROM image_policy_tags AS tags
+            JOIN extracted_images AS image ON image.id = tags.image_id
+            WHERE image.deleted_at = ''
+              AND tags.policy_id IN ({placeholders})
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM customer_policy_tags AS shipped
+                  WHERE shipped.policy_id = tags.policy_id
+                    AND shipped.terminal_code = tags.terminal_code
+              )
+            GROUP BY tags.policy_id
+            """,
+            policy_ids,
+        ).fetchall()
+        return {
+            row["policy_id"]: int(row["pending_count"])
+            for row in rows
         }
 
     def get_policy(

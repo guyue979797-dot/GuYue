@@ -1,0 +1,21 @@
+/* 页面框架 Token 化覆盖；页面细节继续由各页面样式负责。 */
+.app-shell,
+.workspace-layout {
+  background: var(--gray-50);
+}
+
+.app-header {
+  height: 52px;
+  border-bottom: 1px solid var(--gray-200);
+  background: var(--white);
+}
+
+.app-content {
+  padding: var(--space-5) var(--space-6);
+}
+
+@media (max-width: 768px) {
+  .app-content {
+    padding: var(--space-4);
+  }
+}

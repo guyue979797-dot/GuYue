@@ -154,7 +154,9 @@ class ExportRecordStore:
                 """,
                 [(record_id, image_id, field) for image_id, field in items],
             )
-        return self.get_record(record_id)
+        # 返回刚创建的记录时按创建时刻读取，避免导入历史数据时被当前时间
+        # 误判为已过期；后续查询仍按调用方提供的时间判断有效期。
+        return self.get_record(record_id, now=created)
 
     def list_records(self, *, now: datetime | None = None) -> list[dict[str, Any]]:
         self.expire_records(now=now)

@@ -1631,7 +1631,7 @@ def create_app() -> Flask:
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "img-src 'self' data: https://www.crbeer.com.hk; "
+            "img-src 'self' data:; "
             "style-src 'self' 'unsafe-inline'; "
             "script-src 'self' 'unsafe-inline'; "
             "connect-src 'self'; "
@@ -1769,6 +1769,7 @@ def create_app() -> Flask:
 
         error = ""
         if request.method == "POST":
+            _check_csrf()
             username = request.form.get("username", "")
             password = request.form.get("password", "")
             user = USER_STORE.authenticate(username, password)
@@ -1786,10 +1787,12 @@ def create_app() -> Flask:
                 return redirect(destination)
             error = "账号或密码不正确"
 
+        csrf = _csrf_token()
         return (
             (WEB_ROOT / "login.html")
             .read_text(encoding="utf-8")
             .replace("{{ERROR}}", error)
+            .replace("{{CSRF_TOKEN}}", csrf)
         )
 
     @application.get("/auth/callback")
@@ -1912,7 +1915,8 @@ def create_app() -> Flask:
                 CUSTOMER_STORE.list_customers(
                     terminal_code=request.args.get("terminal_code", ""),
                     customer_name=request.args.get("customer_name", ""),
-                    route=request.args.get("route", ""),
+                    routes=request.args.getlist("route"),
+                    people=request.args.getlist("person"),
                     salesperson=request.args.get("salesperson", ""),
                     snow_salesperson=request.args.get("snow_salesperson", ""),
                     policy_month=(
@@ -2272,6 +2276,8 @@ def create_app() -> Flask:
                 outbound_code=request.args.get("outbound_code", ""),
                 name=request.args.get("name", ""),
                 enabled=request.args.get("enabled", ""),
+                sort_by=request.args.get("sort_by", ""),
+                sort_order=request.args.get("sort_order", "desc"),
                 page=int(request.args.get("page", "1")),
                 page_size=int(request.args.get("page_size", "20")),
             )

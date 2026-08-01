@@ -1,0 +1,91 @@
+.user-page {
+  width: 100%;
+  min-width: 0;
+}
+
+.user-card {
+  border-color: var(--gray-200);
+  border-radius: var(--radius-lg);
+  background: var(--white);
+  box-shadow: var(--shadow-md);
+}
+
+.user-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-4);
+}
+
+.user-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.user-table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: collapse;
+  color: var(--gray-800);
+  font-size: var(--text-base);
+}
+
+.user-table th,
+.user-table td {
+  padding: var(--space-3) var(--space-2);
+  border-bottom: 1px solid var(--gray-100);
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.user-table th {
+  color: var(--gray-500);
+  background: var(--gray-50);
+  font-weight: 500;
+}
+
+.user-account-cell {
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.user-account-name {
+  display: inline-block;
+  min-width: 0;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-form {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.user-form label {
+  color: var(--gray-500);
+  font-size: var(--text-sm);
+}
+
+.user-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+.user-form-grid .arco-select {
+  width: 100%;
+}
+
+.user-modal .arco-modal-header {
+  text-align: left;
+}
+
+.user-modal .arco-modal-title {
+  justify-content: flex-start;
+  text-align: left;
+}

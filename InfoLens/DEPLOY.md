@@ -166,3 +166,8 @@ WAL 文件。完整图片备份建议安排在业务低峰期，并额外配置�
 - 智能机器人 Secret 只保存在服务器 `.env` 中。
 - 确认 `nginx` 服务健康，外部无法直接访问 `/_protected_media/`。
 - 定期查看 `docker compose logs`，更新基础镜像与 Python 依赖。
+# 批量提取任务的运行限制
+
+`BATCH_JOBS` 当前是单进程内存队列，任务状态只在当前 Web 进程生命周期内有效；进程重启、容器重建或多 worker 部署时，正在执行的批量任务不会恢复。当前规模下建议使用单 worker（可配合 threads），并将导出结果保存在持久化的 `INFOLENS_OUTPUT_ROOT` 中。
+
+如果后续需要多 worker、跨重启恢复或更长时间保留任务状态，应在上线前将任务状态迁移到 SQLite/Redis，并把队列执行迁移到独立 worker。

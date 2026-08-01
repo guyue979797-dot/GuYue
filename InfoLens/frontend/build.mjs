@@ -20,6 +20,10 @@ await copyFile(
   resolve(root, "node_modules/@arco-design/web-react/dist/css/arco.min.css"),
   resolve(outDir, "arco.min.css"),
 );
+await copyFile(
+  resolve(root, "public/xinxiangchen-logo.png"),
+  resolve(outDir, "xinxiangchen-logo.png"),
+);
 
 await build({
   entryPoints: [resolve(root, "src/react-globals.js")],
@@ -56,7 +60,7 @@ await writeFile(
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>雪花CRM拜访照片提取</title>
+    <title>鑫向晨商贸工作台</title>
     <link rel="stylesheet" href="/assets/arco.min.css?v=${assetVersion}" />
     <link rel="stylesheet" href="/assets/index-arco.css?v=${assetVersion}" />
   </head>

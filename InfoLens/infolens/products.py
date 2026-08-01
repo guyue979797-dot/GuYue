@@ -189,6 +189,8 @@ def normalize_product(
             label="结算价",
         ),
     }
+    if product["settlement_price"] is not None:
+        product["settlement_price"] = round(product["settlement_price"], 2)
     if (
         product["auxiliary_unit"]
         and product["auxiliary_unit"] not in AUXILIARY_UNITS

@@ -184,6 +184,8 @@ class CustomerStore:
         terminal_code: str = "",
         customer_name: str = "",
         route: str = "",
+        routes: list[str] | None = None,
+        people: list[str] | None = None,
         salesperson: str = "",
         snow_salesperson: str = "",
         policy_month: str = "",
@@ -198,7 +200,6 @@ class CustomerStore:
         filters = (
             ("terminal_code", terminal_code.strip(), False),
             ("customer_name", customer_name.strip(), True),
-            ("route", route.strip(), False),
             ("salesperson", salesperson.strip(), True),
             ("snow_salesperson", snow_salesperson.strip(), True),
         )
@@ -207,9 +208,23 @@ class CustomerStore:
                 continue
             conditions.append(f"{field} {'LIKE' if fuzzy else '='} ?")
             parameters.append(f"%{value}%" if fuzzy else value)
+        route_values = [item.strip() for item in (routes or []) if item and item.strip()]
+        if not route_values and route.strip():
+            route_values = [route.strip()]
+        if route_values:
+            placeholders = ", ".join("?" for _ in route_values)
+            conditions.append(f"route IN ({placeholders})")
+            parameters.extend(route_values)
+        people_values = [item.strip() for item in (people or []) if item and item.strip()]
+        if people_values:
+            placeholders = ", ".join("?" for _ in people_values)
+            conditions.append(
+                f"(salesperson IN ({placeholders}) OR snow_salesperson IN ({placeholders}))"
+            )
+            parameters.extend([*people_values, *people_values])
         where = "deleted_at = ''"
         if conditions:
-            where += " AND (" + " OR ".join(conditions) + ")"
+            where += " AND " + " AND ".join(conditions)
         policy_tag = policy_tag.strip()
         if policy_tag:
             if not policy_month:

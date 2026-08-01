@@ -74,7 +74,7 @@ class CustomerStoreTests(unittest.TestCase):
                 operator_name="管理员",
             )
 
-    def test_union_query_pagination_and_soft_delete(self):
+    def test_intersection_query_pagination_and_soft_delete(self):
         first = self.store.create_customer(
             customer_payload("1000000001", "甲客户", "黄春梅"),
             operator="admin",
@@ -93,8 +93,16 @@ class CustomerStoreTests(unittest.TestCase):
             page=1,
             page_size=1,
         )
-        self.assertEqual(result["total"], 2)
-        self.assertEqual(len(result["items"]), 1)
+        self.assertEqual(result["total"], 0)
+        intersection_result = self.store.list_customers(
+            route="二号线路",
+            salesperson="罗伟",
+        )
+        self.assertEqual(intersection_result["total"], 1)
+        self.assertEqual(
+            intersection_result["items"][0]["terminal_code"],
+            "1000000002",
+        )
         route_result = self.store.list_customers(route="二号线路")
         self.assertEqual(route_result["total"], 1)
         self.assertEqual(route_result["items"][0]["terminal_code"], "1000000002")

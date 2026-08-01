@@ -41,6 +41,19 @@ class WebSecurityTests(unittest.TestCase):
         self.environment.stop()
         self.output.cleanup()
 
+    def login(self):
+        self.client.get("/login")
+        with self.client.session_transaction() as session:
+            csrf_token = session["csrf_token"]
+        return self.client.post(
+            "/login",
+            data={
+                "username": "team",
+                "password": "correct horse",
+                "csrf_token": csrf_token,
+            },
+        )
+
     def test_protected_routes_require_login(self):
         self.assertEqual(self.client.get("/").status_code, 302)
         self.assertEqual(self.client.get("/api/results").status_code, 401)
@@ -56,15 +69,20 @@ class WebSecurityTests(unittest.TestCase):
         self.assertEqual(self.client.get("/healthz").status_code, 200)
 
     def test_login_session_and_csrf(self):
+        login_page = self.client.get("/login")
+        self.assertEqual(login_page.status_code, 200)
+        with self.client.session_transaction() as session:
+            login_csrf = session["csrf_token"]
+
         bad = self.client.post(
             "/login",
-            data={"username": "team", "password": "wrong"},
+            data={"username": "team", "password": "wrong", "csrf_token": login_csrf},
         )
         self.assertIn("账号或密码不正确", bad.get_data(as_text=True))
 
         good = self.client.post(
             "/login",
-            data={"username": "team", "password": "correct horse"},
+            data={"username": "team", "password": "correct horse", "csrf_token": login_csrf},
         )
         self.assertEqual(good.status_code, 302)
 
@@ -86,10 +104,7 @@ class WebSecurityTests(unittest.TestCase):
         self.assertEqual(empty_url.status_code, 400)
 
     def test_admin_can_manage_users(self):
-        good = self.client.post(
-            "/login",
-            data={"username": "team", "password": "correct horse"},
-        )
+        good = self.login()
         self.assertEqual(good.status_code, 302)
         session_data = self.client.get("/api/session").get_json()
         csrf_token = session_data["csrf_token"]
@@ -141,11 +156,8 @@ class WebSecurityTests(unittest.TestCase):
         )
         self.assertEqual(deleted.status_code, 200)
 
-    def test_customer_crud_union_query_import_and_permissions(self):
-        self.client.post(
-            "/login",
-            data={"username": "team", "password": "correct horse"},
-        )
+    def test_customer_crud_intersection_query_import_and_permissions(self):
+        self.login()
         session_data = self.client.get("/api/session").get_json()
         csrf_token = session_data["csrf_token"]
         base = {
@@ -182,10 +194,18 @@ class WebSecurityTests(unittest.TestCase):
         )
         self.assertEqual(second.status_code, 201)
 
-        union = self.client.get(
+        intersection = self.client.get(
             "/api/customers?terminal_code=1000000001&salesperson=罗伟"
         ).get_json()
-        self.assertEqual(union["total"], 2)
+        self.assertEqual(intersection["total"], 0)
+        matching_intersection = self.client.get(
+            "/api/customers?route=二号线路&salesperson=罗伟"
+        ).get_json()
+        self.assertEqual(matching_intersection["total"], 1)
+        self.assertEqual(
+            matching_intersection["items"][0]["terminal_code"],
+            "1000000002",
+        )
         route_filtered = self.client.get(
             "/api/customers?route=二号线路"
         ).get_json()
@@ -267,10 +287,7 @@ class WebSecurityTests(unittest.TestCase):
         self.assertEqual(forbidden_import.status_code, 403)
 
     def test_regular_user_can_preview_and_import_snow_outbound(self):
-        self.client.post(
-            "/login",
-            data={"username": "team", "password": "correct horse"},
-        )
+        self.login()
         session_data = self.client.get("/api/session").get_json()
         csrf_token = session_data["csrf_token"]
         with self.client.session_transaction() as current_session:
@@ -398,10 +415,7 @@ class WebSecurityTests(unittest.TestCase):
         self.assertEqual(empty_policy_filter["total"], 0)
 
     def test_snow_policy_can_export_reimbursement_workbook(self):
-        self.client.post(
-            "/login",
-            data={"username": "team", "password": "correct horse"},
-        )
+        self.login()
         csrf_token = self.client.get("/api/session").get_json()["csrf_token"]
 
         def create_product(code, short_name, full_name, settlement_price):
@@ -462,6 +476,31 @@ class WebSecurityTests(unittest.TestCase):
         )
         self.assertEqual(policy_response.status_code, 201)
         policy = policy_response.get_json()
+        empty_policy_response = self.client.post(
+            "/api/snow-outbound/policies",
+            json={
+                "name": "无核销数据",
+                "outbound_code": "PLX-EXPORT-NONE",
+                "explanation": "用于验证核销排序",
+                "requires_photo": True,
+                "set_limit": 10,
+                "year": 2026,
+                "month": 7,
+                "gift_type": "陈列赠酒",
+                "normal_sale_product_ids": [priced_product["id"]],
+                "gift_product_ids": [priced_product["id"]],
+                "conditions": [
+                    {
+                        "field": "outbound_remark",
+                        "operator": "contains",
+                        "value": "PLX-EXPORT-NONE",
+                    }
+                ],
+            },
+            headers={"X-CSRF-Token": csrf_token},
+        )
+        self.assertEqual(empty_policy_response.status_code, 201)
+        empty_policy = empty_policy_response.get_json()
 
         workbook = Workbook()
         sheet = workbook.active
@@ -558,6 +597,30 @@ class WebSecurityTests(unittest.TestCase):
         )
         self.assertEqual(listed_policy["reimbursement_quantity"], 5)
         self.assertEqual(listed_policy["reimbursement_amount"], 25)
+        amount_desc = self.client.get(
+            "/api/snow-outbound/policies?year=2026&month=7"
+            "&sort_by=reimbursement_amount&sort_order=desc"
+        ).get_json()["items"]
+        self.assertEqual(amount_desc[0]["id"], policy["id"])
+        amount_asc = self.client.get(
+            "/api/snow-outbound/policies?year=2026&month=7"
+            "&sort_by=reimbursement_amount&sort_order=asc"
+        ).get_json()["items"]
+        self.assertEqual(amount_asc[0]["id"], empty_policy["id"])
+        shipped_desc = self.client.get(
+            "/api/snow-outbound/policies?year=2026&month=7"
+            "&sort_by=shipped_count&sort_order=desc"
+        ).get_json()["items"]
+        self.assertEqual(shipped_desc[0]["id"], policy["id"])
+        pending_sort = self.client.get(
+            "/api/snow-outbound/policies?year=2026&month=7"
+            "&sort_by=pending_outbound_count&sort_order=desc"
+        )
+        self.assertEqual(pending_sort.status_code, 200)
+        invalid_sort = self.client.get(
+            "/api/snow-outbound/policies?sort_by=unknown"
+        )
+        self.assertEqual(invalid_sort.status_code, 400)
 
         exported = self.client.post(
             f"/api/snow-outbound/policies/{policy['id']}/export",
@@ -1580,10 +1643,7 @@ class WebSecurityTests(unittest.TestCase):
         )
 
     def test_product_crud_and_stock_upload(self):
-        self.client.post(
-            "/login",
-            data={"username": "team", "password": "correct horse"},
-        )
+        self.login()
         csrf_token = self.client.get("/api/session").get_json()["csrf_token"]
         created = self.client.post(
             "/api/products",
