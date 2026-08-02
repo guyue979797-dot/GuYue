@@ -18,7 +18,7 @@ const { Option } = Select;
 
 export function ProductPage() {
   const products = useProducts();
-  const [tableShellRef, tableHeight] = useContainerHeight(52);
+  const [tableShellRef, tableHeight] = useContainerHeight(64);
   const [formOpen, setFormOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [uploadOpen, setUploadOpen] = useState(false);

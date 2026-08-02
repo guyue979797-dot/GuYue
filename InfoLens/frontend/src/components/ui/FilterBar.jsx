@@ -101,10 +101,36 @@ export function FilterBar({
     );
   }
 
+  function renderFields() {
+    const nodes = [];
+    for (let index = 0; index < fields.length;) {
+      const field = fields[index];
+      if (!field.group) {
+        nodes.push(renderField(field));
+        index += 1;
+        continue;
+      }
+
+      const groupedFields = [field];
+      let nextIndex = index + 1;
+      while (fields[nextIndex]?.group === field.group) {
+        groupedFields.push(fields[nextIndex]);
+        nextIndex += 1;
+      }
+      nodes.push(
+        <div className={`filter-field-group ${field.group}`} key={`group-${field.group}`}>
+          {groupedFields.map((groupedField) => renderField(groupedField))}
+        </div>,
+      );
+      index = nextIndex;
+    }
+    return nodes;
+  }
+
   return (
     <div className={`filter-bar ${className}`.trim()}>
       <div className="filter-bar-grid">
-        {fields.map((field) => renderField(field))}
+        {renderFields()}
       </div>
       <Space className="filter-bar-actions">
         <Button type="primary" loading={loading} onClick={onSearch}>

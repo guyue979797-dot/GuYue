@@ -87,7 +87,7 @@ export function ProductTable({
     {
       title: <SortableInventoryHeader sort={inventorySort} onClick={onToggleInventorySort} />,
       key: "snow_inventory",
-      width: 120,
+      width: 150,
       render: (value, product) => (
         <button
           className="data-link product-inventory-link"

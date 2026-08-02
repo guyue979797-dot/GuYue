@@ -84,14 +84,15 @@ export function CustomerTable({
     {
       title: "雪花政策",
       key: "policy_tags",
-      width: 220,
+      width: 360,
       render: (value, customer) => (
-        <PolicyTagList tags={customer.policy_tag_details || []} />
+        <PolicyTagList tags={customer.policy_tag_details || []} limit={4} />
       ),
     },
     {
       title: "备注",
       key: "remark",
+      width: 200,
       render: (value, customer) => <TableText value={customer.remark} maxWidth={190} />,
     },
     {

@@ -38,8 +38,20 @@ export function DataTable({
 }) {
   const stableColumns = useMemo(() => {
     validateColumns(columns);
-    return columns.map((column) => ({ ...column }));
+    // 所有列表默认左对齐，确保表头与单元格使用同一条左侧基线。
+    // 如未来确有例外，必须同时在需求与列定义中明确说明。
+    return columns.map((column) => ({ align: "left", ...column }));
   }, [columns]);
+
+  const resolvedScrollX = useMemo(() => {
+    if (scrollX !== "max-content") return scrollX;
+    const widths = stableColumns.map((column) => Number(column.width));
+    // 所有列均有明确宽度时，按列宽精确求和，禁止浏览器用内容重新测量。
+    // 这可保证 Arco 分离渲染的表头与表体使用同一个横向基准。
+    return widths.every((width) => Number.isFinite(width) && width > 0)
+      ? widths.reduce((total, width) => total + width, 0)
+      : "max-content";
+  }, [scrollX, stableColumns]);
 
   const empty = (
     <Empty description={emptyText} />
@@ -54,7 +66,8 @@ export function DataTable({
           data={data}
           loading={loading}
           empty={empty}
-          scroll={{ x: scrollX, y: scrollY }}
+          tableLayoutFixed
+          scroll={{ x: resolvedScrollX, y: scrollY }}
           border={border}
           size={size}
           onRow={onRow}

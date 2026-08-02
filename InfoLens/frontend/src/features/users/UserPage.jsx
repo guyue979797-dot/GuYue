@@ -12,7 +12,7 @@ import { UserFormModal } from "./UserFormModal.jsx";
 
 export function UserPage() {
   const users = useUsers();
-  const [tableShellRef, tableHeight] = useContainerHeight(52);
+  const [tableShellRef, tableHeight] = useContainerHeight(64);
   const [formOpen, setFormOpen] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
 

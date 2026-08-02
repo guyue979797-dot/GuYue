@@ -162,6 +162,7 @@ export function PhotoLibraryPage({ activeMonth, onMonthsChange }) {
       name: "policyMatch",
       label: "终端政策条件",
       type: "select",
+      group: "library-policy-group",
       placeholder: "终端政策条件",
       options: [
         { value: "include", label: "包含" },
@@ -172,6 +173,7 @@ export function PhotoLibraryPage({ activeMonth, onMonthsChange }) {
       name: "policyIds",
       label: "雪花已出库政策",
       type: "multi-select",
+      group: "library-policy-group",
       placeholder: "雪花已出库政策",
       options: library.data.policy_options || [],
     },
@@ -179,6 +181,7 @@ export function PhotoLibraryPage({ activeMonth, onMonthsChange }) {
       name: "archivePolicyMatch",
       label: "照片归档条件",
       type: "select",
+      group: "library-archive-group",
       placeholder: "照片归档条件",
       options: [
         { value: "archived", label: "已归档" },
@@ -189,6 +192,7 @@ export function PhotoLibraryPage({ activeMonth, onMonthsChange }) {
       name: "archivePolicyIds",
       label: "政策标签",
       type: "multi-select",
+      group: "library-archive-group",
       placeholder: "政策标签",
       options: library.data.archive_policy_options || [],
     },

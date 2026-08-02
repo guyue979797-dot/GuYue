@@ -16,7 +16,7 @@ import { showCustomerDetail } from "./CustomerDetail.jsx";
 
 export function CustomerPage({ isAdmin }) {
   const customers = useCustomers();
-  const [tableShellRef, tableHeight] = useContainerHeight(52);
+  const [tableShellRef, tableHeight] = useContainerHeight(64);
   const [formOpen, setFormOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [importOpen, setImportOpen] = useState(false);

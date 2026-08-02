@@ -21,8 +21,12 @@ await copyFile(
   resolve(outDir, "arco.min.css"),
 );
 await copyFile(
-  resolve(root, "public/xinxiangchen-logo.png"),
-  resolve(outDir, "xinxiangchen-logo.png"),
+  resolve(root, "public/xinxiangchen-brand-expanded.png"),
+  resolve(outDir, "xinxiangchen-brand-expanded.png"),
+);
+await copyFile(
+  resolve(root, "public/xinxiangchen-brand-collapsed.png"),
+  resolve(outDir, "xinxiangchen-brand-collapsed.png"),
 );
 
 await build({

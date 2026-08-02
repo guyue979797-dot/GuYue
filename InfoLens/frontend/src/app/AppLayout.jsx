@@ -8,10 +8,13 @@ import { NAV_ITEMS, getPageTitle } from "./navigation.js";
 const { Header, Content, Sider } = Layout;
 const { Item: MenuItem } = Menu;
 
-function BrandMark() {
+function BrandMark({ collapsed }) {
   return (
     <div className="brand-mark">
-      <img src="/assets/xinxiangchen-logo.png" alt="鑫向晨" />
+      <img
+        src={collapsed ? "/assets/xinxiangchen-brand-collapsed.png" : "/assets/xinxiangchen-brand-expanded.png"}
+        alt="鑫向晨商贸工作台"
+      />
     </div>
   );
 }
@@ -77,7 +80,7 @@ export function AppLayout({
       <Layout className="app-shell">
         <Sider className={collapsed ? "app-sider collapsed" : "app-sider"} width={220}>
           <div className="sider-brand">
-            <BrandMark />
+            <BrandMark collapsed={collapsed} />
           </div>
           <nav className="side-nav">
             {visibleItems.map((item) => (

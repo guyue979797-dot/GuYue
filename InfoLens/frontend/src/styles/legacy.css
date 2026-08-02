@@ -39,8 +39,8 @@ body {
 }
 
 .app-sider.collapsed .brand-mark {
-  width: 72px;
-  height: 36px;
+  width: 48px;
+  height: 48px;
 }
 
 .app-sider .arco-layout-sider-children {
@@ -77,6 +77,11 @@ body {
   object-fit: cover;
   object-position: center;
   transform: scale(1);
+}
+
+/* 收起侧栏时只展示 XC 图标，放大源图中心标识以消除画布留白。 */
+.app-sider.collapsed .brand-mark img {
+  transform: scale(1.55);
 }
 
 .brand-copy {

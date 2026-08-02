@@ -84,7 +84,8 @@
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  padding: 0 16px 12px;
+  /* 统一保留列表工具栏/状态提示与表格之间的呼吸区。 */
+  padding: 12px 16px;
   box-sizing: border-box;
 }
 
@@ -93,11 +94,10 @@
 }
 
 .data-table-scroll {
+  height: 100%;
   min-height: 0;
   overflow: hidden;
   position: relative;
-  display: flex;
-  flex-direction: column;
 }
 
 /* Mac 触控板触顶/触底边界（重构要求 5.2-8） */
@@ -106,39 +106,38 @@
   overscroll-behavior: contain;
 }
 
-/* 表体撑满容器：Arco 固定表头模式用 flex 链拉伸 body，
-   使分页紧贴表格底部，避免“表格与分页之间大面积空白”。 */
+/*
+ * 表头与表体是 Arco 的独立滚动容器。固定保留纵向滚动条槽位，
+ * 防止数据量或分页变化时 body 宽度变化，从而造成列边界错位。
+ */
+.data-table-scroll .arco-table-body {
+  box-sizing: border-box;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: auto;
+}
+
+.data-table-scroll .arco-table-th,
+.data-table-scroll .arco-table-td {
+  box-sizing: border-box;
+}
+
+/*
+ * Arco Table 内部的 header / body / content 容器由组件自己计算列宽与滚动。
+ * 禁止在这些内部节点上设置 display:flex 或 width:max-content：
+ * 这会破坏 table-layout: fixed 的宽度分配，使列宽被放大到异常数值，表现为
+ * “只有第一列可见、其余字段像消失了一样”。
+ */
 .data-table-scroll .arco-table,
 .data-table-scroll .arco-table-container,
-.data-table-scroll .arco-table-content-scroll,
-.data-table-scroll .arco-table-content-inner {
-  flex: 1 1 auto;
+.data-table-scroll .arco-table-content-scroll {
+  height: 100%;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.data-table-scroll .arco-table-header {
-  flex: 0 0 auto;
-}
-
-.data-table-scroll .arco-table-body {
-  flex: 1 1 auto;
-  min-height: 0;
-  /* 覆盖 Arco 内联 max-height（scroll.y 仅用于开启固定表头），
-     表体高度改由容器决定。第三方组件修复，保留注释说明。 */
-  max-height: none !important;
 }
 
 /* 空数据兜底：空行撑出可视区域，避免“暂无数据”不可见 */
 .data-table-scroll .arco-table-empty-row .arco-table-td {
   height: 240px;
   vertical-align: middle;
-}
-
-.data-table .arco-table-content-inner {
-  width: max-content;
-  min-width: 100%;
 }
 
 .data-table-pagination {
@@ -225,6 +224,11 @@
   display: contents;
 }
 
+.filter-field-group {
+  display: flex;
+  min-width: 0;
+}
+
 /* 筛选字段定宽容器：select/input 填满字段宽度 */
 .filter-field {
   flex: 0 0 auto;
@@ -256,15 +260,102 @@
 /* 表格页筛选区：单排紧凑布局 */
 .customer-filter-bar,
 .policy-filter-bar,
-.product-filter-bar {
+.product-filter-bar,
+.library-filter-bar {
   flex-wrap: nowrap;
   gap: 8px;
+}
+
+/*
+ * 终端明细筛选条件按整行可用空间弹性分配：选择框在前、文本框在后，
+ * 查询与重置按钮固定在右侧。页面专属规则不影响产品与政策页的筛选布局。
+ */
+.customer-filter-bar .filter-bar-grid,
+.policy-filter-bar .filter-bar-grid,
+.product-filter-bar .filter-bar-grid,
+.library-filter-bar .filter-bar-grid {
+  display: grid;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 8px;
+}
+
+.customer-filter-bar .filter-bar-grid {
+  grid-template-columns: minmax(112px, 0.8fr) minmax(180px, 1.45fr) minmax(180px, 1.45fr) minmax(150px, 1.15fr) minmax(120px, 0.9fr) minmax(140px, 1fr);
+}
+
+.policy-filter-bar .filter-bar-grid {
+  grid-template-columns: minmax(130px, 1fr) minmax(130px, 1fr) minmax(180px, 1.7fr) minmax(180px, 1.7fr);
+}
+
+.product-filter-bar .filter-bar-grid {
+  grid-template-columns: minmax(130px, 1fr) minmax(180px, 1.45fr) minmax(180px, 1.55fr) minmax(200px, 1.8fr);
+}
+
+.library-filter-bar .filter-bar-grid {
+  grid-template-columns: minmax(120px, 0.8fr) minmax(290px, 2.05fr) minmax(290px, 2.05fr) minmax(150px, 1.05fr) minmax(170px, 1.25fr);
+}
+
+/* 覆盖 FilterBar 为历史定宽字段写入的内联 width，使页面栅格列宽生效。 */
+.customer-filter-bar .filter-field,
+.policy-filter-bar .filter-field,
+.product-filter-bar .filter-field,
+.library-filter-bar .filter-field {
+  width: 100% !important;
+  min-width: 0;
+}
+
+/* 组内第一项为条件选择器，第二项承接剩余宽度，视觉与边框连续。 */
+.library-filter-bar .filter-field-group .filter-field {
+  width: auto !important;
+  flex: 1 1 0;
+}
+
+.library-filter-bar .filter-field-group .filter-field:first-child {
+  flex: 0 0 140px;
+}
+
+.library-filter-bar .filter-field-group .filter-field + .filter-field {
+  margin-left: -1px;
+}
+
+.library-filter-bar .filter-field-group .filter-field:first-child .arco-select-view {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.library-filter-bar .filter-field-group .filter-field + .filter-field .arco-select-view {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.customer-filter-bar .filter-bar-actions,
+.policy-filter-bar .filter-bar-actions,
+.product-filter-bar .filter-bar-actions,
+.library-filter-bar .filter-bar-actions {
+  margin-left: 0;
 }
 
 @media (max-width: 1240px) {
   .customer-filter-bar,
   .policy-filter-bar,
-  .product-filter-bar {
+  .product-filter-bar,
+  .library-filter-bar {
     flex-wrap: wrap;
+  }
+
+  .customer-filter-bar .filter-bar-grid,
+  .policy-filter-bar .filter-bar-grid,
+  .product-filter-bar .filter-bar-grid,
+  .library-filter-bar .filter-bar-grid {
+    flex-basis: 100%;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .customer-filter-bar .filter-bar-actions,
+  .policy-filter-bar .filter-bar-actions,
+  .product-filter-bar .filter-bar-actions,
+  .library-filter-bar .filter-bar-actions {
+    margin-left: auto;
   }
 }

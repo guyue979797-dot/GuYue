@@ -24,7 +24,7 @@ import { TERMINAL_LIST_META } from "./constants.js";
 
 export function SnowPolicyPage({ isAdmin }) {
   const policies = useSnowPolicies();
-  const [tableShellRef, tableHeight] = useContainerHeight(52);
+  const [tableShellRef, tableHeight] = useContainerHeight(64);
   const [formOpen, setFormOpen] = useState(false);
   const [editingPolicy, setEditingPolicy] = useState(null);
   const [uploadOpen, setUploadOpen] = useState(false);

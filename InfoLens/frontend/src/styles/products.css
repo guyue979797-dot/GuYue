@@ -135,7 +135,7 @@
 }
 
 .product-sort-button {
-  height: 44px;
+  min-height: 22px;
   padding: 0;
   display: inline-flex;
   align-items: center;
