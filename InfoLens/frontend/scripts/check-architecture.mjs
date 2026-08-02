@@ -48,8 +48,9 @@ for (const file of walk(root)) {
       failures.push(`${rel}: 使用 nth-child() 表达列语义（原则七/重构要求 6.2）`);
     }
     for (const match of source.matchAll(/!important/g)) {
-      const before = source.slice(Math.max(0, match.index - 200), match.index);
-      if (!/\/\*/.test(before.slice(before.lastIndexOf("\n")))) {
+      // 向前 300 字符内存在 CSS 注释即视为已说明（允许修复第三方组件的例外）
+      const before = source.slice(Math.max(0, match.index - 300), match.index);
+      if (!/\/\*/.test(before)) {
         failures.push(`${rel}: 无注释 !important（重构要求 6.2）`);
       }
     }

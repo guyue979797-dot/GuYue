@@ -96,12 +96,44 @@
   min-height: 0;
   overflow: hidden;
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Mac 触控板触顶/触底边界（重构要求 5.2-8） */
 .data-table-scroll .arco-table-body,
 .data-table-scroll .arco-table {
   overscroll-behavior: contain;
+}
+
+/* 表体撑满容器：Arco 固定表头模式用 flex 链拉伸 body，
+   使分页紧贴表格底部，避免“表格与分页之间大面积空白”。 */
+.data-table-scroll .arco-table,
+.data-table-scroll .arco-table-container,
+.data-table-scroll .arco-table-content-scroll,
+.data-table-scroll .arco-table-content-inner {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.data-table-scroll .arco-table-header {
+  flex: 0 0 auto;
+}
+
+.data-table-scroll .arco-table-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  /* 覆盖 Arco 内联 max-height（scroll.y 仅用于开启固定表头），
+     表体高度改由容器决定。第三方组件修复，保留注释说明。 */
+  max-height: none !important;
+}
+
+/* 空数据兜底：空行撑出可视区域，避免“暂无数据”不可见 */
+.data-table-scroll .arco-table-empty-row .arco-table-td {
+  height: 240px;
+  vertical-align: middle;
 }
 
 .data-table .arco-table-content-inner {
@@ -115,6 +147,8 @@
   justify-content: flex-end;
   gap: var(--space-4);
   padding-top: var(--space-3);
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .data-table-page-size {
@@ -123,6 +157,13 @@
   gap: var(--space-2);
   color: var(--gray-500);
   font-size: var(--text-sm);
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.data-table-page-size .arco-select {
+  width: 92px;
+  flex: 0 0 auto;
 }
 
 /* TableText：统一截断 */
