@@ -1,42 +1,18 @@
-.row-actions {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  white-space: nowrap;
-}
-
-/* P0-17：普通单元格必须保持边界，避免相邻列文字重叠。 */
-table td {
-  position: relative;
-  z-index: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* 只有真正承载行操作/Dropdown 的单元格允许弹层越出表格边界。 */
-.customer-table td.sticky-actions,
-.product-table td.product-actions-sticky,
-.policy-table td.policy-actions-sticky,
-.user-table td.user-actions-cell {
-  min-width: 100px;
-  overflow: visible;
-  padding-right: 16px;
-}
-
-.customer-table th.sticky-actions,
-.customer-table td.sticky-actions,
-.product-table th.product-actions-sticky,
-.product-table td.product-actions-sticky,
-.policy-table th.policy-actions-sticky,
-.policy-table td.policy-actions-sticky {
-  min-width: 100px;
-  overflow: visible;
-}
-
 .arco-dropdown-popup {
   z-index: 1000;
+}
+
+/* DataTable 禁用行状态（Arco Table 的 rowClassName="disabled"） */
+.data-table .arco-table-tr.disabled .arco-table-td,
+.data-table .arco-table-tr.disabled:hover .arco-table-td {
+  background: var(--gray-50);
+  color: var(--gray-500);
+}
+
+.data-table .arco-table-tr.disabled .tag-neutral {
+  border-color: var(--gray-200);
+  background: var(--gray-100);
+  color: var(--gray-400);
 }
 
 .filter-module .arco-input-wrapper,
