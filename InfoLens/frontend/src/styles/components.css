@@ -108,13 +108,46 @@
   display: contents;
 }
 
-.filter-bar-grid .arco-select,
-.filter-bar-grid .arco-input-wrapper,
-.filter-bar-grid > .arco-select,
-.filter-bar-grid > .arco-input-wrapper {
-  min-width: 150px;
+/* 筛选字段定宽容器：select/input 填满字段宽度 */
+.filter-field {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.filter-field .arco-select,
+.filter-field .arco-input-wrapper {
+  width: 100%;
+}
+
+.filter-field-select {
+  width: 140px;
+}
+
+.filter-field-multi {
+  width: 200px;
+}
+
+.filter-field-input {
+  width: 150px;
 }
 
 .filter-bar-actions {
+  flex: 0 0 auto;
   margin-left: auto;
+}
+
+/* 表格页筛选区：单排紧凑布局 */
+.customer-filter-bar,
+.policy-filter-bar,
+.product-filter-bar {
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+
+@media (max-width: 1240px) {
+  .customer-filter-bar,
+  .policy-filter-bar,
+  .product-filter-bar {
+    flex-wrap: wrap;
+  }
 }

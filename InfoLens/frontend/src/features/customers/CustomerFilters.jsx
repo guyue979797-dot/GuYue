@@ -32,6 +32,7 @@ export function CustomerFilters({
       type: "select",
       placeholder: "雪花政策月份",
       options: policyMonths,
+      width: 112,
     },
     {
       name: "policyTag",
@@ -40,6 +41,7 @@ export function CustomerFilters({
       placeholder: "雪花政策",
       options: policyTagOptions,
       className: "customer-policy-filter",
+      width: 140,
     },
     {
       name: "route",
@@ -49,6 +51,7 @@ export function CustomerFilters({
       options: routeOptions,
       showSearch: true,
       className: "customer-route-filter",
+      width: 132,
     },
     {
       name: "people",
@@ -58,6 +61,7 @@ export function CustomerFilters({
       options: peopleOptions,
       showSearch: true,
       className: "customer-people-filter",
+      width: 140,
     },
     {
       name: "terminal_code",
@@ -65,12 +69,14 @@ export function CustomerFilters({
       type: "input",
       placeholder: "终端编码",
       maxLength: 10,
+      width: 112,
     },
     {
       name: "customer_name",
       label: "客户全名",
       type: "input",
       placeholder: "客户全名",
+      width: 120,
     },
   ];
 

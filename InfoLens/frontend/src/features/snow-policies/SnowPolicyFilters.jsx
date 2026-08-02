@@ -20,6 +20,7 @@ export function SnowPolicyFilters({
       type: "select",
       placeholder: "年月",
       options: getPolicyMonthOptions(),
+      width: 112,
     },
     {
       name: "enabled",
@@ -30,18 +31,21 @@ export function SnowPolicyFilters({
         { value: "true", label: "已启用" },
         { value: "false", label: "已停用" },
       ],
+      width: 100,
     },
     {
       name: "outbound_code",
       label: "出库编码搜索",
       type: "input",
       placeholder: "出库编码搜索",
+      width: 170,
     },
     {
       name: "name",
       label: "标签名搜索",
       type: "input",
       placeholder: "标签名搜索",
+      width: 140,
     },
   ];
 

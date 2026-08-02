@@ -35,61 +35,69 @@ export function FilterBar({
       placeholder: field.placeholder,
       "aria-label": field.label,
     };
+    const fieldClass = `filter-field filter-field-${field.type}`;
+    const fieldStyle = field.width ? { width: field.width } : undefined;
     if (field.type === "select") {
       return (
-        <Select
-          {...common}
-          value={values[key] || undefined}
-          allowClear={field.allowClear !== false}
-          showSearch={field.showSearch}
-          filterOption={field.filterOption}
-          onChange={(value) => setValue(key, value ?? "")}
-          className={field.className}
-        >
-          {(field.options || []).map((option) => {
-            const normalized = normalizeOption(option);
-            return (
-              <Option key={normalized.value} value={normalized.value}>
-                {normalized.label}
-              </Option>
-            );
-          })}
-        </Select>
+        <div className={fieldClass} style={fieldStyle}>
+          <Select
+            {...common}
+            value={values[key] || undefined}
+            allowClear={field.allowClear !== false}
+            showSearch={field.showSearch}
+            filterOption={field.filterOption}
+            onChange={(value) => setValue(key, value ?? "")}
+            className={field.className}
+          >
+            {(field.options || []).map((option) => {
+              const normalized = normalizeOption(option);
+              return (
+                <Option key={normalized.value} value={normalized.value}>
+                  {normalized.label}
+                </Option>
+              );
+            })}
+          </Select>
+        </div>
       );
     }
     if (field.type === "multi-select") {
       return (
-        <Select
-          {...common}
-          mode="multiple"
-          value={values[key] || []}
-          allowClear
-          maxTagCount={field.maxTagCount}
-          showSearch={field.showSearch}
-          filterOption={field.filterOption}
-          onChange={(value) => setValue(key, value || [])}
-          className={field.className}
-        >
-          {(field.options || []).map((option) => {
-            const normalized = normalizeOption(option);
-            return (
-              <Option key={normalized.value} value={normalized.value}>
-                {normalized.label}
-              </Option>
-            );
-          })}
-        </Select>
+        <div className={fieldClass} style={fieldStyle}>
+          <Select
+            {...common}
+            mode="multiple"
+            value={values[key] || []}
+            allowClear
+            maxTagCount={field.maxTagCount}
+            showSearch={field.showSearch}
+            filterOption={field.filterOption}
+            onChange={(value) => setValue(key, value || [])}
+            className={field.className}
+          >
+            {(field.options || []).map((option) => {
+              const normalized = normalizeOption(option);
+              return (
+                <Option key={normalized.value} value={normalized.value}>
+                  {normalized.label}
+                </Option>
+              );
+            })}
+          </Select>
+        </div>
       );
     }
     return (
-      <Input
-        {...common}
-        value={values[key] ?? ""}
-        maxLength={field.maxLength}
-        onChange={(value) => setValue(key, value)}
-        onPressEnter={onSearch}
-        className={field.className}
-      />
+      <div className={fieldClass} style={fieldStyle}>
+        <Input
+          {...common}
+          value={values[key] ?? ""}
+          maxLength={field.maxLength}
+          onChange={(value) => setValue(key, value)}
+          onPressEnter={onSearch}
+          className={field.className}
+        />
+      </div>
     );
   }
 
