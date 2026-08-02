@@ -1,0 +1,120 @@
+/*
+ * UI 基础组件样式（重构要求 6.2）。
+ * 每条规则都定位到具体组件类，禁止全局选择器。
+ */
+
+/* DataTable：统一滚动容器 + 分页条 + 加载遮罩 */
+.data-table {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  height: 100%;
+  min-height: 0;
+}
+
+/* 页面卡片（div 容器）语义标记 */
+.page-card-flat {
+  min-width: 0;
+}
+
+.data-table-scroll {
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Mac 触控板触顶/触底边界（重构要求 5.2-8） */
+.data-table-scroll .arco-table-body,
+.data-table-scroll .arco-table {
+  overscroll-behavior: contain;
+}
+
+.data-table .arco-table-content-inner {
+  width: max-content;
+  min-width: 100%;
+}
+
+.data-table-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-4);
+  padding-top: var(--space-3);
+}
+
+.data-table-page-size {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--gray-500);
+  font-size: var(--text-sm);
+}
+
+/* TableText：统一截断 */
+.table-text {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-text > .arco-tag {
+  display: inline-flex;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+/* TableRowActions：详情 + 更多菜单 */
+.table-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.table-actions-cell {
+  min-width: 100px;
+  overflow: visible;
+}
+
+/* StatusAlert */
+.status-alert {
+  margin-bottom: var(--space-3);
+}
+
+/* FormModal：仅内容区滚动，Header/Footer 固定 */
+.form-modal .arco-modal-header,
+.form-modal .arco-modal-footer {
+  flex-shrink: 0;
+}
+
+.form-modal .arco-modal-content {
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* FilterBar：统一筛选条布局 */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.filter-bar-grid {
+  display: contents;
+}
+
+.filter-bar-grid .arco-select,
+.filter-bar-grid .arco-input-wrapper,
+.filter-bar-grid > .arco-select,
+.filter-bar-grid > .arco-input-wrapper {
+  min-width: 150px;
+}
+
+.filter-bar-actions {
+  margin-left: auto;
+}

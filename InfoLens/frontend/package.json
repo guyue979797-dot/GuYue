@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173",
     "build": "node build.mjs",
-    "preview": "vite preview --host 127.0.0.1"
+    "preview": "vite preview --host 127.0.0.1",
+    "check:arch": "node scripts/check-architecture.mjs"
   },
   "dependencies": {
     "@arco-design/web-react": "^2.66.0",
