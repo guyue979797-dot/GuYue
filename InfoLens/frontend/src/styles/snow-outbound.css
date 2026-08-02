@@ -1,34 +1,4 @@
 /* 雪花出库页独立样式入口。 */
-.policy-actions-sticky {
-  position: sticky;
-  z-index: 2;
-  isolation: isolate;
-  right: 0;
-  width: 1%;
-  min-width: 132px;
-  overflow: visible;
-  background-color: var(--white);
-  background-clip: padding-box;
-  box-shadow: -1px 0 var(--gray-200);
-}
-
-.policy-table th.policy-actions-sticky {
-  z-index: 4;
-  background-color: var(--gray-50);
-}
-
-.policy-table tbody tr:nth-child(even) .policy-actions-sticky {
-  background-color: var(--gray-50);
-}
-
-.policy-table tbody tr:hover .policy-actions-sticky {
-  background-color: var(--primary-1);
-}
-
-.policy-table tbody td:not(.policy-actions-sticky) {
-  position: relative;
-  z-index: 1;
-}
 
 .policy-code {
   color: var(--gray-400);
@@ -411,38 +381,31 @@
   white-space: nowrap;
 }
 
-.policy-alert-table th:nth-child(1),
-.policy-alert-table td:nth-child(1) {
+.policy-alert-table col.policy-alert-col-code {
   min-width: 120px;
 }
 
-.policy-alert-table th:nth-child(2),
-.policy-alert-table td:nth-child(2) {
+.policy-alert-table col.policy-alert-col-name {
   min-width: 180px;
 }
 
-.policy-alert-table th:nth-child(3),
-.policy-alert-table td:nth-child(3) {
+.policy-alert-table col.policy-alert-col-alerts {
   min-width: 190px;
 }
 
-.policy-alert-table th:nth-child(4),
-.policy-alert-table td:nth-child(4) {
+.policy-alert-table col.policy-alert-col-ticket {
   min-width: 190px;
 }
 
-.policy-alert-table th:nth-child(5),
-.policy-alert-table td:nth-child(5) {
+.policy-alert-table col.policy-alert-col-product {
   min-width: 170px;
 }
 
-.policy-alert-table th:nth-child(6),
-.policy-alert-table td:nth-child(6) {
+.policy-alert-table col.policy-alert-col-type {
   min-width: 140px;
 }
 
-.policy-alert-table th:nth-child(7),
-.policy-alert-table td:nth-child(7) {
+.policy-alert-table col.policy-alert-col-reason {
   min-width: 280px;
 }
 
@@ -597,34 +560,25 @@
   min-height: 0;
 }
 
-.policy-filter-card > .arco-card-body {
+.policy-filter-card {
   padding: 14px;
-}
-
-.policy-filter-grid {
-  display: grid;
-  grid-template-columns: 160px 140px minmax(190px, 1fr) minmax(190px, 1fr) auto;
-  gap: 10px;
-  align-items: center;
-}
-
-.policy-filter-grid .arco-select,
-.policy-filter-grid .arco-input-wrapper {
-  width: 100%;
+  border: 1px solid var(--gray-200);
+  border-radius: 4px;
+  background: var(--white);
+  box-shadow: 0 8px 24px rgba(29, 39, 56, 0.045);
 }
 
 .policy-list-card {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
   height: 100%;
   min-height: 0;
   overflow: hidden;
-}
-
-.policy-list-card > .arco-card-body {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
-  height: 100%;
-  min-height: 0;
-  padding: 0;
+  border: 1px solid var(--gray-200);
+  border-radius: 4px;
+  background: var(--white);
+  box-shadow: 0 8px 24px rgba(29, 39, 56, 0.045);
+  box-sizing: border-box;
 }
 
 .policy-toolbar {
@@ -710,55 +664,18 @@
   margin: 10px 14px 0;
 }
 
-.policy-table-wrap {
+.policy-table-shell {
+  grid-row: 3;
   position: relative;
-  width: calc(100% - 28px);
-  height: calc(100% - 12px);
+  height: 100%;
   min-height: 0;
-  margin: 12px 14px 0;
-  overflow: auto;
-  overscroll-behavior: contain;
-  border: 1px solid var(--gray-200);
-  border-radius: 8px;
+  overflow: hidden;
+  padding: 0 14px 12px;
   box-sizing: border-box;
 }
 
-.policy-table {
-  width: 100%;
-  min-width: 1600px;
-  table-layout: fixed;
-  border-collapse: separate;
-  border-spacing: 0;
-  color: var(--gray-600);
-  font-size: 13px;
-}
-
-.policy-table th,
-.policy-table td {
-  height: 50px;
-  padding: 0 8px;
-  box-sizing: border-box;
-  border-bottom: 1px solid var(--gray-100);
-  background: var(--white);
-  text-align: left;
-  white-space: nowrap;
-}
-
-.policy-table th:nth-child(1),
-.policy-table td:nth-child(1) {
-  width: 120px;
-}
-
-.policy-table th:nth-child(2),
-.policy-table td:nth-child(2) {
-  width: 80px;
-}
-
-/* 标签名是政策识别主字段，必须完整展示，不能压缩成省略号。 */
-.policy-table th:nth-child(3),
-.policy-table td:nth-child(3) {
-  width: 190px;
-  min-width: 190px;
+.policy-table-shell .data-table {
+  height: 100%;
 }
 
 .policy-name-tag {
@@ -774,54 +691,6 @@
   font-weight: 500;
   text-overflow: clip;
   white-space: nowrap;
-}
-
-.policy-table th.outbound-progress-header,
-.policy-table td.outbound-progress-cell {
-  width: 420px;
-  min-width: 420px;
-  max-width: 420px;
-}
-
-.policy-table th:nth-child(4),
-.policy-table td:nth-child(4) {
-  width: 160px;
-  min-width: 160px;
-  max-width: 160px;
-}
-
-.policy-table th:nth-child(5),
-.policy-table td:nth-child(5) {
-  width: 85px;
-}
-
-.policy-table th:nth-child(7),
-.policy-table td:nth-child(7) {
-  width: 105px;
-  min-width: 105px;
-}
-
-.policy-table th:nth-child(8),
-.policy-table td:nth-child(8) {
-  width: 92px;
-  min-width: 92px;
-  text-align: center;
-}
-
-.policy-table th:nth-child(9),
-.policy-table td:nth-child(9) {
-  width: 105px;
-  min-width: 105px;
-}
-
-.policy-table th:nth-child(10),
-.policy-table td:nth-child(10) {
-  width: 130px;
-}
-
-.policy-table th:nth-child(11),
-.policy-table td:nth-child(11) {
-  width: 110px;
 }
 
 .outbound-status {
@@ -926,16 +795,6 @@
   font-weight: 600;
 }
 
-.policy-table th {
-  position: sticky;
-  z-index: 3;
-  top: 0;
-  height: 44px;
-  color: var(--gray-600);
-  background-color: var(--gray-50);
-  font-weight: 600;
-}
-
 .policy-sort-button {
   height: 44px;
   display: inline-flex;
@@ -969,12 +828,4 @@
 
 .policy-sort-arrows i.selected {
   color: var(--primary-6);
-}
-
-.policy-table tbody tr:nth-child(even) td {
-  background: var(--gray-50);
-}
-
-.policy-table tbody tr:hover td:not(.policy-actions-sticky) {
-  background: var(--primary-1);
 }
