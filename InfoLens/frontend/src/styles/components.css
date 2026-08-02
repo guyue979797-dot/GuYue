@@ -16,6 +16,82 @@
   min-width: 0;
 }
 
+/* 表格页统一布局（终端明细 / 雪花政策 / 产品档案 / 权限管理共用） */
+.table-page-filter-card {
+  padding: 12px 16px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  background: var(--white);
+  box-shadow: var(--shadow-md);
+}
+
+.table-page-list-card {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  background: var(--white);
+  box-shadow: var(--shadow-md);
+  box-sizing: border-box;
+}
+
+.table-page-toolbar {
+  grid-row: 1;
+  min-height: 52px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--gray-100);
+  box-sizing: border-box;
+}
+
+.table-page-toolbar-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.table-page-toolbar-title strong {
+  color: var(--gray-800);
+  font-size: 16px;
+  white-space: nowrap;
+}
+
+.table-page-toolbar-title span {
+  color: var(--gray-400);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.table-page-toolbar .toolbar-center {
+  margin-inline: auto;
+}
+
+.table-page-status {
+  grid-row: 2;
+  margin: 10px 16px 0;
+}
+
+.table-page-shell {
+  grid-row: 3;
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 16px 12px;
+  box-sizing: border-box;
+}
+
+.table-page-shell .data-table {
+  height: 100%;
+}
+
 .data-table-scroll {
   min-height: 0;
   overflow: hidden;

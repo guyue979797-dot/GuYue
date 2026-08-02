@@ -560,55 +560,15 @@
   min-height: 0;
 }
 
-.policy-filter-card {
-  padding: 14px;
-  border: 1px solid var(--gray-200);
-  border-radius: 4px;
-  background: var(--white);
-  box-shadow: 0 8px 24px rgba(29, 39, 56, 0.045);
-}
-
-.policy-list-card {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  border: 1px solid var(--gray-200);
-  border-radius: 4px;
-  background: var(--white);
-  box-shadow: 0 8px 24px rgba(29, 39, 56, 0.045);
-  box-sizing: border-box;
-}
-
-.policy-toolbar {
-  min-height: 52px;
-  padding: 8px 14px;
-  display: grid;
-  grid-template-columns: auto minmax(220px, 1fr) auto;
-  align-items: center;
-  gap: 20px;
-  border-bottom: 1px solid var(--gray-100);
-}
-
-.policy-toolbar > div {
+.policy-latest-upload {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.policy-toolbar strong {
-  color: var(--gray-800);
-  font-size: 16px;
-}
-
-.policy-toolbar span {
+.policy-latest-upload span {
   color: var(--gray-400);
   font-size: 13px;
-}
-
-.policy-latest-upload {
-  justify-self: center;
 }
 
 .policy-latest-upload strong {
@@ -647,7 +607,9 @@
 }
 
 .policy-toolbar-actions {
-  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .policy-add-button,
@@ -658,24 +620,6 @@
 
 .policy-add-button > span {
   color: var(--white);
-}
-
-.policy-list-card .status-alert {
-  margin: 10px 14px 0;
-}
-
-.policy-table-shell {
-  grid-row: 3;
-  position: relative;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  padding: 0 14px 12px;
-  box-sizing: border-box;
-}
-
-.policy-table-shell .data-table {
-  height: 100%;
 }
 
 .policy-name-tag {

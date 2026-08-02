@@ -59,7 +59,7 @@ export function ProductPage() {
 
   return (
     <div className="product-page">
-      <div className="product-filter-card page-card-flat">
+      <div className="product-filter-card table-page-filter-card">
         <ProductFilters
           values={products.filters}
           onChange={products.setFilterField}
@@ -69,13 +69,13 @@ export function ProductPage() {
         />
       </div>
 
-      <div className="product-list-card page-card-flat">
-        <div className="product-toolbar">
-          <div className="product-toolbar-title">
+      <div className="product-list-card table-page-list-card">
+        <div className="product-toolbar table-page-toolbar">
+          <div className="table-page-toolbar-title">
             <strong>产品明细</strong>
             <span>本月共 {products.total} 条</span>
           </div>
-          <div className="product-overview">
+          <div className="product-overview toolbar-center">
             <div className="product-latest-upload">
               <span>产品明细最新更新时间</span>
               {latestUploadDate ? (
@@ -125,8 +125,8 @@ export function ProductPage() {
             <Button type="primary" onClick={openCreate}>新增商品</Button>
           </Space>
         </div>
-        <StatusAlert status={products.status} />
-        <div className="product-table-shell" ref={tableShellRef}>
+        <StatusAlert status={products.status} className="table-page-status" />
+        <div className="table-page-shell" ref={tableShellRef}>
           <ProductTable
             items={products.items}
             total={products.total}

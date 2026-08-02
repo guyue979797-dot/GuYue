@@ -68,7 +68,7 @@ export function CustomerPage({ isAdmin }) {
 
   return (
     <div className="customer-page">
-      <div className="customer-filter-card page-card-flat">
+      <div className="customer-filter-card table-page-filter-card">
         <CustomerFilters
           values={filterValues}
           onDraftChange={customers.setFilterField}
@@ -86,9 +86,9 @@ export function CustomerPage({ isAdmin }) {
         />
       </div>
 
-      <div className="customer-list-card page-card-flat">
-        <div className="customer-toolbar">
-          <div>
+      <div className="customer-list-card table-page-list-card">
+        <div className="customer-toolbar table-page-toolbar">
+          <div className="table-page-toolbar-title">
             <strong>终端明细</strong>
             <span className="customer-total">共 {customers.total} 条</span>
           </div>
@@ -101,8 +101,8 @@ export function CustomerPage({ isAdmin }) {
             ) : null}
           </Space>
         </div>
-        <StatusAlert status={customers.status} />
-        <div className="customer-table-shell" ref={tableShellRef}>
+        <StatusAlert status={customers.status} className="table-page-status" />
+        <div className="table-page-shell" ref={tableShellRef}>
           <CustomerTable
             items={customers.items}
             total={customers.total}

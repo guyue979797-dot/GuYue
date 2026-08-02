@@ -4,11 +4,11 @@
 import React from "../../lib/react.js";
 import { Alert } from "../../lib/arco.js";
 
-export function StatusAlert({ status }) {
+export function StatusAlert({ status, className = "" }) {
   if (!status?.message) return null;
   return (
     <Alert
-      className="status-alert"
+      className={`status-alert ${className}`.trim()}
       type={status.type || "info"}
       content={status.message}
       showIcon

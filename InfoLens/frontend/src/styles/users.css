@@ -8,36 +8,13 @@
 }
 
 .user-card {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  border: 1px solid var(--gray-200);
-  border-color: var(--gray-200);
-  border-radius: var(--radius-lg);
-  background: var(--white);
-  box-shadow: var(--shadow-md);
-  box-sizing: border-box;
+  min-width: 0;
 }
 
 .user-toolbar {
   display: flex;
   justify-content: flex-end;
   padding: var(--space-4) var(--space-4) 0;
-}
-
-.user-table-shell {
-  position: relative;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  padding: 0 var(--space-4) var(--space-4);
-  box-sizing: border-box;
-}
-
-.user-table-shell .data-table {
-  height: 100%;
 }
 
 .user-account-cell {

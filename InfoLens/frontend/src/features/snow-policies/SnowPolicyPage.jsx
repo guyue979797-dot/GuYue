@@ -142,7 +142,7 @@ export function SnowPolicyPage({ isAdmin }) {
 
   return (
     <div className="policy-page">
-      <div className="policy-filter-card page-card-flat">
+      <div className="policy-filter-card table-page-filter-card">
         <SnowPolicyFilters
           values={filterValues}
           onDraftChange={policies.setFilterField}
@@ -153,13 +153,13 @@ export function SnowPolicyPage({ isAdmin }) {
         />
       </div>
 
-      <div className="policy-list-card page-card-flat">
-        <div className="policy-toolbar">
-          <div className="policy-toolbar-title">
+      <div className="policy-list-card table-page-list-card">
+        <div className="policy-toolbar table-page-toolbar">
+          <div className="table-page-toolbar-title">
             <strong>雪花政策明细</strong>
             <span>共 {policies.total} 条</span>
           </div>
-          <div className="policy-latest-upload">
+          <div className="policy-latest-upload toolbar-center">
             <span>雪花出库最新更新时间</span>
             {latestUploadDate ? (
               <strong className="policy-date-display" aria-label={`${latestUploadDate.year}年${latestUploadDate.month}月${latestUploadDate.day}日`}>
@@ -176,8 +176,8 @@ export function SnowPolicyPage({ isAdmin }) {
             <Button className="policy-add-button" type="primary" onClick={openCreate}>新增政策标签</Button>
           </div>
         </div>
-        <StatusAlert status={policies.status} />
-        <div className="policy-table-shell" ref={tableShellRef}>
+        <StatusAlert status={policies.status} className="table-page-status" />
+        <div className="table-page-shell" ref={tableShellRef}>
           <SnowPolicyTable
             items={policies.items}
             total={policies.total}

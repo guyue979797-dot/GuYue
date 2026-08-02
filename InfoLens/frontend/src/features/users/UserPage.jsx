@@ -46,12 +46,12 @@ export function UserPage() {
 
   return (
     <div className="user-page">
-      <div className="user-card page-card-flat">
+      <div className="user-card table-page-list-card">
         <div className="user-toolbar">
           <Button type="primary" onClick={openCreate}>新增用户</Button>
         </div>
-        <StatusAlert status={users.status} />
-        <div className="user-table-shell" ref={tableShellRef}>
+        <StatusAlert status={users.status} className="table-page-status" />
+        <div className="table-page-shell" ref={tableShellRef}>
           <UserTable
             users={users.users}
             loading={users.loading}
