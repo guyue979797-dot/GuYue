@@ -1132,6 +1132,9 @@ class ProductStore:
                     changes = (
                         current["product_name"] != row["product_name"]
                         or float(current["snow_inventory"]) != float(row["snow_inventory"])
+                        # 新月份重新上传但库存数值相同时，也必须更新归属月份；
+                        # 否则月度汇总已统计该商品，产品列表却会因 stock_month 仍为旧月而漏行。
+                        or current["stock_month"] != row["source_month"]
                         or (
                             row["specification"] is not None
                             and current["specification"] != row["specification"]

@@ -1,6 +1,7 @@
 import io
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from openpyxl import Workbook
@@ -123,18 +124,22 @@ class ProductStoreTests(unittest.TestCase):
         self.assertEqual(self.store.list_products()["total"], 0)
 
     def test_stock_import_creates_pending_updates_and_skips_non_box(self):
+        current_month = datetime.now().strftime("%Y%m")
+        historical_month = (
+            datetime.now().replace(day=1) - timedelta(days=1)
+        ).strftime("%Y%m")
         rows = parse_stock_workbook(
             stock_file(
                 [
                     [
-                        "202607",
+                        current_month,
                         "3101",
                         "雪花干爽9.5度330ml听6*4塑膜六连包纸箱",
                         "箱",
                         1.25,
                         54.5,
                     ],
-                    ["202607", "5102", "勇闯天涯太阳伞", "顶", 0, 10],
+                    [current_month, "5102", "勇闯天涯太阳伞", "顶", 0, 10],
                 ]
             )
         )
@@ -163,14 +168,14 @@ class ProductStoreTests(unittest.TestCase):
         self.assertEqual(product["auxiliary_unit"], "听")
         self.assertEqual(products["monthly_inbound_tons"], 1.25)
         self.assertEqual(products["snow_inventory_boxes"], 54.5)
-        self.assertEqual(products["summary_month"], "202607")
-        self.assertEqual(products["summary_months"], ["202607"])
+        self.assertEqual(products["summary_month"], current_month)
+        self.assertEqual(products["summary_months"], [current_month])
 
         second_rows = parse_stock_workbook(
             stock_file(
                 [
                     [
-                        "202607",
+                        current_month,
                         "3101",
                         "雪花干爽9.5度330ml听6*4塑膜六连包纸箱",
                         "箱",
@@ -201,7 +206,7 @@ class ProductStoreTests(unittest.TestCase):
             stock_file(
                 [
                     [
-                        "202606",
+                        historical_month,
                         "3101",
                         "雪花干爽9.5度330ml听6*4塑膜六连包纸箱",
                         "箱",
@@ -212,7 +217,7 @@ class ProductStoreTests(unittest.TestCase):
             )
         )
         historical_preview = self.store.create_import_preview(
-            filename="stock-202606.xlsx",
+            filename=f"stock-{historical_month}.xlsx",
             operator="tester",
             operator_name="测试员",
             rows=historical_rows,
@@ -227,20 +232,20 @@ class ProductStoreTests(unittest.TestCase):
         self.assertEqual(current_products["total"], 1)
         self.assertEqual(current_products["items"][0]["snow_inventory"], 60.25)
 
-        june_summary = self.store.list_products(summary_month="202606")
+        june_summary = self.store.list_products(summary_month=historical_month)
         self.assertEqual(june_summary["monthly_inbound_tons"], 3.5)
         self.assertEqual(june_summary["snow_inventory_boxes"], 60.25)
-        self.assertEqual(june_summary["summary_months"], ["202607", "202606"])
+        self.assertEqual(june_summary["summary_months"], [current_month, historical_month])
 
         replacement_preview = self.store.create_import_preview(
-            filename="stock-202606-replacement.xlsx",
+            filename=f"stock-{historical_month}-replacement.xlsx",
             operator="tester",
             operator_name="测试员",
             rows=parse_stock_workbook(
                 stock_file(
                     [
                         [
-                            "202606",
+                            historical_month,
                             "3101",
                             "雪花干爽9.5度330ml听6*4塑膜六连包纸箱",
                             "箱",
@@ -256,7 +261,7 @@ class ProductStoreTests(unittest.TestCase):
             operator="tester",
             operator_name="测试员",
         )
-        june_replacement = self.store.list_products(summary_month="202606")
+        june_replacement = self.store.list_products(summary_month=historical_month)
         self.assertEqual(june_replacement["monthly_inbound_tons"], 4)
         self.assertEqual(june_replacement["snow_inventory_boxes"], 60.25)
 
