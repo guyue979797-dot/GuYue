@@ -26,7 +26,9 @@ export function FormModal({
   onSubmit,
   children,
   className = "",
-  footer = null,
+  // undefined 使用 Arco 默认“取消 / 确定”操作栏；只有调用方明确传入
+  // footer={null} 时才隐藏操作栏，用于纯展示类弹窗。
+  footer,
   okButtonProps,
   cancelButtonProps,
 }) {
@@ -40,7 +42,7 @@ export function FormModal({
       cancelText={cancelText}
       width={width ?? MODAL_WIDTH[size]}
       className={`form-modal ${className}`.trim()}
-      footer={footer}
+      {...(footer === undefined ? {} : { footer })}
       okButtonProps={{
         loading,
         disabled: okDisabled,

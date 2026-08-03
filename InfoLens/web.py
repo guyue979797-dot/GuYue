@@ -1377,6 +1377,8 @@ def _attach_image_archive_tags(result: dict) -> None:
                 "policy_id": policy_map[policy_id]["policy_id"],
                 "tag": policy_map[policy_id]["tag"],
                 "color": policy_map[policy_id]["color"],
+                "enabled": policy_map[policy_id]["enabled"],
+                "deleted": policy_map[policy_id]["deleted"],
             }
             for policy_id in archive_map.get(str(image.get("id") or ""), [])
             if policy_id in policy_map

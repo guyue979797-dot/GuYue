@@ -57,7 +57,8 @@ export function SnowPolicyTable({
     {
       title: "年月",
       key: "year_month",
-      width: 90,
+      // 含单元格内边距后仍需容纳“2026年7月”，避免被拆成两行。
+      width: 120,
       render: (value, policy) => `${policy.year}年${policy.month}月`,
     },
     {
@@ -119,7 +120,9 @@ export function SnowPolicyTable({
         />
       ),
       key: "progress",
-      width: 280,
+      // 五类状态并列展示时的最小可读宽度，禁止挤入“套数限制”列。
+      width: 400,
+      className: "policy-progress-cell",
       render: (value, policy) => (
         <PolicyProgressCell
           displayName={policy.display_name}

@@ -1662,19 +1662,19 @@ body {
   display: inline-flex;
   max-width: 100%;
   min-width: 0;
-  min-height: 23px;
+  min-height: 30px;
   margin: 0;
-  padding: 2px 5px 2px 8px;
+  padding: 6px 10px;
   align-items: center;
   gap: 0;
   overflow: visible;
   border: 1px solid currentColor;
-  border-radius: 12px;
+  border-radius: 8px;
   box-shadow: 0 2px 8px rgba(29, 39, 56, 0.14);
   box-sizing: border-box;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 17px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 18px;
   white-space: normal;
 }
 
@@ -1705,38 +1705,54 @@ body {
 }
 
 .image-archive-badge.arco-tag.tag-neutral {
-  border: 1px solid var(--primary-3);
-  border-radius: var(--radius-sm);
-  background: var(--primary-1);
-  color: var(--primary-7);
+  /* 图片上的标签必须使用实色底，避免浅色标签与照片内容混在一起。 */
+  border: 1px solid var(--archive-tag-border, #424ed6);
+  border-radius: 8px;
+  background-color: var(--archive-tag-background, #424ed6);
+  color: var(--white);
+  text-shadow: 0 1px 1px rgba(15, 23, 42, 0.18);
+}
+
+/* Arco 的可选 Tag 会附加 arco-tag-checked，需显式覆盖其默认浅色状态。 */
+.image-archive-badge.arco-tag.tag-neutral.arco-tag-checked {
+  border-color: var(--archive-tag-border, #424ed6) !important;
+  background-color: var(--archive-tag-background, #424ed6) !important;
+  color: var(--white) !important;
+}
+
+.image-archive-tooltip-badge.arco-tag.tag-neutral {
+  margin: 0 4px 4px 0;
+  border-color: var(--archive-tag-border, #424ed6);
+  background-color: var(--archive-tag-background, #424ed6);
+  color: var(--white);
 }
 
 .image-archive-remove {
-  flex: 0 0 20px;
-  width: 20px;
-  min-width: 20px;
-  height: 17px;
-  margin-left: 5px;
-  padding: 0 0 0 5px;
+  flex: 0 0 18px;
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: 0;
-  border-left: 1px solid rgba(78, 89, 105, 0.22);
   border-radius: 0;
   box-sizing: border-box;
-  color: var(--gray-400);
+  color: var(--white);
   background: transparent;
   cursor: pointer;
   font-size: 16px;
   font-weight: 400;
-  line-height: 17px;
+  line-height: 16px;
 }
 
 .image-archive-remove:hover,
 .image-archive-remove:focus-visible {
-  color: var(--error-600);
+  color: var(--white);
   background: transparent;
+  opacity: 0.7;
   outline: none;
 }
 

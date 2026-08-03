@@ -638,16 +638,26 @@
 }
 
 .outbound-status {
-  display: inline-flex;
+  display: flex;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   height: 24px;
   align-items: center;
   gap: 0;
   font-size: 12px;
   line-height: 1.4;
+  overflow: hidden;
   white-space: nowrap;
 }
 
+/* 进度状态永远只在自己的表格单元格内绘制，避免覆盖相邻指标列。 */
+.policy-progress-cell {
+  overflow: hidden !important;
+}
+
 .status-item {
+  flex: 0 0 auto;
   display: inline-flex;
   height: 24px;
   align-items: center;
@@ -697,6 +707,7 @@
 }
 
 .status-sep {
+  flex: 0 0 auto;
   margin: 0 4px;
   color: var(--gray-300);
   font-size: 12px;
