@@ -66,11 +66,11 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
     if (!visible) return;
     let active = true;
     setConflictPolicyLoading(true);
-    const params = new URLSearchParams({
-      year: String(form.year),
-      month: String(form.month),
+    const params = {
+      year: form.year,
+      month: form.month,
       exclude_id: form.id || "",
-    });
+    };
     getPolicyOptions(params)
       .then((data) => {
         if (active) setConflictPolicyOptions(data.items || []);
