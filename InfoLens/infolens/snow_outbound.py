@@ -760,7 +760,7 @@ class SnowOutboundStore:
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
                     display_name TEXT NOT NULL,
-                    outbound_code TEXT NOT NULL UNIQUE,
+                    outbound_code TEXT NOT NULL,
                     explanation TEXT NOT NULL,
                     requires_photo INTEGER NOT NULL DEFAULT 0,
                     set_limit INTEGER,
@@ -779,6 +779,7 @@ class SnowOutboundStore:
                     deleted_by_name TEXT NOT NULL DEFAULT '',
                     deleted_at TEXT NOT NULL DEFAULT '',
                     UNIQUE(year, month, name),
+                    UNIQUE(year, month, outbound_code),
                     CHECK(month BETWEEN 1 AND 12),
                     CHECK(set_limit IS NULL OR set_limit >= 0),
                     CHECK(month_target IS NULL OR month_target >= 0)
@@ -903,6 +904,7 @@ class SnowOutboundStore:
                 "details_json",
                 "TEXT NOT NULL DEFAULT '[]'",
             )
+            self._ensure_policy_outbound_code_scope(connection)
 
     @staticmethod
     def _ensure_column(
@@ -917,6 +919,95 @@ class SnowOutboundStore:
         }
         if column not in existing:
             connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+    @staticmethod
+    def _ensure_policy_outbound_code_scope(
+        connection: sqlite3.Connection,
+    ) -> None:
+        """Upgrade the legacy global outbound-code uniqueness to a monthly scope."""
+        unique_indexes: list[list[str]] = []
+        for index in connection.execute("PRAGMA index_list(snow_policies)").fetchall():
+            if not index["unique"]:
+                continue
+            columns = [
+                row["name"]
+                for row in connection.execute(
+                    f"PRAGMA index_info('{index['name']}')"
+                ).fetchall()
+            ]
+            unique_indexes.append(columns)
+        if ["outbound_code"] not in unique_indexes:
+            return
+
+        connection.commit()
+        connection.execute("PRAGMA foreign_keys=OFF")
+        try:
+            connection.executescript(
+                """
+                BEGIN IMMEDIATE;
+                DROP TABLE IF EXISTS snow_policies_rebuild;
+                CREATE TABLE snow_policies_rebuild (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    display_name TEXT NOT NULL,
+                    outbound_code TEXT NOT NULL,
+                    explanation TEXT NOT NULL,
+                    requires_photo INTEGER NOT NULL DEFAULT 0,
+                    set_limit INTEGER,
+                    month_target INTEGER,
+                    year INTEGER NOT NULL,
+                    month INTEGER NOT NULL,
+                    color TEXT NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    gift_type TEXT NOT NULL DEFAULT '',
+                    created_by TEXT NOT NULL,
+                    created_by_name TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_by TEXT NOT NULL,
+                    updated_by_name TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    deleted_by TEXT NOT NULL DEFAULT '',
+                    deleted_by_name TEXT NOT NULL DEFAULT '',
+                    deleted_at TEXT NOT NULL DEFAULT '',
+                    UNIQUE(year, month, name),
+                    UNIQUE(year, month, outbound_code),
+                    CHECK(month BETWEEN 1 AND 12),
+                    CHECK(set_limit IS NULL OR set_limit >= 0),
+                    CHECK(month_target IS NULL OR month_target >= 0)
+                );
+                INSERT INTO snow_policies_rebuild (
+                    id, name, display_name, outbound_code, explanation,
+                    requires_photo, set_limit, month_target, year, month,
+                    color, enabled, gift_type, created_by, created_by_name,
+                    created_at, updated_by, updated_by_name, updated_at,
+                    deleted_by, deleted_by_name, deleted_at
+                )
+                SELECT
+                    id, name, display_name, outbound_code, explanation,
+                    requires_photo, set_limit, month_target, year, month,
+                    color, enabled, gift_type, created_by, created_by_name,
+                    created_at, updated_by, updated_by_name, updated_at,
+                    deleted_by, deleted_by_name, deleted_at
+                FROM snow_policies;
+                DROP TABLE snow_policies;
+                ALTER TABLE snow_policies_rebuild RENAME TO snow_policies;
+                CREATE INDEX idx_snow_policies_filter
+                    ON snow_policies(
+                        deleted_at, year, month, enabled, updated_at DESC
+                    );
+                COMMIT;
+                """
+            )
+        except Exception:
+            if connection.in_transaction:
+                connection.rollback()
+            raise
+        finally:
+            connection.execute("PRAGMA foreign_keys=ON")
+
+        violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+        if violations:
+            raise RuntimeError("雪花政策唯一性升级后外键校验失败")
 
     @staticmethod
     def _product_requirements_active(connection: sqlite3.Connection) -> bool:
@@ -2312,7 +2403,10 @@ class SnowOutboundStore:
     ) -> ValueError:
         message = str(error)
         if "outbound_code" in message:
-            return ValueError(f"出库编码“{policy['outbound_code']}”已存在")
+            return ValueError(
+                f"{policy['year']}年{policy['month']}月已存在出库编码"
+                f"“{policy['outbound_code']}”"
+            )
         if "year, snow_policies.month, snow_policies.name" in message:
             return ValueError(
                 f"{policy['year']}年{policy['month']}月已存在标签“{policy['name']}”"

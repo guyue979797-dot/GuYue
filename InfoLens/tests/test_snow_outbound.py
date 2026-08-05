@@ -373,12 +373,22 @@ class SnowOutboundTests(unittest.TestCase):
                 operator="worker",
                 operator_name="普通用户",
             )
+        august_payload = self.policy_payload(name="八月复用编码")
+        august_payload["month"] = 8
+        august = self.store.create_policy(
+            august_payload,
+            operator="worker",
+            operator_name="普通用户",
+        )
+        self.assertEqual(august["outbound_code"], created["outbound_code"])
+        self.assertEqual(august["display_name"], "8月-八月复用编码")
         with self.assertRaisesRegex(ValueError, "已存在标签"):
             self.store.create_policy(
                 self.policy_payload(code="PLX-002"),
                 operator="worker",
                 operator_name="普通用户",
             )
+
         invalid_target = self.policy_payload(code="PLX-004", name="错误月目标")
         invalid_target["month_target"] = -1
         with self.assertRaisesRegex(ValueError, "月目标必须为非负整数"):
@@ -423,6 +433,63 @@ class SnowOutboundTests(unittest.TestCase):
             [item["action_type"] for item in logs],
             ["disable", "update", "create"],
         )
+
+    def test_legacy_global_outbound_code_unique_is_migrated(self):
+        legacy_path = Path(self.temporary.name) / "legacy-policy.sqlite3"
+        with sqlite3.connect(legacy_path) as connection:
+            connection.executescript(
+                """
+                CREATE TABLE snow_policies (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    display_name TEXT NOT NULL,
+                    outbound_code TEXT NOT NULL UNIQUE,
+                    explanation TEXT NOT NULL,
+                    requires_photo INTEGER NOT NULL DEFAULT 0,
+                    set_limit INTEGER,
+                    year INTEGER NOT NULL,
+                    month INTEGER NOT NULL,
+                    color TEXT NOT NULL,
+                    enabled INTEGER NOT NULL DEFAULT 1,
+                    created_by TEXT NOT NULL,
+                    created_by_name TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_by TEXT NOT NULL,
+                    updated_by_name TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    deleted_by TEXT NOT NULL DEFAULT '',
+                    deleted_by_name TEXT NOT NULL DEFAULT '',
+                    deleted_at TEXT NOT NULL DEFAULT '',
+                    UNIQUE(year, month, name)
+                );
+                INSERT INTO snow_policies (
+                    id, name, display_name, outbound_code, explanation,
+                    year, month, color, created_by, created_by_name,
+                    created_at, updated_by, updated_by_name, updated_at
+                ) VALUES (
+                    'POL-LEGACY', '七月旧政策', '7月-七月旧政策',
+                    'PLX-LEGACY', '旧库迁移测试', 2026, 7, 'blue',
+                    'admin', '管理员', '2026-07-01T00:00:00',
+                    'admin', '管理员', '2026-07-01T00:00:00'
+                );
+                """
+            )
+
+        migrated_store = SnowOutboundStore(legacy_path)
+        august_payload = self.policy_payload(
+            name="八月复用旧编码",
+            code="PLX-LEGACY",
+        )
+        august_payload["month"] = 8
+        created = migrated_store.create_policy(
+            august_payload,
+            operator="admin",
+            operator_name="管理员",
+        )
+        self.assertEqual(created["display_name"], "8月-八月复用旧编码")
+        with sqlite3.connect(legacy_path) as connection:
+            violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+        self.assertEqual(violations, [])
 
     def test_latest_upload_updates_active_policy_only(self):
         active = self.store.create_policy(
