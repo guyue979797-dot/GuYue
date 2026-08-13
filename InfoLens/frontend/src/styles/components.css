@@ -312,7 +312,7 @@
 }
 
 .library-filter-bar .filter-field-group .filter-field:first-child {
-  flex: 0 0 140px;
+  flex: 0 0 120px;
 }
 
 .library-filter-bar .filter-field-group .filter-field + .filter-field {

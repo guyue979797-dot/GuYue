@@ -238,6 +238,7 @@ class WebSecurityTests(unittest.TestCase):
             [
                 "终端编码",
                 "客户全名",
+                "终端业态",
                 "状态",
                 "线路归属",
                 "业务员",
@@ -249,13 +250,13 @@ class WebSecurityTests(unittest.TestCase):
             ]
         )
         worksheet.append(
-            ["1000000003", "丙客户", "", "二号线路", "韦春云", "陈俊杰", "", "", "", ""]
+            ["1000000003", "丙客户", "便利店", "", "二号线路", "韦春云", "陈俊杰", "", "", "", ""]
         )
         worksheet.append(
-            ["1000000004", "错误客户", "运营", "二号线路", "名单外", "陈俊杰", "", "", "", ""]
+            ["1000000004", "错误客户", "商超", "运营", "二号线路", "名单外", "陈俊杰", "", "", "", ""]
         )
         worksheet.append(
-            ["1000000003", "重复客户", "运营", "二号线路", "韦春云", "陈俊杰", "", "", "", ""]
+            ["1000000003", "重复客户", "便利店", "运营", "二号线路", "韦春云", "陈俊杰", "", "", "", ""]
         )
         excel = io.BytesIO()
         workbook.save(excel)
@@ -656,7 +657,7 @@ class WebSecurityTests(unittest.TestCase):
         self.assertEqual(exported_sheet["H4"].value, "是")
         self.assertEqual(exported_sheet["D5"].value, "合计")
         self.assertEqual(exported_sheet["E5"].value, "=SUM(E3:E4)")
-        self.assertTrue(str(exported_sheet["A6"].value).startswith("制表人："))
+        self.assertEqual(exported_sheet["A6"].value, "业务员签字：")
         self.assertEqual(exported_sheet["D6"].value, "业务部经理签字：")
 
     def test_single_extract_creates_success_and_failure_records(self):

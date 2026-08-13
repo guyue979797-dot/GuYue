@@ -11,7 +11,12 @@ const { Option } = Select;
 
 function normalizeOption(option) {
   if (option == null) return { value: option, label: String(option ?? "") };
-  if (typeof option === "object") return { value: option.value, label: option.label };
+  if (typeof option === "object") {
+    return {
+      value: option.value ?? option.id,
+      label: option.label ?? option.display_name ?? option.name ?? String(option.value ?? option.id ?? ""),
+    };
+  }
   return { value: option, label: String(option) };
 }
 

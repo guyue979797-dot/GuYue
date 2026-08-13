@@ -2,6 +2,7 @@ export const EMPTY_CUSTOMER_FORM = {
   id: null,
   terminal_code: "",
   customer_name: "",
+  terminal_business_type: "",
   status: "运营",
   route: "",
   salesperson: "",

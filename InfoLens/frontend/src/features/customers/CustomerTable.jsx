@@ -72,6 +72,14 @@ export function CustomerTable({
       render: (value, customer) => <PersonTag name={customer.snow_salesperson} />,
     },
     {
+      title: "终端业态",
+      key: "terminal_business_type",
+      width: 130,
+      render: (value, customer) => (
+        <TableText value={customer.terminal_business_type} maxWidth={126} />
+      ),
+    },
+    {
       title: "状态",
       key: "status",
       width: 80,

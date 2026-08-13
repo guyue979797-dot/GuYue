@@ -10,11 +10,36 @@ export function FieldSummary({ fields, policyTags = [] }) {
   return (
     <div className="field-summary">
       {fields.map((field) => (
-        <div className="field-item" key={field.label}>
-          <Text className="field-label">{field.label}：</Text>
-          <span className="field-value" title={field.value || "-"}>
-            {field.value || "-"}
-          </span>
+        <div
+          className={`field-item field-${
+            field.label === "序号"
+              ? "index"
+              : field.label === "终端编码"
+                ? "terminal-code"
+                : field.label === "客户名字"
+                  ? "customer"
+                  : field.label === "业务"
+                    ? "business"
+                    : "default"
+          }-item`}
+          key={field.label}
+        >
+          {field.label === "序号" ? (
+            <span
+              className="field-index-value"
+              title={`序号：${field.value || "-"}`}
+              aria-label={`序号：${field.value || "-"}`}
+            >
+              {field.value || "-"}
+            </span>
+          ) : (
+            <>
+              <Text className="field-label">{field.label}：</Text>
+              <span className="field-value" title={field.value || "-"}>
+                {field.value || "-"}
+              </span>
+            </>
+          )}
         </div>
       ))}
       {policyTags.length ? (
@@ -22,7 +47,11 @@ export function FieldSummary({ fields, policyTags = [] }) {
           <Text className="field-label">政策标签：</Text>
           <div className="field-policy-tags">
             {policyTags.map((policy) => (
-              <span className="tag-neutral" key={policy.policy_id || policy.tag}>
+              <span
+                className="field-policy-tag"
+                key={policy.policy_id || policy.tag}
+                title={policy.tag || "-"}
+              >
                 {policy.tag}
               </span>
             ))}

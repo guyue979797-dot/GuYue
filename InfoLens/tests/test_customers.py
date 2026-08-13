@@ -9,6 +9,7 @@ def customer_payload(code: str, name: str, salesperson: str = "黄春梅") -> di
     return {
         "terminal_code": code,
         "customer_name": name,
+        "terminal_business_type": "便利店",
         "status": "运营",
         "route": "一号线路",
         "salesperson": salesperson,
@@ -35,6 +36,7 @@ class CustomerStoreTests(unittest.TestCase):
             operator_name="管理员",
         )
         self.assertEqual(created["version"], 1)
+        self.assertEqual(created["terminal_business_type"], "便利店")
         no_route = customer_payload("1000000002", "无线路客户")
         no_route["route"] = ""
         no_route["salesperson"] = ""
@@ -60,6 +62,17 @@ class CustomerStoreTests(unittest.TestCase):
         logs = self.store.list_logs(created["id"])
         self.assertEqual([item["action_type"] for item in logs], ["update", "create"])
         self.assertIn("客户全名", logs[0]["action_summary"])
+
+        payload["terminal_business_type"] = "餐饮店"
+        payload["version"] = updated["version"]
+        updated_type = self.store.update_customer(
+            created["id"],
+            payload,
+            operator="worker",
+            operator_name="普通用户",
+        )
+        self.assertEqual(updated_type["terminal_business_type"], "餐饮店")
+        self.assertIn("终端业态", self.store.list_logs(created["id"])[0]["action_summary"])
 
         with self.assertRaisesRegex(ValueError, "10位纯数字"):
             self.store.create_customer(

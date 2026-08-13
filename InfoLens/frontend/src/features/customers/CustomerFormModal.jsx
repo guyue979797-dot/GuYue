@@ -84,6 +84,14 @@ export function CustomerFormModal({
           />
         </div>
         <div>
+          <label>终端业态</label>
+          <Input
+            value={form.terminal_business_type}
+            maxLength={100}
+            onChange={(value) => setField("terminal_business_type", value)}
+          />
+        </div>
+        <div>
           <label><i>*</i>状态</label>
           <Select
             value={form.status}

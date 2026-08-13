@@ -1525,17 +1525,25 @@ body {
 
 .terminal-card .arco-card-header {
   min-height: 48px;
+  height: auto;
+  padding: 10px 16px;
+  align-items: flex-start;
+  box-sizing: border-box;
   background: var(--gray-50);
   border-bottom-color: var(--gray-200);
 }
 
 .terminal-card .arco-card-header-title {
   min-width: 0;
+  overflow: visible;
+  white-space: normal;
 }
 
 .terminal-card .arco-card-header-extra {
   display: flex;
   align-items: center;
+  align-self: flex-start;
+  padding-top: 2px;
 }
 
 .group-image-count {
@@ -1556,36 +1564,69 @@ body {
 }
 
 .field-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 22px;
-  align-items: center;
-  width: auto;
+  display: grid;
+  grid-template-columns: 20px fit-content(188px) fit-content(316px) fit-content(136px) minmax(180px, 1fr);
+  column-gap: 22px;
+  row-gap: 12px;
+  align-items: flex-start;
+  width: 100%;
   min-width: 0;
 }
 
 .field-item {
-  display: flex;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  width: 100%;
   min-width: 0;
-  max-width: 100%;
+  max-width: none;
+  justify-items: start;
   color: var(--gray-800);
   font-size: 13px;
   line-height: 1.25;
 }
 
+.field-index-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.field-index-value {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--gray-300);
+  border-radius: 50%;
+  background: var(--white);
+  color: var(--gray-800);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  box-sizing: border-box;
+}
+
 .field-label {
-  flex: 0 0 auto;
+  display: block;
+  width: max-content;
+  min-width: 0;
   color: var(--gray-500);
   font-size: inherit;
   line-height: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+  white-space: nowrap;
 }
 
 .field-value {
   display: inline-flex;
   align-items: center;
-  max-width: min(360px, 42vw);
+  width: 100%;
+  max-width: none;
   min-width: 0;
   padding: 4px 8px;
   border: 1px solid var(--gray-200);
@@ -1597,31 +1638,66 @@ body {
   font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
+  text-align: left;
   white-space: nowrap;
+  box-sizing: border-box;
+  justify-content: flex-start;
+}
+
+.field-terminal-code-item .field-value {
+  width: fit-content;
+  max-width: 110px;
+}
+
+.field-customer-item .field-value {
+  width: fit-content;
+  max-width: 240px;
+  justify-self: start;
+}
+
+.field-business-item .field-value {
+  width: fit-content;
+  max-width: 60px;
 }
 
 .field-policy-item {
   margin-left: 0;
+  align-items: center;
+  min-width: 0;
+  max-width: none;
 }
 
 .field-policy-tags {
-  display: inline-flex;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  justify-content: flex-start;
+  gap: 8px;
 }
 
-.field-policy-tags .arco-tag {
+.field-policy-tag {
   margin: 0;
-  min-height: 27px;
+  min-width: 0;
+  max-width: min(240px, 28vw);
   padding: 4px 8px;
   display: inline-flex;
   align-items: center;
+  border: 1px solid var(--gray-200);
   border-radius: 6px;
+  background: var(--white);
+  color: var(--gray-800);
   font-size: inherit;
   line-height: 1.25;
   font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+  white-space: nowrap;
   box-sizing: border-box;
+  justify-content: flex-start;
 }
 
 .image-card {
@@ -1981,7 +2057,17 @@ body {
   border-radius: 8px;
 }
 
+@media (max-width: 1240px) {
+  .field-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 960px) {
+  .field-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .app-shell {
     display: block;
     height: auto;
@@ -2184,7 +2270,8 @@ body {
   }
 
   .field-summary {
-    gap: 16px;
+    column-gap: 16px;
+    row-gap: 12px;
   }
 }
 
@@ -2213,7 +2300,9 @@ body {
   }
 
   .field-summary {
-    gap: 12px;
+    grid-template-columns: 1fr;
+    column-gap: 12px;
+    row-gap: 12px;
   }
 
   .field-value {

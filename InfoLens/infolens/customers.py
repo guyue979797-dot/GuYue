@@ -18,6 +18,7 @@ SNOW_SALESPEOPLE = ("陈家利", "陈俊杰")
 CUSTOMER_FIELDS = (
     "terminal_code",
     "customer_name",
+    "terminal_business_type",
     "status",
     "route",
     "salesperson",
@@ -30,6 +31,7 @@ CUSTOMER_FIELDS = (
 FIELD_LABELS = {
     "terminal_code": "终端编码",
     "customer_name": "客户全名",
+    "terminal_business_type": "终端业态",
     "status": "状态",
     "route": "线路归属",
     "salesperson": "业务员",
@@ -74,6 +76,9 @@ def normalize_customer(payload: dict[str, Any]) -> dict[str, str]:
     customer = {
         "terminal_code": normalize_terminal_code(payload.get("terminal_code")),
         "customer_name": _clean(payload.get("customer_name"), limit=200),
+        "terminal_business_type": _clean(
+            payload.get("terminal_business_type"), limit=100
+        ),
         "status": _clean(payload.get("status") or "运营", limit=10),
         "route": _clean(payload.get("route"), limit=100),
         "salesperson": _clean(payload.get("salesperson"), limit=50),
@@ -120,6 +125,7 @@ class CustomerStore:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     terminal_code TEXT NOT NULL UNIQUE,
                     customer_name TEXT NOT NULL,
+                    terminal_business_type TEXT NOT NULL DEFAULT '',
                     status TEXT NOT NULL DEFAULT '运营',
                     route TEXT NOT NULL,
                     salesperson TEXT NOT NULL,
@@ -177,6 +183,26 @@ class CustomerStore:
                 );
                 """
             )
+            self._ensure_column(
+                connection,
+                "customers",
+                "terminal_business_type",
+                "TEXT NOT NULL DEFAULT ''",
+            )
+
+    @staticmethod
+    def _ensure_column(
+        connection: sqlite3.Connection,
+        table: str,
+        column: str,
+        definition: str,
+    ) -> None:
+        existing = {
+            row["name"]
+            for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        if column not in existing:
+            connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
     def list_customers(
         self,

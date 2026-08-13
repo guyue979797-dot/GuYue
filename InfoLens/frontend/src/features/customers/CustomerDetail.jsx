@@ -12,6 +12,7 @@ export function showCustomerDetail(customer) {
       <div className="record-detail-grid">
         <div><strong>终端编码</strong><span>{customer.terminal_code || "-"}</span></div>
         <div><strong>客户全名</strong><span>{customer.customer_name || "-"}</span></div>
+        <div><strong>终端业态</strong><span>{customer.terminal_business_type || "-"}</span></div>
         <div><strong>状态</strong><span>{customer.status || "-"}</span></div>
         <div><strong>线路归属</strong><span>{customer.route || "-"}</span></div>
         <div><strong>业务员</strong><span>{customer.salesperson || "-"}</span></div>

@@ -137,7 +137,7 @@ def build_policy_reimbursement_workbook(
     sheet.cell(
         row=signature_row,
         column=1,
-        value=_excel_safe_text(f"制表人：{operator_name}"),
+        value="业务员签字：",
     )
     sheet.cell(row=signature_row, column=4, value="业务部经理签字：")
     for column in range(1, 9):

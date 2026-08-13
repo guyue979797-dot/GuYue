@@ -1071,7 +1071,7 @@ def _customer_workbook_response(*, errors: list[dict] | None = None):
         cell.alignment = Alignment(horizontal="center", vertical="center")
     worksheet.freeze_panes = "A2"
     worksheet.auto_filter.ref = f"A1:{worksheet.cell(1, len(headers)).coordinate}"
-    widths = [16, 28, 12, 18, 14, 16, 16, 36, 18, 36]
+    widths = [16, 28, 18, 12, 18, 14, 16, 16, 36, 18, 36]
     if errors is not None:
         widths.append(50)
         for error in errors:
@@ -1085,6 +1085,7 @@ def _customer_workbook_response(*, errors: list[dict] | None = None):
             [
                 "1000000001",
                 "示例客户（请删除本行）",
+                "示例业态",
                 "运营",
                 "示例线路",
                 SALESPEOPLE[0],
@@ -1110,15 +1111,15 @@ def _customer_workbook_response(*, errors: list[dict] | None = None):
             allow_blank=True,
         )
         for validation, cells in (
-            (status_validation, "C2:C1000"),
-            (salesperson_validation, "E2:E1000"),
-            (snow_validation, "F2:F1000"),
+            (status_validation, "D2:D1000"),
+            (salesperson_validation, "F2:F1000"),
+            (snow_validation, "G2:G1000"),
         ):
             worksheet.add_data_validation(validation)
             validation.add(cells)
         for row in range(2, 1001):
             worksheet.cell(row, 1).number_format = "@"
-            worksheet.cell(row, 9).number_format = "@"
+            worksheet.cell(row, 10).number_format = "@"
     for index, width in enumerate(widths, start=1):
         worksheet.column_dimensions[worksheet.cell(1, index).column_letter].width = width
     output = io.BytesIO()
