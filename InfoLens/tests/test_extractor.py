@@ -79,10 +79,18 @@ class ExtractorTests(unittest.TestCase):
         self.assertEqual(parsed["id"], "A343379C0B5443FFAE8E59FA7909C1C2")
         self.assertEqual(parsed["process_type"], "")
 
+    def test_parse_visit_url_keeps_visit_in_time(self):
+        parsed = parse_visit_url(
+            "https://crm.example/visitDetail"
+            "?appuser=u&id=VISIT001&process_type=p&visit_in_time=1782714405357"
+        )
+        self.assertEqual(parsed["visit_in_time"], "1782714405357")
+
     def test_extracts_only_private_photos_and_renames_them(self):
         detail = {
             "terminal_name": "拾蕙莱智能便利店（金茂）",
             "partner_name": " 韦春云",
+            "visit_in_time": "2026-06-30 20:21:43",
             "photo_info": [
                 {"photoid": "TCOS/Z0003/O50002488/20250325/1023275022/old.jpeg"},
                 {"photoid": NEW_TERMINAL_PHOTOID},
@@ -106,9 +114,12 @@ class ExtractorTests(unittest.TestCase):
                     "https://crm.example/visitDetail"
                     "?appuser=u&id=954187FD1234&process_type=p",
                     output,
+                    group_by_partner=True,
                 )
 
             self.assertEqual(len(result.images), 1)
+            self.assertEqual(result.visit_in_time, "2026-06-30 20:21:43")
+            self.assertEqual(Path(result.output_dir).parent.name, "韦春云")
             self.assertEqual(result.images[0].index, 1)
             self.assertEqual(
                 result.images[0].filename,

@@ -1,0 +1,329 @@
+/*
+ * 终端明细 feature 样式（重构要求 6.2）。
+ * 页面根类 .customer-page，禁止全局选择器。
+ * 例外登记：终端明细取消左右冻结列，仅固定表头、数据区滚动（重构要求 20.3）。
+ */
+
+.customer-page .customer-status-tag,
+.customer-page .person-tag {
+  font-size: var(--text-xs);
+}
+
+.customer-page {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+}
+
+.customer-status-tag {
+  border: 1px solid transparent;
+  font-weight: 500;
+}
+
+.customer-status-tag.active {
+  color: var(--success-700);
+  border-color: var(--success-600);
+  background: var(--success-50);
+}
+
+.customer-status-tag.inactive {
+  color: var(--gray-500);
+  border-color: var(--gray-200);
+  background: var(--gray-100);
+}
+
+.person-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 1px 8px;
+  border-radius: 11px;
+  font-size: 12px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.person-tag.person-gray {
+  background: var(--gray-100);
+  color: var(--gray-500);
+}
+
+.policy-tags-cell {
+  display: flex;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 5px 0;
+  overflow: hidden;
+}
+
+.policy-tags-cell-compact {
+  max-width: 100%;
+  min-width: 0;
+  flex-wrap: nowrap;
+  align-items: center;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.table-tag-more {
+  display: inline-flex;
+  min-width: 25px;
+  height: 20px;
+  padding: 0 6px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--gray-100);
+  color: var(--gray-600);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 20px;
+}
+
+.table-policy-tooltip {
+  display: flex;
+  max-width: 360px;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* 供产品页复用，产品 feature 迁移后移入 features/products/ */
+.updated-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.updated-time {
+  color: var(--gray-600);
+  font-variant-numeric: tabular-nums;
+}
+
+.updated-user {
+  max-width: 72px;
+  padding: 2px 7px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--gray-100);
+  color: var(--gray-500);
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 表单弹窗 */
+.customer-form-modal .arco-modal-header,
+.customer-logs-modal .arco-modal-header,
+.customer-import-modal .arco-modal-header {
+  text-align: left;
+}
+
+.customer-form-modal .arco-modal-title,
+.customer-logs-modal .arco-modal-title,
+.customer-import-modal .arco-modal-title {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.customer-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.customer-form-grid > div {
+  display: grid;
+  gap: 7px;
+}
+
+.customer-form-grid .full-row {
+  grid-column: 1 / -1;
+}
+
+.customer-form-grid label {
+  color: var(--gray-600);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.customer-form-grid label i {
+  margin-right: 4px;
+  color: var(--error-600);
+  font-style: normal;
+}
+
+.customer-form-grid .arco-select {
+  width: 100%;
+}
+
+.customer-textarea {
+  width: 100%;
+  min-height: 78px;
+  padding: 8px 12px;
+  border: 1px solid var(--gray-200);
+  border-radius: 8px;
+  outline: none;
+  resize: vertical;
+  color: var(--gray-800);
+  font: inherit;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+
+.customer-textarea:hover,
+.customer-textarea:focus {
+  border-color: var(--primary-6);
+}
+
+/* 修改记录弹窗 */
+.customer-logs-modal {
+  width: min(680px, calc(100vw - 32px));
+}
+
+.logs-loading {
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.customer-timeline {
+  max-height: 56vh;
+  padding: 4px 4px 4px 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.customer-log {
+  position: relative;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 12px;
+  padding-bottom: 22px;
+}
+
+.customer-log:not(:last-child)::before {
+  position: absolute;
+  top: 12px;
+  bottom: 0;
+  left: 5px;
+  width: 1px;
+  background: var(--gray-200);
+  content: "";
+}
+
+.log-dot {
+  position: relative;
+  z-index: 1;
+  width: 11px;
+  height: 11px;
+  margin-top: 5px;
+  border: 2px solid var(--white);
+  border-radius: 50%;
+  background: var(--primary-6);
+  box-shadow: 0 0 0 2px var(--primary-3);
+  box-sizing: border-box;
+}
+
+.log-dot.create {
+  background: var(--success-600);
+  box-shadow: 0 0 0 2px var(--success-600);
+}
+
+.log-dot.delete {
+  background: var(--error-600);
+  box-shadow: 0 0 0 2px var(--error-600);
+}
+
+.log-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--gray-400);
+  font-size: 12px;
+}
+
+.log-meta strong {
+  color: var(--gray-800);
+  font-size: 14px;
+}
+
+.log-action {
+  margin-top: 7px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: var(--gray-50);
+  color: var(--gray-600);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+/* 批量导入弹窗 */
+.customer-import-guide {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.customer-file-picker {
+  min-height: 92px;
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--primary-5);
+  border-radius: 8px;
+  background: var(--primary-1);
+  color: var(--primary-6);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.customer-file-picker input {
+  display: none;
+}
+
+/* 雪花出库上传（跨业务组件，迁移后移入 components/business） */
+.snow-upload-modal {
+  width: min(880px, calc(100vw - 32px));
+}
+
+.snow-update-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  border-color: var(--primary-3);
+  background: var(--info-50);
+}
+
+.snow-update-option > div {
+  display: grid;
+  gap: 5px;
+}
+
+.snow-update-option > div > strong {
+  color: var(--gray-800);
+  font-size: 15px;
+}
+
+.snow-update-option span {
+  color: var(--gray-400);
+  font-size: 12px;
+}
+
+.snow-update-option .snow-update-warning {
+  color: var(--error-600);
+}
+
+.snow-update-option .arco-checkbox {
+  flex: 0 0 auto;
+}

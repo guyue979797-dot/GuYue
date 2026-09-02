@@ -1,0 +1,64 @@
+.user-page {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  width: 100%;
+  min-width: 0;
+}
+
+.user-card {
+  min-width: 0;
+}
+
+.user-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: var(--space-4) var(--space-4) 0;
+}
+
+.user-account-cell {
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.user-account-name {
+  display: inline-block;
+  min-width: 0;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-form {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.user-form label {
+  color: var(--gray-500);
+  font-size: var(--text-sm);
+}
+
+.user-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+.user-form-grid .arco-select {
+  width: 100%;
+}
+
+.user-modal .arco-modal-header {
+  text-align: left;
+}
+
+.user-modal .arco-modal-title {
+  justify-content: flex-start;
+  text-align: left;
+}

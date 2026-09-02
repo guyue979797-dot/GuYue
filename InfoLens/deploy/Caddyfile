@@ -1,7 +1,7 @@
 {$INFOLENS_DOMAIN} {
 	encode zstd gzip
 
-	reverse_proxy app:8000
+	reverse_proxy nginx:8080
 
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
