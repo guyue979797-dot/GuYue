@@ -171,9 +171,11 @@
 
 .product-code-tags {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 5px;
-  max-width: 310px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .product-code-tag,
@@ -189,11 +191,14 @@
 }
 
 .product-code-tag {
+  max-width: 100%;
   color: var(--primary-6);
   background: var(--primary-1);
   border: 1px solid var(--primary-3);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
+  overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .product-code-more {

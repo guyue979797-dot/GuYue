@@ -2,32 +2,25 @@
  * 产品明细表（统一 Arco DataTable）。
  */
 import React from "../../lib/react.js";
-import { Tag, Typography } from "../../lib/arco.js";
+import { Tag } from "../../lib/arco.js";
 import { DataTable } from "../../components/ui/DataTable.jsx";
 import { TableRowActions } from "../../components/ui/TableRowActions.jsx";
 import { TableText } from "../../components/ui/TableText.jsx";
 import { formatCompactDateTime } from "../../utils/formatters.js";
 
-const { Text } = Typography;
-
 function ProductCodeTags({ values }) {
   const items = values || [];
   if (!items.length) return <span className="product-empty-value">-</span>;
-  const hiddenCodes = items.slice(2).join("、");
   return (
-    <Text
+    <span
       className="product-code-tags"
-      ellipsis
-      aria-label={items.length > 2 ? hiddenCodes : items.join("、")}
-      style={{ maxWidth: 310, display: "flex", minWidth: 0 }}
+      title={items.join("、")}
+      aria-label={items.join("、")}
     >
-      {items.slice(0, 2).map((value) => (
+      {items.map((value) => (
         <span className="product-code-tag" key={value}>{value}</span>
       ))}
-      {items.length > 2 ? (
-        <span className="product-code-more">+{items.length - 2}</span>
-      ) : null}
-    </Text>
+    </span>
   );
 }
 

@@ -205,6 +205,10 @@ def _require_production_config() -> None:
         raise RuntimeError("INFOLENS_AUTH_MODE 必须为 off、password、oidc 或 proxy")
     if os.environ.get("INFOLENS_ENV") == "production" and AUTH_MODE == "off":
         raise RuntimeError("生产环境禁止关闭鉴权")
+    if os.environ.get("INFOLENS_ENV") == "production" and not os.environ.get(
+        "INFOLENS_SESSION_SECRET"
+    ):
+        raise RuntimeError("生产环境缺少环境变量: INFOLENS_SESSION_SECRET")
     if AUTH_MODE == "password":
         has_super_admin_secret = bool(
             os.environ.get("INFOLENS_SUPER_ADMIN_PASSWORD_HASH")

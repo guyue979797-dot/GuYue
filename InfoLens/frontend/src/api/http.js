@@ -56,8 +56,12 @@ export async function latestCsrfToken(fallback = "") {
 
 function attachCsrfBody(body, token, isFormData) {
   if (isFormData) {
-    body.append("csrf_token", token);
-    return body;
+    const nextBody = new FormData();
+    for (const [key, value] of body.entries()) {
+      if (key !== "csrf_token") nextBody.append(key, value);
+    }
+    nextBody.append("csrf_token", token);
+    return nextBody;
   }
   const parsed = JSON.parse(body);
   parsed.csrf_token = token;
@@ -125,11 +129,19 @@ export async function apiRequest(
  * POST 下载（导出文件）：CSRF 头 + blob + Content-Disposition 文件名解析。
  */
 export async function downloadPostFile(url) {
-  const token = await latestCsrfToken();
-  const response = await fetch(url, {
+  let token = await latestCsrfToken();
+  let response = await fetch(url, {
     method: "POST",
     headers: { "X-CSRF-Token": token },
   });
+  if (response.status === 403) {
+    clearSessionCache();
+    token = await latestCsrfToken();
+    response = await fetch(url, {
+      method: "POST",
+      headers: { "X-CSRF-Token": token },
+    });
+  }
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
     throw new Error(data.error || "下载失败");
