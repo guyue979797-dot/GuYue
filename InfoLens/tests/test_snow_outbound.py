@@ -340,6 +340,7 @@ class SnowOutboundTests(unittest.TestCase):
 
     def policy_payload(self, *, name="冰冻", code="PLX-001", remark="MATCH"):
         return {
+            "policy_type": "其他",
             "name": name,
             "outbound_code": code,
             "explanation": "测试政策",
@@ -356,6 +357,81 @@ class SnowOutboundTests(unittest.TestCase):
                 }
             ],
         }
+
+    def test_policy_type_persistence_validation_and_legacy_default(self):
+        created = self.store.create_policy(self.policy_payload(), operator='worker', operator_name='测试')
+        self.assertEqual(created['policy_type'], '其他')
+        for policy_type in ('价格政策', '陈列政策', '其他'):
+            updated = self.store.update_policy(created['id'], {**self.policy_payload(), 'policy_type': policy_type}, operator='worker', operator_name='测试')
+            self.assertEqual(updated['policy_type'], policy_type)
+            self.assertEqual(self.store.get_policy(created['id'])['policy_type'], policy_type)
+            # A client omitting the new field must not erase the saved classification.
+            legacy_payload = self.policy_payload()
+            legacy_payload.pop('policy_type')
+            updated = self.store.update_policy(created['id'], legacy_payload, operator='worker', operator_name='测试')
+            self.assertEqual(updated['policy_type'], policy_type)
+        for invalid in ('无效类型', '', None, ['价格政策']):
+            with self.assertRaisesRegex(ValueError, '政策类型'):
+                self.store.create_policy({**self.policy_payload(), 'policy_type': invalid}, operator='worker', operator_name='测试')
+        missing_type = self.policy_payload()
+        missing_type.pop('policy_type')
+        with self.assertRaisesRegex(ValueError, '政策类型'):
+            self.store.create_policy(missing_type, operator='worker', operator_name='测试')
+
+    def test_normal_sales_by_product_for_matched_tickets(self):
+        policy = self.store.create_policy(self.policy_payload(), operator='worker', operator_name='测试')
+        def line(ticket, quantity, sale_type, remark, product, date='2026-07-10'):
+            return (ticket, date, '', '1000000022', '测试客户', '', '', quantity, sale_type, remark, product)
+        rows = parse_outbound_workbook(workbook_bytes([
+            line('CK20260710-ONE', 1, '陈列赠酒', 'MATCH', '赠品'),
+            line('CK20260710-ONE', 2.5, '正常销售', '', '商品甲'),
+            line('CK20260710-ONE', 3, '正常销售', '', '商品乙'),
+            line('CK20260710-TWO', 1.25, '正常销售', 'MATCH', '商品甲'),
+            line('CK20260710-NO', 99, '正常销售', '不命中', '商品甲'),
+            line('CK20260710-REVERSED', 50, '正常销售', 'MATCH', '商品甲'),
+            line('CX1-202607-CK20260710-REVERSED', -50, '正常销售', 'MATCH', '商品甲'),
+            line('CK20260810-OTHER', 99, '正常销售', 'MATCH', '商品甲', '2026-08-10'),
+        ], (*HEADERS, '商品名称')))
+        preview = self.store.create_preview(filename='normal-sales.xlsx', rows=rows, operator='worker', operator_name='测试')
+        self.store.commit_preview(preview['preview_id'], operator='worker', operator_name='测试')
+        expected = [{'product_name': '商品乙', 'quantity': 3}, {'product_name': '商品甲', 'quantity': 3.75}]
+        self.assertEqual(self.store.get_policy(policy['id'])['normal_sales'], expected)
+
+        products = ProductStore(self.database_path)
+        products.create_product({'product_name': '商品甲', 'short_name': '甲简称',
+            'product_codes': ['NAME-TEST'], 'status': '待处理', 'snow_inventory': 0},
+            operator='worker', operator_name='测试')
+        renamed = self.store.list_policies()['items'][0]['normal_sales']
+        self.assertEqual(renamed[1], {**expected[1], 'short_name': '甲简称'})
+        self.assertEqual(renamed[0], expected[0])
+        expected[1]['short_name'] = '甲简称'
+        self.assertEqual(self.store.list_policies()['items'][0]['normal_sales'], expected)
+        # Re-upload replaces the month instead of accumulating duplicate quantities.
+        preview = self.store.create_preview(filename='again.xlsx', rows=rows, operator='worker', operator_name='测试')
+        self.store.commit_preview(preview['preview_id'], operator='worker', operator_name='测试')
+        self.assertEqual(self.store.get_policy(policy['id'])['normal_sales'], expected)
+
+    def test_policy_year_matches_dynamic_frontend_options(self):
+        policy = self.store.create_policy({**self.policy_payload(), 'year': 2027}, operator='worker', operator_name='测试')
+        self.assertEqual(policy['year'], 2027)
+        self.assertEqual(self.store.policy_options(year=2027, month=7)[0]['id'], policy['id'])
+        for year in (0, 10000, True, 2027.5):
+            with self.assertRaises(ValueError):
+                self.store.create_policy({**self.policy_payload(), 'year': year}, operator='worker', operator_name='测试')
+
+    def test_short_names_do_not_spread_from_one_resolved_row_to_unknown_rows(self):
+        products = ProductStore(self.database_path)
+        for name, short, codes in [('全称甲', '简称甲', ['UNIQUE', 'SHARED']), ('全称乙', '简称乙', ['SHARED'])]:
+            products.create_product({'product_name': name, 'short_name': short, 'product_codes': codes,
+                'status': '待处理', 'snow_inventory': 0}, operator='worker', operator_name='测试')
+        with self.store._connect() as db:
+            resolve = lambda rows: self.store._product_short_names(db, rows)
+            self.assertEqual(resolve([{'product_name': '全称甲', 'product_code': 'SHARED'}]), {'全称甲': '简称甲'})
+            self.assertEqual(resolve([{'product_name': '来源名称', 'product_code': 'UNIQUE'}]), {'来源名称': '简称甲'})
+            self.assertEqual(resolve([{'product_name': '来源名称', 'product_code': 'SHARED'}]), {})
+            self.assertEqual(resolve([{'product_name': '来源名称', 'product_code': 'UNIQUE'},
+                {'product_name': '来源名称', 'product_code': 'UNKNOWN'}]), {})
+            self.assertEqual(resolve([{'product_code': 'UNIQUE'}]), {'UNIQUE': '简称甲'})
 
     def test_policy_crud_validation_uniqueness_and_logs(self):
         created = self.store.create_policy(
@@ -475,7 +551,12 @@ class SnowOutboundTests(unittest.TestCase):
                 """
             )
 
+        # An intermediate-version database may already have classified policies.
+        with sqlite3.connect(legacy_path) as connection:
+            connection.execute("ALTER TABLE snow_policies ADD COLUMN policy_type TEXT NOT NULL DEFAULT '其他'")
+            connection.execute("UPDATE snow_policies SET policy_type='陈列政策'")
         migrated_store = SnowOutboundStore(legacy_path)
+        self.assertEqual(migrated_store.get_policy('POL-LEGACY')['policy_type'], '陈列政策')
         august_payload = self.policy_payload(
             name="八月复用旧编码",
             code="PLX-LEGACY",

@@ -1,8 +1,10 @@
+import { FormDrawer } from "../../components/ui/FormDrawer.jsx";
+import { AdaptiveTable } from "../../components/ui/AdaptiveTable.jsx";
 /**
  * 新增记录（提取历史）弹窗 + 报错信息弹窗。
  */
 import React, { useEffect, useState } from "../../lib/react.js";
-import { Button, Empty, Modal, Tag, Text } from "../../lib/arco.js";
+import { Button, Empty, Tag, Text } from "../../lib/arco.js";
 import { TableText } from "../../components/ui/TableText.jsx";
 import { getExtractionRecords } from "../../api/photos.js";
 import { formatDateTime } from "../../utils/formatters.js";
@@ -35,7 +37,8 @@ export function ExtractionRecordsModal({ visible, refreshKey = 0, onClose }) {
   }, [refreshKey]);
 
   return (
-    <Modal
+    <FormDrawer
+      size="large"
       title="新增记录"
       visible={visible}
       footer={null}
@@ -50,8 +53,8 @@ export function ExtractionRecordsModal({ visible, refreshKey = 0, onClose }) {
         </Button>
       </div>
       {records.length ? (
-        <div className="export-record-table-wrap">
-          <table className="export-record-table extraction-record-table">
+        <div className="adaptive-table-shell">
+          <AdaptiveTable>
             <thead>
               <tr>
                 <th>时间</th>
@@ -84,7 +87,6 @@ export function ExtractionRecordsModal({ visible, refreshKey = 0, onClose }) {
                     <td>
                       <TableText
                         value={record.owner_display_name || record.owner_username}
-                        maxWidth={140}
                       />
                     </td>
                     <td>{methodLabel}</td>
@@ -114,14 +116,14 @@ export function ExtractionRecordsModal({ visible, refreshKey = 0, onClose }) {
                 );
               })}
             </tbody>
-          </table>
+          </AdaptiveTable>
         </div>
       ) : (
         <Empty
           description={loading ? "正在读取新增记录" : "暂无新增记录"}
         />
       )}
-      <Modal
+      <FormDrawer
         title="报错信息"
         visible={errorOpen}
         footer={null}
@@ -132,8 +134,8 @@ export function ExtractionRecordsModal({ visible, refreshKey = 0, onClose }) {
         <pre className="extraction-error-content">
           {errorText || "暂无报错信息"}
         </pre>
-      </Modal>
-    </Modal>
+      </FormDrawer>
+    </FormDrawer>
   );
 }
 

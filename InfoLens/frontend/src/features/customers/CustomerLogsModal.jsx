@@ -1,8 +1,9 @@
+import { FormDrawer } from "../../components/ui/FormDrawer.jsx";
 /**
  * 客户修改记录弹窗。
  */
 import React, { useEffect, useState } from "../../lib/react.js";
-import { Empty, Message, Modal, Spin } from "../../lib/arco.js";
+import { Empty, Message, Spin } from "../../lib/arco.js";
 import { getCustomerLogs } from "../../api/customers.js";
 import { formatDateTime } from "../../utils/formatters.js";
 
@@ -24,7 +25,8 @@ export function CustomerLogsModal({ visible, customer, onClose }) {
   }, [visible, customer]);
 
   return (
-    <Modal
+    <FormDrawer
+      size="medium"
       title={`修改记录${customer ? `｜${customer.customer_name}` : ""}`}
       visible={visible}
       footer={null}
@@ -50,7 +52,7 @@ export function CustomerLogsModal({ visible, customer, onClose }) {
           ))}
         </div>
       ) : <Empty description="暂无修改记录" />}
-    </Modal>
+    </FormDrawer>
   );
 }
 

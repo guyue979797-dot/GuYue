@@ -1,5 +1,5 @@
 /**
- * 产品档案 API。
+ * 商品档案 API。
  */
 import { apiRequest, buildQuery } from "./http.js";
 

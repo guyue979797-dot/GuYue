@@ -3,7 +3,7 @@
  */
 import React, { useState } from "../../lib/react.js";
 import { Input, Message, Select } from "../../lib/arco.js";
-import { FormModal } from "../../components/ui/FormModal.jsx";
+import { FormDrawer } from "../../components/ui/FormDrawer.jsx";
 import { createCustomer, updateCustomer } from "../../api/customers.js";
 import { CUSTOMER_STATUSES, EMPTY_CUSTOMER_FORM } from "./constants.js";
 
@@ -54,7 +54,7 @@ export function CustomerFormModal({
   }
 
   return (
-    <FormModal
+    <FormDrawer
       size="small"
       title={form.id ? "编辑客户档案" : "新增客户档案"}
       visible={visible}
@@ -65,7 +65,7 @@ export function CustomerFormModal({
       onSubmit={save}
       className="customer-form-modal"
     >
-      <div className="customer-form-grid">
+      <div className="customer-form-grid drawer-field-stack">
         <div>
           <label><i>*</i>终端编码</label>
           <Input
@@ -171,7 +171,7 @@ export function CustomerFormModal({
           />
         </div>
       </div>
-    </FormModal>
+    </FormDrawer>
   );
 }
 

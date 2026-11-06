@@ -1,9 +1,11 @@
+import { FormDrawer } from "../ui/FormDrawer.jsx";
+import { AdaptiveTable } from "../ui/AdaptiveTable.jsx";
 /**
  * 终端列表弹窗（跨业务组件：政策钻取、照片归档缺失终端）。
  * - 支持业务员筛选与“复制全部”Excel 单列格式
  */
 import React, { useEffect, useRef, useState } from "../../lib/react.js";
-import { Button, Empty, Modal, Select, Typography } from "../../lib/arco.js";
+import { Button, Empty, Select, Typography } from "../../lib/arco.js";
 import { TableText } from "../ui/TableText.jsx";
 
 const { Text } = Typography;
@@ -62,7 +64,8 @@ export function TerminalListModal({
   }
 
   return (
-    <Modal
+    <FormDrawer
+      size={showReversalDetails ? "large" : "medium"}
       title={title}
       visible={visible}
       footer={null}
@@ -81,6 +84,8 @@ export function TerminalListModal({
             {business ? `（全部 ${terminals.length} 家）` : ""}
           </Text>
           <Select
+            aria-label="业务员筛选"
+            getPopupContainer={() => document.body}
             value={business || undefined}
             placeholder="业务员筛选"
             allowClear
@@ -100,15 +105,8 @@ export function TerminalListModal({
         </Button>
       </div>
       {filtered.length ? (
-        <div className="missing-terminals-table-wrap">
-          <table className="missing-terminals-table">
-            <colgroup>
-              <col className="mt-col-code" />
-              <col className="mt-col-name" />
-              <col className="mt-col-sales" />
-              {showReversalDetails ? <col className="mt-col-date" /> : null}
-              {showReversalDetails ? <col className="mt-col-reason" /> : null}
-            </colgroup>
+        <div className="adaptive-table-shell">
+          <AdaptiveTable>
             <thead>
               <tr>
                 <th>终端编码</th>
@@ -132,7 +130,6 @@ export function TerminalListModal({
                   <td>
                     <TableText
                       value={terminal.salesperson}
-                      maxWidth={90}
                     />
                   </td>
                   {showReversalDetails ? (
@@ -142,19 +139,18 @@ export function TerminalListModal({
                     <td>
                       <TableText
                         value={terminal.reason || "-"}
-                        maxWidth={260}
                       />
                     </td>
                   ) : null}
                 </tr>
               ))}
             </tbody>
-          </table>
+          </AdaptiveTable>
         </div>
       ) : (
         <EmptyBox text={loading ? "正在读取终端明细" : emptyText} />
       )}
-      <Modal
+      <FormDrawer
         title="复制终端编码"
         visible={copyVisible}
         footer={null}
@@ -183,8 +179,8 @@ export function TerminalListModal({
           spellCheck={false}
           aria-label="可复制到 Excel 的终端编码"
         />
-      </Modal>
-    </Modal>
+      </FormDrawer>
+    </FormDrawer>
   );
 }
 

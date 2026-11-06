@@ -7,8 +7,10 @@ import { getSession } from "../api/http.js";
 import { AppLayout } from "./AppLayout.jsx";
 import { PhotoLibraryPage } from "../features/photos/PhotoLibraryPage.jsx";
 import { CustomerPage } from "../features/customers/CustomerPage.jsx";
-import { SnowPolicyPage } from "../features/snow-policies/SnowPolicyPage.jsx";
+import { SnowPolicyPage } from "../features/products/policies/SnowPolicyPage.jsx";
+import { ProductPolicyPage } from "../features/product-policies/ProductPolicyPage.jsx";
 import { ProductPage } from "../features/products/ProductPage.jsx";
+import { SalesPage } from "../features/sales/SalesPage.jsx";
 import { UserPage } from "../features/users/UserPage.jsx";
 
 export function App() {
@@ -20,6 +22,7 @@ export function App() {
   });
   const [collapsed, setCollapsed] = useState(false);
   const [activePage, setActivePage] = useState("library");
+  const [productSection, setProductSection] = useState("products");
   const [customerSection, setCustomerSection] = useState("terminals");
   const [libraryMonths, setLibraryMonths] = useState([]);
   const [activeLibraryMonth, setActiveLibraryMonth] = useState("");
@@ -37,6 +40,7 @@ export function App() {
   }, []);
 
   function navigate(page, section) {
+    if (page === "products") setProductSection(section || "products");
     if (page === "customers") {
       setCustomerSection(section || "terminals");
     }
@@ -55,15 +59,16 @@ export function App() {
   const displayName = session.display_name || session.user || "用户";
 
   let content;
-  if (activePage === "users") {
+  if (activePage === "sales") {
+    content = <SalesPage />;
+  } else if (activePage === "users") {
     content = <UserPage />;
   } else if (activePage === "products") {
-    content = <ProductPage />;
+    content = productSection === "outbound-policies"
+      ? <SnowPolicyPage isAdmin={session.is_admin} />
+      : productSection === "product-policies" ? <ProductPolicyPage /> : <ProductPage />;
   } else if (activePage === "customers") {
-    content =
-      customerSection === "policies"
-        ? <SnowPolicyPage isAdmin={session.is_admin} />
-        : <CustomerPage isAdmin={session.is_admin} />;
+    content = <CustomerPage isAdmin={session.is_admin} />;
   } else {
     content = (
       <PhotoLibraryPage
@@ -76,6 +81,7 @@ export function App() {
   return (
     <AppLayout
       activePage={activePage}
+      productSection={productSection}
       customerSection={customerSection}
       collapsed={collapsed}
       isAdmin={session.is_admin}

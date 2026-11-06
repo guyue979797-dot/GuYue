@@ -2,43 +2,25 @@
  * 终端明细筛选条（统一 FilterBar）。
  */
 import React from "../../lib/react.js";
-import { FilterBar } from "../../components/ui/FilterBar.jsx";
-
-function shallowEqual(left, right) {
-  if (left === right) return true;
-  if (Array.isArray(left) && Array.isArray(right)) {
-    return left.length === right.length && left.every((value, index) => value === right[index]);
-  }
-  return false;
-}
+import { FilterBar, sameFilterValue } from "../../components/ui/FilterBar.jsx";
 
 export function CustomerFilters({
   values,
   onDraftChange,
-  onPolicyMonthChange,
   onPolicyTagChange,
   onSearch,
   onReset,
   loading,
-  policyMonths,
   policyTagOptions,
   routeOptions,
   peopleOptions,
 }) {
   const fields = [
     {
-      name: "policyMonth",
-      label: "雪花政策月份",
-      type: "select",
-      placeholder: "雪花政策月份",
-      options: policyMonths,
-      width: 112,
-    },
-    {
       name: "policyTag",
-      label: "雪花政策",
+      label: "政策",
       type: "select",
-      placeholder: "雪花政策",
+      placeholder: "政策",
       options: policyTagOptions,
       className: "customer-policy-filter",
       width: 140,
@@ -81,12 +63,10 @@ export function CustomerFilters({
   ];
 
   function handleChange(nextValues) {
-    const changed = fields.find((field) => !shallowEqual(values[field.name], nextValues[field.name]));
+    const changed = fields.find((field) => !sameFilterValue(values[field.name], nextValues[field.name]));
     if (!changed) return;
     const key = changed.name;
-    if (key === "policyMonth") {
-      onPolicyMonthChange?.(nextValues.policyMonth);
-    } else if (key === "policyTag") {
+    if (key === "policyTag") {
       onPolicyTagChange?.(nextValues.policyTag);
     } else {
       onDraftChange?.(key, nextValues[key]);
@@ -95,7 +75,9 @@ export function CustomerFilters({
 
   return (
     <FilterBar
-      fields={fields}
+      fields={fields.map((field) => ({ ...field,
+        ...(['terminal_code', 'customer_name'].includes(field.name) ? { row: 1, group: 'customer-identity-filter' } : {}),
+      }))}
       values={values}
       onChange={handleChange}
       onSearch={onSearch}

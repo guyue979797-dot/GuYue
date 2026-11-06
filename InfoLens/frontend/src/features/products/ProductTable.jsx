@@ -1,11 +1,12 @@
 /**
- * 产品明细表（统一 Arco DataTable）。
+ * 商品表（统一 Arco DataTable）。
  */
 import React from "../../lib/react.js";
 import { Tag } from "../../lib/arco.js";
 import { DataTable } from "../../components/ui/DataTable.jsx";
 import { TableRowActions } from "../../components/ui/TableRowActions.jsx";
 import { TableText } from "../../components/ui/TableText.jsx";
+import { policyCostText, productWidthText, PRODUCT_AUTO_LIMITS } from "./productWidthText.js";
 import { formatCompactDateTime } from "../../utils/formatters.js";
 
 function ProductCodeTags({ values }) {
@@ -33,7 +34,7 @@ function SortableInventoryHeader({ sort, onClick }) {
       aria-label={`雪花库存排序：${sort === "asc" ? "升序" : sort === "desc" ? "降序" : "默认"}`}
       onClick={onClick}
     >
-      <span>雪花库存（箱）</span>
+      <span>雪花库存</span>
       <span className="product-sort-arrows" aria-hidden="true">
         <i className={sort === "asc" ? "selected" : ""}>▲</i>
         <i className={sort === "desc" ? "selected" : ""}>▼</i>
@@ -58,29 +59,27 @@ export function ProductTable({
   onPageSizeChange,
 }) {
   const columns = [
+    ...[ ["brand", "品牌"], ["grade", "等级"] ].map(([key, title]) => ({ key, title, render: (_, product) => <TableText value={product[key]} /> })),
     {
-      title: "商品简称",
+      title: "商品",
       key: "short_name",
-      width: 130,
       render: (value, product) =>
         product.short_name ? (
-          <span className="product-short-tag tag-neutral">{product.short_name}</span>
+          <span className="product-short-tag tag-neutral"><TableText value={product.short_name} /></span>
         ) : (
           <span className="product-empty-value">待补充</span>
         ),
     },
     {
-      title: "商品名称",
+      title: "商品全称",
       key: "product_name",
-      width: 320,
       render: (value, product) => (
-        <TableText value={product.product_name} maxWidth={320} />
+        <TableText value={product.product_name} />
       ),
     },
     {
       title: <SortableInventoryHeader sort={inventorySort} onClick={onToggleInventorySort} />,
       key: "snow_inventory",
-      width: 150,
       render: (value, product) => (
         <button
           className="data-link product-inventory-link"
@@ -93,9 +92,23 @@ export function ProductTable({
       ),
     },
     {
-      title: "结算价",
+      title: "成本价",
+      key: "cost_price",
+      render: (value, product) => product.cost_price == null ? "-" : <span className="product-number">¥{Number(product.cost_price).toFixed(2)}</span>,
+    },
+    {
+      title: "政策成本",
+      key: "policy_costs",
+      render: (_, product) => product.policy_costs?.length
+        ? <div className="product-policy-costs">{product.policy_costs.map(policy => (
+          <span key={policy.id} title={`${policy.month}政策 · ${policyCostText(policy)}`}>
+            <TableText value={policyCostText(policy)} tooltip={`${policy.month}政策 · ${policyCostText(policy)}`} />
+          </span>
+        ))}</div> : "-",
+    },
+    {
+      title: "雪花结算价",
       key: "settlement_price",
-      width: 110,
       render: (value, product) =>
         product.settlement_price === null
           ? "-"
@@ -104,30 +117,26 @@ export function ProductTable({
     {
       title: "商品编码",
       key: "product_codes",
-      width: 220,
       render: (value, product) => <ProductCodeTags values={product.product_codes} />,
     },
     {
-      title: "管家婆编码",
+      title: "存货编号",
       key: "housekeeper_codes",
-      width: 220,
       render: (value, product) => <ProductCodeTags values={product.housekeeper_codes} />,
     },
     {
       title: "规格",
       key: "specification",
-      width: 120,
       render: (value, product) =>
         product.specification !== null && product.auxiliary_unit
           ? `1箱 = ${product.specification}${product.auxiliary_unit}`
           : <span className="product-empty-value">待补充</span>,
     },
     {
-      title: "档案状态",
+      title: "状态",
       key: "status",
-      width: 100,
       render: (value, product) => (
-        <Tag color={product.status === "正常" ? "green" : "gold"}>
+        <Tag color={product.status === "正常" ? "green" : product.status === "下线" ? "gray" : "gold"}>
           {product.status}
         </Tag>
       ),
@@ -135,7 +144,6 @@ export function ProductTable({
     {
       title: "最后修改",
       key: "updated_at",
-      width: 170,
       render: (value, product) => (
         <span className="updated-cell" title={formatCompactDateTime(product.updated_at)}>
           <span className="updated-time">{formatCompactDateTime(product.updated_at)}</span>
@@ -146,7 +154,6 @@ export function ProductTable({
     {
       title: "操作",
       key: "actions",
-      width: 110,
       className: "table-actions-cell",
       render: (value, product) => (
         <TableRowActions
@@ -160,13 +167,21 @@ export function ProductTable({
     },
   ];
 
+  const order = ["housekeeper_codes", "brand", "short_name", "status", "cost_price", "policy_costs", "settlement_price", "grade", "specification", "snow_inventory", "product_name", "product_codes", "updated_at", "actions"];
+  const orderedColumns = order.map(key => {
+    const column = columns.find(item => item.key === key);
+    return { ...column, maxAutoWidth: PRODUCT_AUTO_LIMITS[key] || 220,
+      widthLabel: key === 'snow_inventory' ? '雪花库存' : undefined,
+      widthText: product => productWidthText(product, key) };
+  });
+
   return (
     <DataTable
       rowKey="id"
-      columns={columns}
+      columns={orderedColumns}
       data={items}
       loading={loading}
-      emptyText="暂无符合条件的产品档案"
+      emptyText="暂无符合条件的商品档案"
       scrollY={scrollY}
       rowClassName={(product) => (product.status === "正常" ? "" : "disabled")}
       pagination={{

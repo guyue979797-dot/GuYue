@@ -1,14 +1,11 @@
-/**
- * 客户档案详情（命令式 Modal.info，仅展示）。
- */
-import { Modal } from "../../lib/arco.js";
+import React from "../../lib/react.js";
+import { FormDrawer } from "../../components/ui/FormDrawer.jsx";
 import { formatDateTime, maskPhone } from "../../utils/formatters.js";
 
-export function showCustomerDetail(customer) {
-  Modal.info({
-    title: `客户档案详情 · ${customer.customer_name || customer.terminal_code}`,
-    width: 560,
-    content: (
+export function CustomerDetailDrawer({ customer, onClose, onEdit }) {
+  return <FormDrawer visible={Boolean(customer)} title="客户详情" size="medium"
+    onCancel={onClose} onSubmit={onEdit ? () => { onClose(); onEdit(customer); } : undefined} okText="编辑" cancelText="关闭">
+    {customer ? (
       <div className="record-detail-grid">
         <div><strong>终端编码</strong><span>{customer.terminal_code || "-"}</span></div>
         <div><strong>客户全名</strong><span>{customer.customer_name || "-"}</span></div>
@@ -23,6 +20,6 @@ export function showCustomerDetail(customer) {
         <div><strong>备注</strong><span>{customer.remark || "-"}</span></div>
         <div><strong>最后修改</strong><span>{`${formatDateTime(customer.updated_at)} · ${customer.updated_by_name || "-"}`}</span></div>
       </div>
-    ),
-  });
+    ) : null}
+  </FormDrawer>;
 }

@@ -54,6 +54,37 @@ class WebSecurityTests(unittest.TestCase):
             },
         )
 
+    def test_product_cost_policy_api(self):
+        url = "/api/product-cost-policies"
+        self.assertEqual(self.client.get(url).status_code, 401)
+        self.assertEqual(self.client.get(url + "/options").status_code, 401)
+        self.login()
+        token = self.client.get("/api/session").get_json()["csrf_token"]
+        product = self.web.PRODUCT_STORE.create_product({
+            "product_codes": ["COST-TEST"], "short_name": "成本测试",
+            "product_name": "成本测试商品", "snow_inventory": 10,
+            "housekeeper_codes": ["COST-G"], "specification": 12,
+            "auxiliary_unit": "听",
+        }, operator="team", operator_name="测试")
+        payload = {"product_id": product["id"], "month": "2026-10", "price": "80.25", "quantity": "100"}
+        self.assertEqual(self.client.post(url, json=payload).status_code, 403)
+        headers = {"X-CSRF-Token": token}
+        created = self.client.post(url, json=payload, headers=headers)
+        self.assertEqual(created.status_code, 201)
+        item = created.get_json()
+        self.assertEqual(item["used_quantity"], 0)
+        self.assertEqual(self.client.get(url + "?month=2026-10").get_json()["items"][0]["id"], item["id"])
+        self.assertEqual(self.client.get(url + "?month=2026-13").status_code, 400)
+        self.assertEqual(self.client.post(f"{url}/{item['id']}/end").status_code, 403)
+        ended = self.client.post(f"{url}/{item['id']}/end", headers=headers)
+        self.assertEqual(ended.get_json()["status"], "已结束")
+
+    def test_frontend_entry_does_not_cache_old_build(self):
+        self.login()
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.cache_control.no_store)
+
     def test_protected_routes_require_login(self):
         self.assertEqual(self.client.get("/").status_code, 302)
         self.assertEqual(self.client.get("/api/results").status_code, 401)
@@ -298,6 +329,7 @@ class WebSecurityTests(unittest.TestCase):
             "/api/snow-outbound/policies",
             json={
                 "name": "旺季套餐",
+                "policy_type": "陈列政策",
                 "outbound_code": "PLX260001001939",
                 "explanation": "旺季套餐陈列政策",
                 "requires_photo": True,
@@ -453,6 +485,7 @@ class WebSecurityTests(unittest.TestCase):
             "/api/snow-outbound/policies",
             json={
                 "name": "导出测试",
+                "policy_type": "陈列政策",
                 "outbound_code": "PLX-EXPORT-001",
                 "explanation": "核销明细导出测试",
                 "requires_photo": True,
@@ -481,6 +514,7 @@ class WebSecurityTests(unittest.TestCase):
             "/api/snow-outbound/policies",
             json={
                 "name": "无核销数据",
+                "policy_type": "其他",
                 "outbound_code": "PLX-EXPORT-NONE",
                 "explanation": "用于验证核销排序",
                 "requires_photo": True,
@@ -731,6 +765,11 @@ class WebSecurityTests(unittest.TestCase):
         self.assertEqual(failed["terminal_count"], 0)
         self.assertNotIn("secret", failed["error_information"])
         self.assertIn("[链接已隐藏]", failed["error_information"])
+        notifications = self.client.get("/api/notifications").get_json()
+        self.assertEqual(notifications["total"], 2)
+        self.assertEqual(notifications["items"][0]["result"], "failed")
+        notice = self.client.get("/api/notifications/" + notifications["items"][0]["id"]).get_json()
+        self.assertNotIn("secret", json.dumps(notice))
 
     def test_user_management_requires_admin_role(self):
         with self.client.session_transaction() as current_session:
@@ -891,6 +930,10 @@ class WebSecurityTests(unittest.TestCase):
         self.assertEqual(extraction_record["image_count"], 2)
         self.assertEqual(extraction_record["terminal_count"], 2)
         self.assertIn("无效链接 1 条", extraction_record["error_information"])
+        notices = self.client.get("/api/notifications").get_json()
+        self.assertEqual(notices["total"], 1)
+        self.assertEqual(notices["items"][0]["result"], "partial_success")
+        self.assertTrue(notices["items"][0]["filename"].endswith(".xlsx"))
 
     def test_batch_excel_accepts_500_links_and_rejects_501(self):
         def build_excel(count):
@@ -1187,6 +1230,7 @@ class WebSecurityTests(unittest.TestCase):
         policy = self.web.SNOW_OUTBOUND_STORE.create_policy(
             {
                 "name": "测试陈列",
+                "policy_type": "陈列政策",
                 "outbound_code": "PLX260000000001",
                 "explanation": "测试照片归档",
                 "requires_photo": True,
@@ -1295,6 +1339,7 @@ class WebSecurityTests(unittest.TestCase):
         no_photo_policy = self.web.SNOW_OUTBOUND_STORE.create_policy(
             {
                 "name": "无需拍照政策",
+                "policy_type": "其他",
                 "outbound_code": "PLX260000000002",
                 "explanation": "不应出现在照片归档枚举中",
                 "requires_photo": False,
@@ -1445,6 +1490,8 @@ class WebSecurityTests(unittest.TestCase):
                 "color": policy["color"],
                 "policy_id": policy["id"],
                 "tag": "6月-测试陈列",
+                "enabled": True,
+                "deleted": False,
             }
         ]
         self.assertEqual(
@@ -1643,6 +1690,75 @@ class WebSecurityTests(unittest.TestCase):
             404,
         )
 
+    def test_direct_product_upload_requires_login_and_csrf(self):
+        url = "/api/products/import/upload"
+        self.assertEqual(self.client.post(url).status_code, 401)
+        self.login()
+        self.assertEqual(self.client.post(url).status_code, 403)
+        csrf = self.client.get("/api/session").get_json()["csrf_token"]
+        headers = {"X-CSRF-Token": csrf}
+        self.assertEqual(self.client.post(url, headers=headers).status_code, 400)
+        invalid = self.client.post(url, headers=headers,
+            data={"file": (io.BytesIO(b"invalid"), "stock.xlsx")})
+        self.assertEqual(invalid.status_code, 400)
+
+    def test_product_policy_status_filter_is_applied_by_api(self):
+        self.login()
+        product = self.web.PRODUCT_STORE.create_product({
+            'product_codes': ['STATUS-TEST'], 'housekeeper_codes': ['STATUS-STOCK'],
+            'product_name': '筛选测试', 'short_name': '筛选', 'snow_inventory': 0,
+            'specification': 12, 'auxiliary_unit': '听',
+        }, operator='team', operator_name='测试')
+        payload = {'product_id': product['id'], 'month': '2026-07', 'price': '30', 'quantity': 100}
+        ended = self.web.PRODUCT_POLICY_STORE.create(payload, 'team')
+        active = self.web.PRODUCT_POLICY_STORE.create({**payload, 'month': '2026-08'}, 'team')
+        self.web.PRODUCT_POLICY_STORE.end(ended['id'], 'team')
+        response = self.client.get('/api/product-cost-policies', query_string={'status': '进行中'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([row['id'] for row in response.get_json()['items']], [active['id']])
+        response = self.client.get('/api/product-cost-policies', query_string={'status': '已结束'})
+        self.assertEqual([row['id'] for row in response.get_json()['items']], [ended['id']])
+        self.assertEqual(self.client.get('/api/product-cost-policies?status=invalid').status_code, 400)
+
+    def test_product_list_includes_available_policy_costs(self):
+        self.login()
+        product = self.web.PRODUCT_STORE.create_product({
+            'product_codes': ['POLICY-COST'], 'housekeeper_codes': ['COST-1'],
+            'product_name': '政策成本测试', 'short_name': '政策成本测试',
+            'snow_inventory': 0, 'specification': 12, 'auxiliary_unit': '听',
+        }, operator='team', operator_name='测试')
+        policy = self.web.PRODUCT_POLICY_STORE.create({
+            'product_id': product['id'], 'month': '2026-07', 'price': '32.50', 'quantity': 100,
+        }, 'team')
+        response = self.client.get('/api/products?product_code=POLICY-COST')
+        self.assertEqual(response.status_code, 200)
+        costs = response.get_json()['items'][0]['policy_costs']
+        self.assertEqual(costs[0]['id'], policy['id'])
+        self.assertEqual(costs[0]['price'], 32.5)
+        self.assertEqual(costs[0]['remaining_quantity'], 100)
+        self.web.PRODUCT_POLICY_STORE.end(policy['id'], 'team')
+        self.assertEqual(self.client.get('/api/products?product_code=POLICY-COST').get_json()['items'][0]['policy_costs'], [])
+
+    def test_direct_product_upload_commits_and_repeat_merges(self):
+        self.login()
+        csrf = self.client.get("/api/session").get_json()["csrf_token"]
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["年月", "商品编号", "商品名称", "单位", "入库千升数", "可用（箱）"])
+        sheet.append([time.strftime("%Y%m"), "DIRECT001", "雪花500ml听1*12纸箱", "箱", 1.5, 20.25])
+        stream = io.BytesIO()
+        workbook.save(stream)
+        for _ in range(2):
+            response = self.client.post("/api/products/import/upload",
+                data={"file": (io.BytesIO(stream.getvalue()), "stock.xlsx")},
+                headers={"X-CSRF-Token": csrf})
+            self.assertEqual(response.status_code, 200, response.get_json())
+            self.assertEqual(response.get_json()["failed_count"], 0)
+            self.assertEqual(response.get_json()["filename"], "stock.xlsx")
+        listed = self.client.get("/api/products?product_code=DIRECT001").get_json()
+        self.assertEqual(listed["total"], 1)
+        self.assertEqual(listed["items"][0]["snow_inventory"], 20.25)
+
     def test_product_crud_and_stock_upload(self):
         self.login()
         csrf_token = self.client.get("/api/session").get_json()["csrf_token"]
@@ -1675,7 +1791,7 @@ class WebSecurityTests(unittest.TestCase):
         )
         sheet.append(
             [
-                "202607",
+                self.web.datetime.now().strftime("%Y%m"),
                 "P001",
                 "雪花蓝听500ml听1*12纸箱",
                 "箱",
@@ -1683,7 +1799,7 @@ class WebSecurityTests(unittest.TestCase):
                 20.25,
             ]
         )
-        sheet.append(["202607", "PROMO", "太阳伞", "顶", 0, 5])
+        sheet.append([self.web.datetime.now().strftime("%Y%m"), "PROMO", "太阳伞", "顶", 0, 5])
         stream = io.BytesIO()
         workbook.save(stream)
         preview = self.client.post(

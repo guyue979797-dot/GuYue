@@ -1,25 +1,24 @@
 /**
- * 产品档案页面入口。
+ * 商品档案页面入口。
  */
 import React, { useState } from "../../lib/react.js";
-import { Button, Message, Modal, Select, Space } from "../../lib/arco.js";
+import { Button, Message, Modal, Space } from "../../lib/arco.js";
 import { StatusAlert } from "../../components/ui/StatusAlert.jsx";
 import { useContainerHeight } from "../../hooks/useContainerHeight.js";
 import { getDateParts } from "../../utils/formatters.js";
 import { deleteProduct } from "../../api/products.js";
 import { useProducts } from "./useProducts.js";
-import { ProductFilters } from "./ProductFilters.jsx";
+import { ProductBrandTree } from "./ProductBrandTree.jsx";
 import { ProductTable } from "./ProductTable.jsx";
-import { ProductFormModal } from "./ProductFormModal.jsx";
+import { ProductDrawer } from "./ProductDrawer.jsx";
 import { ProductImportModal } from "./ProductImportModal.jsx";
-import { showProductDetail } from "./ProductDetail.jsx";
 
-const { Option } = Select;
 
 export function ProductPage() {
   const products = useProducts();
   const [tableShellRef, tableHeight] = useContainerHeight(64);
   const [formOpen, setFormOpen] = useState(false);
+  const [drawerMode, setDrawerMode] = useState("detail");
   const [editingProduct, setEditingProduct] = useState(null);
   const [uploadOpen, setUploadOpen] = useState(false);
 
@@ -27,24 +26,32 @@ export function ProductPage() {
 
   function openCreate() {
     setEditingProduct(null);
+    setDrawerMode("create");
     setFormOpen(true);
   }
 
   function openEdit(product) {
     setEditingProduct(product);
+    setDrawerMode("edit");
+    setFormOpen(true);
+  }
+
+  function openDetail(product) {
+    setEditingProduct(product);
+    setDrawerMode('detail');
     setFormOpen(true);
   }
 
   function removeProduct(product) {
     Modal.confirm({
-      title: "删除产品档案",
+      title: "删除商品档案",
       content: `确定删除“${product.short_name || product.product_name}”吗？`,
       okText: "删除",
       okButtonProps: { status: "danger" },
       onOk: async () => {
         try {
           await deleteProduct(product.id);
-          Message.success("产品档案已删除");
+          Message.success("商品档案已删除");
           if (products.items.length === 1 && products.page > 1) {
             products.changePage(products.page - 1);
           } else {
@@ -58,26 +65,18 @@ export function ProductPage() {
   }
 
   return (
-    <div className="product-page">
-      <div className="product-filter-card table-page-filter-card">
-        <ProductFilters
-          values={products.filters}
-          onChange={products.setFilterField}
-          onSearch={products.applySearch}
-          onReset={products.resetSearch}
-          loading={products.loading}
-        />
-      </div>
-
+    <div className="product-catalog">
+      <ProductBrandTree brands={products.brands} selectedKey={products.brandKey} onSelect={products.selectBrand} />
+      <div className="product-page">
       <div className="product-list-card table-page-list-card">
         <div className="product-toolbar table-page-toolbar">
           <div className="table-page-toolbar-title">
-            <strong>产品明细</strong>
-            <span>本月共 {products.total} 条</span>
+            <strong>明细</strong>
+            <span>共 {products.total} 条</span>
           </div>
           <div className="product-overview toolbar-center">
             <div className="product-latest-upload">
-              <span>产品明细最新更新时间</span>
+              <span>商品最新更新时间</span>
               {latestUploadDate ? (
                 <strong
                   className="product-date-display"
@@ -93,19 +92,7 @@ export function ProductPage() {
             </div>
             <div className="product-summary-metrics">
               <span className="product-summary-metric">
-                <Select
-                  className="product-month-select"
-                  size="small"
-                  value={products.summaryMonth || undefined}
-                  placeholder="选择月份"
-                  onChange={products.changeSummaryMonth}
-                >
-                  <Option value="all">所有</Option>
-                  {products.summaryMonths.map((month) => (
-                    <Option key={month} value={month}>{month}</Option>
-                  ))}
-                </Select>
-                <span>已入库</span>
+                <span>累计入库</span>
                 <strong className="product-summary-tag inbound">
                   {products.monthlyInboundTons.toLocaleString("zh-CN", { maximumFractionDigits: 0 })}
                 </strong>
@@ -121,7 +108,7 @@ export function ProductPage() {
             </div>
           </div>
           <Space>
-            <Button onClick={() => setUploadOpen(true)}>上传产品明细</Button>
+            <Button onClick={() => setUploadOpen(true)}>上传商品</Button>
             <Button type="primary" onClick={openCreate}>新增商品</Button>
           </Space>
         </div>
@@ -135,7 +122,7 @@ export function ProductPage() {
             loading={products.loading}
             scrollY={tableHeight}
             inventorySort={products.inventorySort}
-            onDetail={showProductDetail}
+            onDetail={openDetail}
             onEdit={openEdit}
             onDelete={removeProduct}
             onToggleInventorySort={products.toggleInventorySort}
@@ -145,11 +132,18 @@ export function ProductPage() {
         </div>
       </div>
 
-      <ProductFormModal
+      </div>
+      <ProductDrawer
         visible={formOpen}
         product={editingProduct}
+        mode={drawerMode}
+        onModeChange={setDrawerMode}
         onClose={() => setFormOpen(false)}
-        onSaved={products.loadProducts}
+        onSaved={async saved => {
+          setEditingProduct(saved);
+          setDrawerMode('detail');
+          await products.loadProducts();
+        }}
       />
 
       <ProductImportModal

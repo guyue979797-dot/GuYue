@@ -28,7 +28,8 @@
 .user-account-name {
   display: inline-block;
   min-width: 0;
-  max-width: 150px;
+  max-width: 100%;
+  flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -46,19 +47,10 @@
 
 .user-form-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-3);
 }
 
 .user-form-grid .arco-select {
   width: 100%;
-}
-
-.user-modal .arco-modal-header {
-  text-align: left;
-}
-
-.user-modal .arco-modal-title {
-  justify-content: flex-start;
-  text-align: left;
 }

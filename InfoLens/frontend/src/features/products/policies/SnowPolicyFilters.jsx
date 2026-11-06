@@ -1,8 +1,8 @@
 /**
  * 雪花政策筛选条（统一 FilterBar，年份动态生成）。
  */
-import React from "../../lib/react.js";
-import { FilterBar } from "../../components/ui/FilterBar.jsx";
+import React from "../../../lib/react.js";
+import { FilterBar } from "../../../components/ui/FilterBar.jsx";
 import { getPolicyMonthOptions } from "./constants.js";
 
 export function SnowPolicyFilters({

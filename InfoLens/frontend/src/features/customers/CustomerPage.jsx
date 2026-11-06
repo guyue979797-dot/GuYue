@@ -12,12 +12,13 @@ import { CustomerTable } from "./CustomerTable.jsx";
 import { CustomerFormModal } from "./CustomerFormModal.jsx";
 import { CustomerImportModal } from "./CustomerImportModal.jsx";
 import { CustomerLogsModal } from "./CustomerLogsModal.jsx";
-import { showCustomerDetail } from "./CustomerDetail.jsx";
+import { CustomerDetailDrawer } from "./CustomerDetail.jsx";
 
 export function CustomerPage({ isAdmin }) {
   const customers = useCustomers();
   const [tableShellRef, tableHeight] = useContainerHeight(64);
   const [formOpen, setFormOpen] = useState(false);
+  const [detailRecord, setDetailRecord] = useState(null);
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [importOpen, setImportOpen] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
@@ -29,7 +30,6 @@ export function CustomerPage({ isAdmin }) {
 
   const filterValues = {
     ...customers.filters,
-    policyMonth: customers.policyMonth,
     policyTag: customers.policyTag,
   };
 
@@ -72,14 +72,12 @@ export function CustomerPage({ isAdmin }) {
         <CustomerFilters
           values={filterValues}
           onDraftChange={customers.setFilterField}
-          onPolicyMonthChange={customers.changePolicyMonth}
           onPolicyTagChange={(value) => {
             customers.changePolicyTag(value);
           }}
           onSearch={customers.searchCustomers}
           onReset={customers.resetSearch}
           loading={customers.loading}
-          policyMonths={customers.policyMonths}
           policyTagOptions={customers.policyTagOptions}
           routeOptions={customers.routeOptions}
           peopleOptions={peopleOptions}
@@ -89,7 +87,7 @@ export function CustomerPage({ isAdmin }) {
       <div className="customer-list-card table-page-list-card">
         <div className="customer-toolbar table-page-toolbar">
           <div className="table-page-toolbar-title">
-            <strong>终端明细</strong>
+            <strong>明细</strong>
             <span className="customer-total">共 {customers.total} 条</span>
           </div>
           <Space wrap>
@@ -111,7 +109,7 @@ export function CustomerPage({ isAdmin }) {
             loading={customers.loading}
             scrollY={tableHeight}
             isAdmin={isAdmin}
-            onDetail={showCustomerDetail}
+            onDetail={setDetailRecord}
             onEdit={openEdit}
             onLogs={(customer) => {
               setLogsCustomer(customer);
@@ -150,6 +148,7 @@ export function CustomerPage({ isAdmin }) {
         customer={logsCustomer}
         onClose={() => setLogsOpen(false)}
       />
+      <CustomerDetailDrawer customer={detailRecord} onClose={() => setDetailRecord(null)} onEdit={openEdit} />
     </div>
   );
 }

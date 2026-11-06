@@ -32,8 +32,6 @@ if (existsSync(appFile)) {
   const lines = countLines(appFile);
   if (lines > 300) {
     failures.push(`app/App.jsx 行数 ${lines} > 300（重构要求第 13 节 DoD）`);
-  } else {
-    warnings.push(`app/App.jsx 行数 ${lines}，符合 ≤300 目标`);
   }
 }
 
@@ -41,6 +39,12 @@ for (const file of walk(root)) {
   const source = readFileSync(file, "utf-8");
   const rel = file.replace(root + "/", "");
   if (file.endsWith(".css")) {
+    if (/(?:^|[;{])\s*--primary-\d+\s*:/m.test(source)) {
+      failures.push(`${rel}: 自定义完整颜色必须使用--brand-*，不可覆盖Arco的--primary-* RGB通道`);
+    }
+    for (const match of source.matchAll(/((?:rgb|rgba)\(\s*)?var\(--primary-\d+\)/g)) {
+      if (!match[1]) failures.push(`${rel}: Arco --primary-*必须通过rgb()/rgba()使用`);
+    }
     for (const match of source.matchAll(/^(\s*)(table|td|th|button|input|select|textarea)([ ,{])/gm)) {
       failures.push(`${rel}: 全局选择器 "${match[0].trim()}"（原则七）`);
     }
@@ -56,7 +60,7 @@ for (const file of walk(root)) {
     }
   }
   if (file.endsWith(".jsx")) {
-    if (/window\.arco|window\.React/.test(source)) {
+    if (/window\.(?:arco|React)\b/.test(source)) {
       warnings.push(`${rel}: 直接访问 window.arco/window.React，应改用 lib/ 桥接模块`);
     }
     if (/dangerouslySetInnerHTML|\.innerHTML\s*=/.test(source)) {

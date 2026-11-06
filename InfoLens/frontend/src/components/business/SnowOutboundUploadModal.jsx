@@ -1,9 +1,10 @@
+import { FormDrawer } from "../ui/FormDrawer.jsx";
 /**
  * 雪花出库上传弹窗（跨业务组件：终端明细 / 雪花政策共用）。
  * 交互：选择文件 → 解析预览 → 确认覆盖并导入。
  */
 import React, { useEffect, useState } from "../../lib/react.js";
-import { Alert, Checkbox, Message, Modal } from "../../lib/arco.js";
+import { Alert, Checkbox, Message } from "../../lib/arco.js";
 import {
   importSnowOutbound,
   previewSnowOutbound,
@@ -73,7 +74,8 @@ export function SnowOutboundUploadModal({ visible, onClose, onImported }) {
   }
 
   return (
-    <Modal
+    <FormDrawer
+      size="large"
       title="雪花出库上传"
       visible={visible}
       onCancel={() => {
@@ -179,7 +181,7 @@ export function SnowOutboundUploadModal({ visible, onClose, onImported }) {
           </section>
         ) : null}
       </div>
-    </Modal>
+    </FormDrawer>
   );
 }
 

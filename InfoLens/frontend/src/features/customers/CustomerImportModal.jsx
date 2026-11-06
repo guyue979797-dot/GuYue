@@ -1,8 +1,9 @@
+import { FormDrawer } from "../../components/ui/FormDrawer.jsx";
 /**
  * 批量新增客户（仅管理员）弹窗。
  */
 import React, { useState } from "../../lib/react.js";
-import { Alert, Button, Message, Modal } from "../../lib/arco.js";
+import { Alert, Button, Message } from "../../lib/arco.js";
 import {
   downloadImportErrorReport,
   downloadImportTemplate,
@@ -37,7 +38,7 @@ export function CustomerImportModal({ visible, onClose, onImported }) {
   }
 
   return (
-    <Modal
+    <FormDrawer
       title="批量新增客户"
       visible={visible}
       onCancel={onClose}
@@ -80,7 +81,7 @@ export function CustomerImportModal({ visible, onClose, onImported }) {
           ) : null}
         </div>
       ) : null}
-    </Modal>
+    </FormDrawer>
   );
 }
 

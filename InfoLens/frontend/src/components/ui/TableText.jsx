@@ -13,7 +13,7 @@ export function TableText({
   value,
   children,
   className = "",
-  maxWidth = 180,
+  maxWidth = "100%",
   tooltip,
 }) {
   const normalized = value == null || value === "" ? "-" : String(value);
@@ -32,7 +32,7 @@ export function TableText({
             }
       }
       aria-label={isPlaceholder ? undefined : tooltipContent}
-      style={{ width: maxWidth, maxWidth, display: "block", minWidth: 0 }}
+      style={{ width: "100%", maxWidth: typeof maxWidth === "number" ? `min(100%, ${maxWidth}px)` : maxWidth, display: "block", minWidth: 0, boxSizing: "border-box" }}
     >
       {children ?? normalized}
     </Ellipsis>

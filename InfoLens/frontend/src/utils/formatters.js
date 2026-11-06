@@ -2,6 +2,10 @@
  * 统一格式化工具。
  */
 
+export function formatPolicyNormalSales(items) {
+  return items?.length ? items.map(item => `${item.short_name || item.product_name}（${formatPolicyQuantity(item.quantity)}）`).join('；') : '-';
+}
+
 export function maskPhone(phone) {
   const value = String(phone || "");
   if (value.length < 7) return value || "-";

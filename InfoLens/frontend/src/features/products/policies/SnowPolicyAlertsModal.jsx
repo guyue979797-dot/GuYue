@@ -1,10 +1,12 @@
+import { FormDrawer } from "../../../components/ui/FormDrawer.jsx";
+import { AdaptiveTable } from "../../../components/ui/AdaptiveTable.jsx";
 /**
  * 标签告警明细弹窗。
  */
-import React, { useEffect, useState } from "../../lib/react.js";
-import { Message, Modal, Spin } from "../../lib/arco.js";
-import { TableText } from "../../components/ui/TableText.jsx";
-import { getPolicyAlerts } from "../../api/snowPolicies.js";
+import React, { useEffect, useState } from "../../../lib/react.js";
+import { Message, Spin } from "../../../lib/arco.js";
+import { TableText } from "../../../components/ui/TableText.jsx";
+import { getPolicyAlerts } from "../../../api/snowPolicies.js";
 import { policyAlertTypeClass } from "./constants.js";
 
 export function SnowPolicyAlertsModal({ visible, policy, onClose }) {
@@ -24,7 +26,8 @@ export function SnowPolicyAlertsModal({ visible, policy, onClose }) {
   }, [visible, policy]);
 
   return (
-    <Modal
+    <FormDrawer
+      size="large"
       title={`标签告警明细 · ${policy?.display_name || ""}`}
       visible={visible}
       footer={null}
@@ -35,17 +38,8 @@ export function SnowPolicyAlertsModal({ visible, policy, onClose }) {
       <div className="policy-alert-summary">
         共 <strong>{items.length}</strong> 家终端触发告警
       </div>
-      <div className="policy-alert-table-wrap">
-        <table className="policy-alert-table">
-          <colgroup>
-            <col className="policy-alert-col-code" />
-            <col className="policy-alert-col-name" />
-            <col className="policy-alert-col-alerts" />
-            <col className="policy-alert-col-ticket" />
-            <col className="policy-alert-col-product" />
-            <col className="policy-alert-col-type" />
-            <col className="policy-alert-col-reason" />
-          </colgroup>
+      <div className="adaptive-table-shell">
+        <AdaptiveTable>
           <thead>
             <tr>
               <th>终端编码</th>
@@ -61,7 +55,7 @@ export function SnowPolicyAlertsModal({ visible, policy, onClose }) {
             {items.map((item) => (
               <tr key={item.terminal_code}>
                 <td><span className="policy-code">{item.terminal_code}</span></td>
-                <td><TableText value={item.customer_name || "-"} maxWidth={220} /></td>
+                <td><TableText value={item.customer_name || "-"} /></td>
                 <td>
                   <div className="policy-alert-name-list">
                     {(item.alert_names || []).map((name) => (
@@ -90,7 +84,6 @@ export function SnowPolicyAlertsModal({ visible, policy, onClose }) {
                       <TableText
                         key={`${detail.ticket_no}-${detail.row_number}-${index}`}
                         value={detail.product_name || "-"}
-                        maxWidth={180}
                       />
                     ))}
                     {!(item.details || []).length ? <span>-</span> : null}
@@ -126,13 +119,13 @@ export function SnowPolicyAlertsModal({ visible, policy, onClose }) {
               </tr>
             ))}
           </tbody>
-        </table>
+        </AdaptiveTable>
         {loading ? <div className="customer-loading"><Spin size={30} /></div> : null}
         {!loading && !items.length ? (
           <div className="policy-alert-empty">暂无告警终端</div>
         ) : null}
       </div>
-    </Modal>
+    </FormDrawer>
   );
 }
 

@@ -1,8 +1,10 @@
+import { FormDrawer } from "../../components/ui/FormDrawer.jsx";
+import { AdaptiveTable } from "../../components/ui/AdaptiveTable.jsx";
 /**
- * 上传产品明细弹窗（解析预览 → 确认合并更新）。
+ * 上传商品弹窗（解析预览 → 确认合并更新）。
  */
 import React, { useEffect, useState } from "../../lib/react.js";
-import { Alert, Message, Modal, Tag } from "../../lib/arco.js";
+import { Alert, Message, Tag } from "../../lib/arco.js";
 import { TableText } from "../../components/ui/TableText.jsx";
 import { commitProductImport, previewProductImport } from "../../api/products.js";
 
@@ -40,7 +42,7 @@ export function ProductImportModal({ visible, onClose, onImported }) {
       onClose();
       await onImported?.();
       Message.success(
-        `更新完成：新增待完善${result.created_count}条，更新${result.updated_count}条，` +
+        `更新完成：新增待处理${result.created_count}条，更新${result.updated_count}条，` +
         `仅月度汇总${result.summary_only_count || 0}条，跳过${result.skipped_count}条`
       );
     } catch (error) {
@@ -51,8 +53,9 @@ export function ProductImportModal({ visible, onClose, onImported }) {
   }
 
   return (
-    <Modal
-      title="上传产品明细"
+    <FormDrawer
+      size="large"
+      title="上传商品"
       visible={visible}
       onCancel={() => {
         if (!committing) onClose();
@@ -71,7 +74,7 @@ export function ProductImportModal({ visible, onClose, onImported }) {
         <Alert
           type="info"
           showIcon
-          content="读取“年月、商品编号、商品名称、单位、入库千升数、可用（箱）”；本月箱装商品合并到产品明细，历史月份仅保存月度汇总。"
+          content="读取“年月、商品编号、商品名称、单位、入库千升数、可用（箱）”；本月箱装商品合并到商品，历史月份仅保存月度汇总。"
         />
         <label className="snow-file-picker">
           <input
@@ -94,7 +97,7 @@ export function ProductImportModal({ visible, onClose, onImported }) {
           <>
             <div className="product-import-summary">
               <div><strong>{preview.total_count}</strong><span>总行数</span></div>
-              <div className="success"><strong>{preview.created_count}</strong><span>新增待完善</span></div>
+              <div className="success"><strong>{preview.created_count}</strong><span>新增待处理</span></div>
               <div><strong>{preview.updated_count}</strong><span>更新</span></div>
               <div><strong>{preview.unchanged_count}</strong><span>无变化</span></div>
               <div className="warning"><strong>{preview.skipped_count}</strong><span>跳过</span></div>
@@ -105,8 +108,8 @@ export function ProductImportModal({ visible, onClose, onImported }) {
             {preview.failed_count ? (
               <Alert type="error" showIcon content="文件存在失败记录，请修正后重新上传。" />
             ) : null}
-            <div className="product-import-table-wrap">
-              <table className="product-import-table">
+            <div className="adaptive-table-shell">
+              <AdaptiveTable>
                 <thead>
                   <tr>
                     <th>行号</th>
@@ -121,7 +124,7 @@ export function ProductImportModal({ visible, onClose, onImported }) {
                     <tr key={`${item.row_number}-${item.product_code}`}>
                       <td>{item.row_number}</td>
                       <td><span className="product-mono">{item.product_code}</span></td>
-                      <td><TableText value={item.product_name} maxWidth={260} /></td>
+                      <td><TableText value={item.product_name} /></td>
                       <td>
                         <Tag
                           color={
@@ -129,7 +132,7 @@ export function ProductImportModal({ visible, onClose, onImported }) {
                               ? "red"
                               : item.result === "跳过"
                                 ? "gold"
-                                : item.result === "新增待完善"
+                                : item.result === "新增待处理"
                                   ? "arcoblue"
                                   : "green"
                           }
@@ -141,12 +144,12 @@ export function ProductImportModal({ visible, onClose, onImported }) {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </AdaptiveTable>
             </div>
           </>
         ) : null}
       </div>
-    </Modal>
+    </FormDrawer>
   );
 }
 

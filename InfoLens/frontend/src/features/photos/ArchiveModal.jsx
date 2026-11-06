@@ -3,7 +3,7 @@
  */
 import React, { useEffect, useState } from "../../lib/react.js";
 import { Alert, Message, Select } from "../../lib/arco.js";
-import { FormModal } from "../../components/ui/FormModal.jsx";
+import { FormDrawer } from "../../components/ui/FormDrawer.jsx";
 import { archivePhotos, getArchiveOptions } from "../../api/photos.js";
 
 const { Option } = Select;
@@ -57,7 +57,7 @@ export function ArchiveModal({
   }
 
   return (
-    <FormModal
+    <FormDrawer
       size="small"
       title="照片归档"
       visible={visible}
@@ -112,7 +112,7 @@ export function ArchiveModal({
           </div>
         </div>
       </div>
-    </FormModal>
+    </FormDrawer>
   );
 }
 

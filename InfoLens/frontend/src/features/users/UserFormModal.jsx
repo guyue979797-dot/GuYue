@@ -3,7 +3,7 @@
  */
 import React, { useEffect, useState } from "../../lib/react.js";
 import { Input, Message, Select } from "../../lib/arco.js";
-import { FormModal } from "../../components/ui/FormModal.jsx";
+import { FormDrawer } from "../../components/ui/FormDrawer.jsx";
 import { createUser, updateUser } from "../../api/users.js";
 import { EMPTY_USER_FORM, USER_ROLES } from "./constants.js";
 
@@ -62,7 +62,7 @@ export function UserFormModal({ visible, user, onClose, onSaved }) {
   }
 
   return (
-    <FormModal
+    <FormDrawer
       size="small"
       title={form.id ? "编辑用户" : "新增用户"}
       visible={visible}
@@ -94,7 +94,7 @@ export function UserFormModal({ visible, user, onClose, onSaved }) {
           placeholder={form.id ? "不填写则不修改密码" : "至少 6 位"}
           onChange={(value) => setField("password", value)}
         />
-        <div className="user-form-grid">
+        <div className="user-form-grid drawer-field-stack">
           <div>
             <label>角色</label>
             <Select
@@ -120,7 +120,7 @@ export function UserFormModal({ visible, user, onClose, onSaved }) {
           </div>
         </div>
       </div>
-    </FormModal>
+    </FormDrawer>
   );
 }
 

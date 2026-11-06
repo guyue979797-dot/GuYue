@@ -21,7 +21,6 @@ export function useCustomers() {
   const [status, setStatus] = useState(null);
 
   const [policyMonth, setPolicyMonth] = useState("");
-  const [policyMonths, setPolicyMonths] = useState([]);
   const [policyTag, setPolicyTag] = useState("");
   const [policyTagOptions, setPolicyTagOptions] = useState([]);
   const [routeOptions, setRouteOptions] = useState([]);
@@ -82,7 +81,6 @@ export function useCustomers() {
       const months = Array.from(
         new Set([data.current_month, ...(data.months || [])].filter(Boolean))
       );
-      setPolicyMonths(months);
       setPolicyMonth((current) => preferredMonth || current || data.current_month || months[0] || "");
     } catch (error) {
       setStatus({ type: "error", message: error.message });
@@ -135,12 +133,6 @@ export function useCustomers() {
     });
   }
 
-  function changePolicyMonth(value) {
-    setPage(1);
-    setPolicyTag("");
-    setPolicyMonth(value || "");
-  }
-
   function changePolicyTag(value) {
     setPage(1);
     setPolicyTag(value || "");
@@ -155,8 +147,6 @@ export function useCustomers() {
     status,
     filters,
     appliedFilters,
-    policyMonth,
-    policyMonths,
     policyTag,
     policyTagOptions,
     routeOptions,
@@ -165,7 +155,6 @@ export function useCustomers() {
     searchCustomers,
     resetSearch,
     setFilterField,
-    changePolicyMonth,
     changePolicyTag,
     changePage: setPage,
     changePageSize: (next) => {
@@ -174,7 +163,6 @@ export function useCustomers() {
     },
     loadCustomers,
     loadCustomerOptions,
-    loadSnowOptions,
   };
 }
 

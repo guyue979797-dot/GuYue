@@ -28,6 +28,7 @@ export const {
   Pagination,
   Popover,
   Progress,
+  Radio,
   Select,
   Space,
   Spin,
@@ -36,6 +37,7 @@ export const {
   Tabs,
   Tag,
   Tooltip,
+  Tree,
   Typography,
   Upload,
 } = arco;

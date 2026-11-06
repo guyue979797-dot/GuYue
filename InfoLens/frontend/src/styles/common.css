@@ -15,38 +15,13 @@
   color: var(--gray-400);
 }
 
-.filter-module .arco-input-wrapper,
-.filter-module .arco-select-view,
-.customer-filter-card .arco-input-wrapper,
-.customer-filter-card .arco-select-view,
-.product-filter-card .arco-input-wrapper,
-.product-filter-card .arco-select-view,
-.policy-filter-card .arco-input-wrapper,
-.policy-filter-card .arco-select-view {
-  background: var(--white);
-  border-color: var(--gray-400);
-  border-radius: var(--radius-md);
-}
-
-.filter-module .arco-input-wrapper:focus-within,
-.filter-module .arco-select-focused .arco-select-view,
-.customer-filter-card .arco-input-wrapper:focus-within,
-.customer-filter-card .arco-select-focused .arco-select-view,
-.product-filter-card .arco-input-wrapper:focus-within,
-.product-filter-card .arco-select-focused .arco-select-view,
-.policy-filter-card .arco-input-wrapper:focus-within,
-.policy-filter-card .arco-select-focused .arco-select-view {
-  border-color: var(--primary-6);
-  box-shadow: 0 0 0 3px var(--primary-1);
-}
-
 .action-detail {
   min-height: 28px;
   padding: 2px 10px;
-  border: 1px solid var(--primary-3);
+  border: 1px solid var(--brand-3);
   border-radius: var(--radius-sm);
-  background: var(--primary-1);
-  color: var(--primary-7);
+  background: var(--brand-1);
+  color: var(--brand-7);
   cursor: pointer;
   font-size: var(--text-sm);
   font-weight: 500;
@@ -54,9 +29,9 @@
 }
 
 .action-detail:hover {
-  border-color: var(--primary-4);
-  background: var(--primary-2);
-  color: var(--primary-7);
+  border-color: var(--brand-4);
+  background: var(--brand-2);
+  color: var(--brand-7);
 }
 
 .action-kebab {
@@ -86,10 +61,10 @@
   align-items: center;
   min-height: 20px;
   padding: 2px 8px;
-  border: 1px solid var(--primary-3);
+  border: 1px solid var(--brand-3);
   border-radius: var(--radius-sm);
-  background: var(--primary-1);
-  color: var(--primary-7);
+  background: var(--brand-1);
+  color: var(--brand-7);
   font-size: var(--text-xs);
   font-weight: 500;
   line-height: 16px;
@@ -141,7 +116,7 @@
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--primary-6);
+  color: var(--brand-6);
   cursor: pointer;
   font-family: var(--font-mono);
   font-size: var(--text-sm);
@@ -151,14 +126,14 @@
 }
 
 .data-link:hover {
-  background: var(--primary-1);
-  color: var(--primary-7);
+  background: var(--brand-1);
+  color: var(--brand-7);
   text-decoration: underline;
-  text-decoration-color: var(--primary-4);
+  text-decoration-color: var(--brand-4);
 }
 
 .data-link:focus-visible {
-  outline: 2px solid var(--primary-6);
+  outline: 2px solid var(--brand-6);
   outline-offset: 2px;
 }
 
@@ -180,13 +155,13 @@
 .progress-bar-fill {
   height: 100%;
   border-radius: inherit;
-  background: var(--primary-3);
+  background: var(--brand-3);
   transition: width 0.3s ease, background 0.3s ease;
 }
 
 .progress-bar.completed,
 .progress-bar-fill.completed {
-  background: var(--primary-6);
+  background: var(--brand-6);
 }
 
 .progress-bar.overdue,
@@ -202,4 +177,21 @@
   .record-detail-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* 照片页沿用 Card 容器，筛选区域的边距和阴影与统一表格页保持一致。 */
+.crm-page .filter-module {
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+.crm-page .filter-module > .arco-card-body {
+  padding: var(--space-3) var(--space-4);
+}
+
+/* 照片标题使用外层网格剩余宽度，而不是固定的240/110/60px上限。 */
+.crm-page .field-item .field-value {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
 }

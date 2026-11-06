@@ -1,0 +1,37 @@
+.product-policy-page { display: flex; flex-direction: column; gap: var(--space-4); min-height: 0; height: 100%; overflow: auto; }
+.product-policy-results { background: var(--color-bg-2, var(--white)); border: 1px solid var(--color-border-2); border-radius: var(--radius-xl); padding: var(--space-5); }
+.product-policy-heading { display: flex; gap: 14px; align-items: center; margin-bottom: var(--space-5); }
+.product-policy-heading strong { font-size: var(--text-lg); }
+.product-policy-heading > span, .product-policy-month { color: var(--color-text-3); font-size: var(--text-sm); }
+.product-policy-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px; }
+/* One row model keeps card elements aligned regardless of title or remarks. */
+.product-policy-card { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: 28px 24px 80px 30px 64px; align-content: start; border: 1px solid var(--color-border-2); border-radius: 10px; padding: var(--space-5); min-width: 0; }
+.product-policy-card > * { min-width: 0; }
+.product-policy-card-title { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.product-policy-card-title h3 { margin: 0; font-size: var(--text-lg); line-height: 1.5; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.product-policy-card-title .arco-tag { flex-shrink: 0; }
+.product-policy-month { display: flex; align-items: center; line-height: 20px; }
+.product-policy-month span { display: inline-block; padding: 1px 8px; border-radius: var(--radius-sm); background: rgb(var(--primary-1)); color: rgb(var(--primary-6)); font-size: var(--text-xs); font-weight: 600; line-height: 20px; }
+.product-policy-price { display: flex; align-items: center; gap: var(--space-1); font-size: 30px; font-weight: 600; color: rgb(var(--primary-6)); white-space: nowrap; }
+.product-policy-price small { font-size: var(--text-sm); font-weight: 400; color: var(--color-text-3); }
+.product-policy-quantity { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); font-size: var(--text-sm); }
+.product-policy-quantity span { color: var(--color-text-3); }
+.product-policy-remarks { box-sizing: border-box; min-width: 0; margin: var(--space-3) 0 0; padding-top: var(--space-2); color: var(--color-text-3); font-size: var(--text-sm); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.product-policy-remarks p { margin: 0; line-height: 20px; height: 40px; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; white-space: pre-wrap; }
+.product-policy-results > .arco-alert { margin-bottom: var(--space-4); }
+.product-policy-end-button.arco-btn { flex-shrink: 0; color: var(--color-text-3); font-size: var(--text-xs); font-weight: 400; padding: 0 6px; }
+.product-policy-end-button.arco-btn:hover { color: var(--color-text-2); background: var(--color-fill-2); }
+
+/* The shared drawer controls field stacking; selectors only constrain overflow. */
+.product-policy-form-modal .product-form-grid > div { min-width: 0; }
+.product-policy-form-modal .arco-select { width: 100%; min-width: 0; max-width: 100%; }
+.product-policy-form-modal .arco-select-view { min-width: 0; max-width: 100%; }
+.product-policy-form-modal .arco-select-view-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.product-policy-selected-name { display: block; width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.product-policy-page .product-policy-new-button { margin-left: auto; }
+.product-policy-page .product-policy-new-button, .product-policy-page .product-policy-new-button span { color: var(--white); }
+
+@media (max-width: 600px) {
+  .product-policy-results { padding: 14px; }
+  .product-policy-grid { grid-template-columns: minmax(0, 1fr); }
+}

@@ -1,8 +1,8 @@
 /**
  * 雪花政策数据 hook：列表、筛选、排序、分页、竞态防护。
  */
-import { useEffect, useRef, useState } from "../../lib/react.js";
-import { listPolicies } from "../../api/snowPolicies.js";
+import { useEffect, useRef, useState } from "../../../lib/react.js";
+import { listPolicies } from "../../../api/snowPolicies.js";
 import { EMPTY_POLICY_FILTERS } from "./constants.js";
 
 export function useSnowPolicies() {

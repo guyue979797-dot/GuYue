@@ -11,7 +11,7 @@ import { PolicyTagList } from "../../components/business/PolicyTagList.jsx";
 
 function PersonTag({ name }) {
   if (!name) return "-";
-  return <span className="person-tag person-gray">{name}</span>;
+  return <span className="person-tag person-gray"><TableText value={name} /></span>;
 }
 
 export function CustomerTable({
@@ -33,7 +33,7 @@ export function CustomerTable({
     {
       title: "终端编码",
       key: "terminal_code",
-      width: 130,
+
       render: (value, customer) => (
         <button
           className="data-link"
@@ -48,41 +48,41 @@ export function CustomerTable({
     {
       title: "客户全名",
       key: "customer_name",
-      width: 220,
+
       render: (value, customer) => (
-        <TableText value={customer.customer_name} maxWidth={216} />
+        <TableText value={customer.customer_name} />
       ),
     },
     {
       title: "线路归属",
       key: "route",
-      width: 150,
-      render: (value, customer) => <TableText value={customer.route} maxWidth={150} />,
+
+      render: (value, customer) => <TableText value={customer.route} />,
     },
     {
       title: "业务员",
       key: "salesperson",
-      width: 110,
+
       render: (value, customer) => <PersonTag name={customer.salesperson} />,
     },
     {
       title: "雪花业务员",
       key: "snow_salesperson",
-      width: 110,
+
       render: (value, customer) => <PersonTag name={customer.snow_salesperson} />,
     },
     {
       title: "终端业态",
       key: "terminal_business_type",
-      width: 130,
+
       render: (value, customer) => (
-        <TableText value={customer.terminal_business_type} maxWidth={126} />
+        <TableText value={customer.terminal_business_type} />
       ),
     },
     {
       title: "状态",
       key: "status",
-      width: 80,
+
       render: (value, customer) => (
         <Tag className={`customer-status-tag ${customer.status === "运营" ? "active" : "inactive"}`}>
           {customer.status}
@@ -92,7 +92,8 @@ export function CustomerTable({
     {
       title: "雪花政策",
       key: "policy_tags",
-      width: 360,
+      widthText: customer => (customer.policy_tag_details || []).slice(0, 4).map(tag => tag.name).join("　"),
+
       render: (value, customer) => (
         <PolicyTagList tags={customer.policy_tag_details || []} limit={4} />
       ),
@@ -100,13 +101,13 @@ export function CustomerTable({
     {
       title: "备注",
       key: "remark",
-      width: 200,
-      render: (value, customer) => <TableText value={customer.remark} maxWidth={190} />,
+
+      render: (value, customer) => <TableText value={customer.remark} />,
     },
     {
       title: "操作",
       key: "actions",
-      width: 110,
+
       className: "table-actions-cell",
       render: (value, customer) => (
         <TableRowActions

@@ -8,6 +8,10 @@
 export async function jsonFetch(url, options = {}) {
   const response = await fetch(url, options);
   const data = await response.json().catch(() => ({}));
+  if (options.method === "POST" && /^\/api\/(sales\/upload|customers\/import|products\/import(?:\/upload)?|snow-outbound\/import|extract|batch-extract)$/.test(url)
+      && response.status !== 401 && response.status !== 403) {
+    window.dispatchEvent(new Event("upload-result"));
+  }
   if (!response.ok) {
     const error = new Error(data.error || "请求失败");
     error.status = response.status;

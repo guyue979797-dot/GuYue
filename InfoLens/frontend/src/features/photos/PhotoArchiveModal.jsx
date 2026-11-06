@@ -1,8 +1,11 @@
+import { FormDrawer } from "../../components/ui/FormDrawer.jsx";
+import { TableText } from "../../components/ui/TableText.jsx";
+import { AdaptiveTable } from "../../components/ui/AdaptiveTable.jsx";
 /**
  * 照片档案弹窗：按月查看政策标签归档进度、缺失终端与导出。
  */
 import React, { useEffect, useState } from "../../lib/react.js";
-import { Button, Empty, Modal, Pagination, Select, Spin, Tag, Text, Tooltip } from "../../lib/arco.js";
+import { Button, Empty, Pagination, Select, Spin, Tag, Text, Tooltip } from "../../lib/arco.js";
 import { getPhotoArchivePolicies } from "../../api/photos.js";
 import { formatCompactDateTime, formatDateTime } from "../../utils/formatters.js";
 
@@ -68,7 +71,8 @@ export function PhotoArchiveModal({
   }
 
   return (
-    <Modal
+    <FormDrawer
+      size="large"
       title="照片档案"
       visible={visible}
       footer={null}
@@ -79,6 +83,8 @@ export function PhotoArchiveModal({
       <div className="photo-archive-toolbar">
         <div>
           <Select
+            aria-label="照片档案月份"
+            getPopupContainer={() => document.body}
             value={month || undefined}
             placeholder="选择月份"
             onChange={changeMonth}
@@ -95,8 +101,8 @@ export function PhotoArchiveModal({
       </div>
       <div className="photo-archive-table-shell">
         {items.length ? (
-          <div className="photo-archive-table-wrap">
-            <table className="photo-archive-table">
+          <div className="adaptive-table-shell">
+            <AdaptiveTable>
               <thead>
                 <tr>
                   <th>标签名</th>
@@ -114,9 +120,7 @@ export function PhotoArchiveModal({
                   return (
                     <tr key={policy.policy_id}>
                       <td>
-                        <span className="policy-name-tag">
-                          {policy.display_name}
-                        </span>
+                        <TableText value={policy.display_name} />
                       </td>
                       <td><strong>{policy.shipped_count}</strong></td>
                       <td><strong>{policy.photographed_count}</strong></td>
@@ -174,7 +178,7 @@ export function PhotoArchiveModal({
                   );
                 })}
               </tbody>
-            </table>
+            </AdaptiveTable>
           </div>
         ) : (
           <Empty
@@ -212,7 +216,7 @@ export function PhotoArchiveModal({
           }}
         />
       </div>
-    </Modal>
+    </FormDrawer>
   );
 }
 

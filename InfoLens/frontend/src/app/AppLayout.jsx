@@ -2,7 +2,8 @@
  * 应用布局：侧栏 / 顶栏 / 面包屑（应用壳职责）。
  */
 import React from "../lib/react.js";
-import { Button, ConfigProvider, Dropdown, Layout, Menu, Message } from "../lib/arco.js";
+import { Button, ConfigProvider, Dropdown, Layout, Menu } from "../lib/arco.js";
+import { NotificationCenter } from "../features/notifications/NotificationCenter.jsx";
 import { NAV_ITEMS, getPageTitle } from "./navigation.js";
 
 const { Header, Content, Sider } = Layout;
@@ -27,7 +28,9 @@ function NavIcon({ type }) {
       <path d="M18 10h.01" />
     </>
   );
-  if (type === "products") {
+  if (type === "sales") {
+    paths = <><path d="M5 3h14v18H5z" /><path d="M8 7h8M8 11h8M8 15h3M8 18h6" /></>;
+  } else if (type === "products") {
     paths = (
       <>
         <path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5z" />
@@ -62,6 +65,7 @@ function NavIcon({ type }) {
 export function AppLayout({
   activePage,
   customerSection,
+  productSection,
   collapsed,
   isAdmin,
   displayName,
@@ -72,11 +76,12 @@ export function AppLayout({
   onToggleCollapse,
   children,
 }) {
-  const pageTitle = getPageTitle(activePage, customerSection);
+  const pageTitle = getPageTitle(activePage, customerSection, productSection);
+  const moduleTitle = NAV_ITEMS.find((item) => item.key === activePage)?.label || pageTitle;
   const visibleItems = NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
 
   return (
-    <ConfigProvider>
+    <ConfigProvider getPopupContainer={() => document.body}>
       <Layout className="app-shell">
         <Sider className={collapsed ? "app-sider collapsed" : "app-sider"} width={220}>
           <div className="sider-brand">
@@ -105,7 +110,7 @@ export function AppLayout({
                         key={section.key}
                         type="button"
                         className={
-                          (item.key === "products" && activePage === "products")
+                          (item.key === "products" && productSection === section.key)
                           || (item.key === "customers" && customerSection === section.key)
                             ? "sub-nav-item active"
                             : "sub-nav-item"
@@ -156,31 +161,13 @@ export function AppLayout({
                   className="breadcrumb-link"
                   onClick={() => onNavigate(activePage === "customers" ? "customers" : activePage)}
                 >
-                  {activePage === "products" ? "产品档案" : activePage === "users" ? "权限管理" : activePage === "customers" ? "客户档案" : "CRM图片处理"}
+                  {moduleTitle}
                 </button>
                 <span className="breadcrumb-separator" aria-hidden="true">›</span>
                 <span className="breadcrumb-current">{pageTitle}</span>
               </nav>
               <div className="topbar-actions">
-                <button
-                  className="icon-btn"
-                  type="button"
-                  aria-label="帮助"
-                  title="帮助"
-                  onClick={() => Message.info("可使用左侧导航切换模块")}
-                >
-                  ?
-                </button>
-                <button
-                  className="icon-btn notification-btn"
-                  type="button"
-                  aria-label="通知"
-                  title="通知"
-                  onClick={() => Message.info("暂无新的系统通知")}
-                >
-                  ♢
-                  <span className="notification-dot" aria-hidden="true" />
-                </button>
+                <NotificationCenter />
                 <Dropdown
                   droplist={(
                     <Menu>
@@ -205,7 +192,7 @@ export function AppLayout({
             className={
               activePage === "library"
                 ? "app-content library-content"
-                : activePage === "customers" || activePage === "products"
+                : activePage === "customers" || activePage === "products" || activePage === "sales"
                   ? "app-content customer-content"
                   : "app-content"
             }

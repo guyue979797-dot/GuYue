@@ -1,31 +1,32 @@
 /**
- * 雪花出库政策页面入口。
+ * 商品政策页面入口。
  */
-import React, { useState } from "../../lib/react.js";
-import { Button, Message, Modal, Space } from "../../lib/arco.js";
-import { StatusAlert } from "../../components/ui/StatusAlert.jsx";
-import { TerminalListModal } from "../../components/business/TerminalListModal.jsx";
-import { SnowOutboundUploadModal } from "../../components/business/SnowOutboundUploadModal.jsx";
-import { useContainerHeight } from "../../hooks/useContainerHeight.js";
-import { getDateParts } from "../../utils/formatters.js";
+import React, { useState } from "../../../lib/react.js";
+import { Button, Message, Modal, Space } from "../../../lib/arco.js";
+import { StatusAlert } from "../../../components/ui/StatusAlert.jsx";
+import { TerminalListModal } from "../../../components/business/TerminalListModal.jsx";
+import { SnowOutboundUploadModal } from "../../../components/business/SnowOutboundUploadModal.jsx";
+import { useContainerHeight } from "../../../hooks/useContainerHeight.js";
+import { getDateParts } from "../../../utils/formatters.js";
 import {
   deletePolicy,
   exportPolicyArchive,
   getPolicyTerminals,
   togglePolicyStatus,
-} from "../../api/snowPolicies.js";
+} from "../../../api/snowPolicies.js";
 import { useSnowPolicies } from "./useSnowPolicies.js";
 import { SnowPolicyFilters } from "./SnowPolicyFilters.jsx";
 import { SnowPolicyTable } from "./SnowPolicyTable.jsx";
 import { SnowPolicyFormModal } from "./SnowPolicyFormModal.jsx";
 import { SnowPolicyAlertsModal } from "./SnowPolicyAlertsModal.jsx";
-import { showPolicyDetail } from "./SnowPolicyDetail.jsx";
+import { PolicyDetailDrawer } from "./SnowPolicyDetail.jsx";
 import { TERMINAL_LIST_META } from "./constants.js";
 
 export function SnowPolicyPage({ isAdmin }) {
   const policies = useSnowPolicies();
   const [tableShellRef, tableHeight] = useContainerHeight(64);
   const [formOpen, setFormOpen] = useState(false);
+  const [detailRecord, setDetailRecord] = useState(null);
   const [editingPolicy, setEditingPolicy] = useState(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [exportingPolicyId, setExportingPolicyId] = useState("");
@@ -156,7 +157,7 @@ export function SnowPolicyPage({ isAdmin }) {
       <div className="policy-list-card table-page-list-card">
         <div className="policy-toolbar table-page-toolbar">
           <div className="table-page-toolbar-title">
-            <strong>雪花政策明细</strong>
+            <strong>政策</strong>
             <span>共 {policies.total} 条</span>
           </div>
           <div className="policy-latest-upload toolbar-center">
@@ -188,7 +189,7 @@ export function SnowPolicyPage({ isAdmin }) {
             isAdmin={isAdmin}
             sortConfig={policies.sortConfig}
             exportingPolicyId={exportingPolicyId}
-            onDetail={showPolicyDetail}
+            onDetail={setDetailRecord}
             onEdit={openEdit}
             onExport={exportPolicy}
             onDelete={removePolicy}
@@ -237,6 +238,7 @@ export function SnowPolicyPage({ isAdmin }) {
         policy={alertListPolicy}
         onClose={() => setAlertListOpen(false)}
       />
+      <PolicyDetailDrawer policy={detailRecord} onClose={() => setDetailRecord(null)} onEdit={openEdit} />
     </div>
   );
 }

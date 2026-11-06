@@ -3,22 +3,15 @@
  * - 内部组合 Arco Table + Pagination
  * - 单一纵向滚动容器，Mac overscroll 边界控制
  * - 加载、空状态、分页统一承载
- * - 列宽校验：除最多一个弹性列外必须显式配置 width
+ * - 内容自适应列宽、自动上限、拖动调整、双击恢复
  */
 import React, { useMemo } from "../../lib/react.js";
+import { useTableColumnWidths } from "./useTableColumnWidths.js";
+import { TableText } from "./TableText.jsx";
+import { columnValue, columnKey } from "./tableColumnSizing.js";
 import { Empty, Pagination, Select, Table } from "../../lib/arco.js";
 
 const { Option } = Select;
-
-function validateColumns(columns) {
-  if (!columns?.length) return;
-  const elastic = columns.filter((column) => !column.width && column.fixed !== "right");
-  if (elastic.length > 1) {
-    console.warn(
-      "[DataTable] 除最多一个弹性列外，其余列必须显式配置 width（重构要求 5.2）",
-    );
-  }
-}
 
 export function DataTable({
   rowKey = "id",
@@ -30,18 +23,29 @@ export function DataTable({
   scrollY,
   pagination,
   onRow,
+  onChange,
   rowClassName,
+  rowSelection,
   size = "default",
   border = true,
   className = "",
   pageSizeOptions = [20, 50, 100],
 }) {
+  const sizing = useTableColumnWidths(columns, data);
   const stableColumns = useMemo(() => {
-    validateColumns(columns);
     // 所有列表默认左对齐，确保表头与单元格使用同一条左侧基线。
     // 如未来确有例外，必须同时在需求与列定义中明确说明。
-    return columns.map((column) => ({ align: "left", ...column }));
-  }, [columns]);
+    return columns.map((column, index) => {
+      const key = columnKey(column, index);
+      return { align: "left", ...column, key, width: sizing.width(key),
+        render: (value, record, rowIndex) => {
+          const cell = column.render ? column.render(value, record, rowIndex) : columnValue(record, column);
+          return typeof cell === 'string' || typeof cell === 'number' ? <TableText value={cell} /> : cell;
+        }, title: <>
+        {column.title}<span className="table-column-resize" {...sizing.handleProps(key)} />
+      </> };
+    });
+  }, [columns, sizing]);
 
   const resolvedScrollX = useMemo(() => {
     if (scrollX !== "max-content") return scrollX;
@@ -49,9 +53,9 @@ export function DataTable({
     // 所有列均有明确宽度时，按列宽精确求和，禁止浏览器用内容重新测量。
     // 这可保证 Arco 分离渲染的表头与表体使用同一个横向基准。
     return widths.every((width) => Number.isFinite(width) && width > 0)
-      ? widths.reduce((total, width) => total + width, 0)
+      ? widths.reduce((total, width) => total + width, rowSelection ? Number(rowSelection.columnWidth || 40) : 0)
       : "max-content";
-  }, [scrollX, stableColumns]);
+  }, [scrollX, stableColumns, rowSelection]);
 
   const empty = (
     <Empty description={emptyText} />
@@ -65,13 +69,15 @@ export function DataTable({
           columns={stableColumns}
           data={data}
           loading={loading}
-          empty={empty}
+          noDataElement={empty}
           tableLayoutFixed
           scroll={{ x: resolvedScrollX, y: scrollY }}
           border={border}
           size={size}
           onRow={onRow}
+          onChange={onChange}
           rowClassName={rowClassName}
+          rowSelection={rowSelection}
           pagination={false}
           virtualized={false}
         />

@@ -18,10 +18,10 @@ export function UserTable({
     {
       title: "账号",
       key: "username",
-      width: 200,
+
       render: (value, user) => (
         <span className="user-account-cell">
-          <span className="user-account-name">{user.username}</span>
+          <span className="user-account-name"><TableText value={user.username} /></span>
           {user.is_super_admin ? <Tag className="tag-neutral">超级管理员</Tag> : null}
         </span>
       ),
@@ -29,19 +29,19 @@ export function UserTable({
     {
       title: "用户名称",
       key: "display_name",
-      width: 180,
-      render: (value, user) => <TableText value={user.display_name} maxWidth={160} />,
+
+      render: (value, user) => <TableText value={user.display_name} />,
     },
     {
       title: "角色",
       key: "role",
-      width: 100,
+
       render: (value, user) => (user.role === "admin" ? "管理员" : "普通用户"),
     },
     {
       title: "状态",
       key: "status",
-      width: 90,
+
       render: (value, user) => (
         <Tag color={user.status === "enabled" ? "green" : "gray"}>
           {user.status === "enabled" ? "启用" : "禁用"}
@@ -51,19 +51,19 @@ export function UserTable({
     {
       title: "最近登录",
       key: "last_login_at",
-      width: 180,
+
       render: (value, user) => user.last_login_at || "-",
     },
     {
       title: "创建时间",
       key: "created_at",
-      width: 180,
+
       render: (value, user) => user.created_at,
     },
     {
       title: "操作",
       key: "actions",
-      width: 120,
+
       className: "table-actions-cell",
       render: (value, user) => (
         <TableRowActions

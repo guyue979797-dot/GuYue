@@ -405,7 +405,20 @@ def _optional_nonnegative_integer(value: Any, label: str) -> int | None:
     return int(numeric_value)
 
 
+def _policy_period(year: Any, month: Any) -> tuple[int, int]:
+    year = _optional_nonnegative_integer(year, '年份')
+    month = _optional_nonnegative_integer(month, '月份')
+    if year is None or not 1 <= year <= 9999:
+        raise ValueError('政策年份必须为1至9999之间的整数')
+    if month is None or not 1 <= month <= 12:
+        raise ValueError('月份必须在1至12之间')
+    return year, month
+
+
 def normalize_policy(payload: dict[str, Any]) -> dict[str, Any]:
+    policy_type = payload.get('policy_type')
+    if policy_type not in ('价格政策', '陈列政策', '其他'):
+        raise ValueError('政策类型须为价格政策、陈列政策或其他')
     name = str(payload.get("name") or "").strip()
     outbound_code = str(payload.get("outbound_code") or "").strip()
     explanation = str(payload.get("explanation") or "").strip()
@@ -421,15 +434,7 @@ def normalize_policy(payload: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("出库解释不能为空")
     if len(explanation) > 50:
         raise ValueError("出库解释不能超过50个字")
-    try:
-        year = int(payload.get("year"))
-        month = int(payload.get("month"))
-    except (TypeError, ValueError) as exc:
-        raise ValueError("年份和月份必须为有效数值") from exc
-    if year != 2026:
-        raise ValueError("政策年份目前仅支持2026年")
-    if not 1 <= month <= 12:
-        raise ValueError("月份必须在1至12之间")
+    year, month = _policy_period(payload.get('year'), payload.get('month'))
 
     set_limit = _optional_nonnegative_integer(
         payload.get("set_limit"),
@@ -537,6 +542,7 @@ def normalize_policy(payload: dict[str, Any]) -> dict[str, Any]:
         )
     return {
         "name": name,
+        "policy_type": policy_type,
         "display_name": f"{month}月-{name}",
         "outbound_code": outbound_code,
         "explanation": explanation,
@@ -904,6 +910,10 @@ class SnowOutboundStore:
                 "details_json",
                 "TEXT NOT NULL DEFAULT '[]'",
             )
+            self._ensure_column(
+                connection, 'snow_policies', 'policy_type',
+                "TEXT NOT NULL DEFAULT '其他' CHECK(policy_type IN ('价格政策', '陈列政策', '其他'))",
+            )
             self._ensure_policy_outbound_code_scope(connection)
 
     @staticmethod
@@ -960,6 +970,7 @@ class SnowOutboundStore:
                     color TEXT NOT NULL,
                     enabled INTEGER NOT NULL DEFAULT 1,
                     gift_type TEXT NOT NULL DEFAULT '',
+                    policy_type TEXT NOT NULL DEFAULT '其他' CHECK(policy_type IN ('价格政策', '陈列政策', '其他')),
                     created_by TEXT NOT NULL,
                     created_by_name TEXT NOT NULL,
                     created_at TEXT NOT NULL,
@@ -978,14 +989,14 @@ class SnowOutboundStore:
                 INSERT INTO snow_policies_rebuild (
                     id, name, display_name, outbound_code, explanation,
                     requires_photo, set_limit, month_target, year, month,
-                    color, enabled, gift_type, created_by, created_by_name,
+                    color, enabled, gift_type, policy_type, created_by, created_by_name,
                     created_at, updated_by, updated_by_name, updated_at,
                     deleted_by, deleted_by_name, deleted_at
                 )
                 SELECT
                     id, name, display_name, outbound_code, explanation,
                     requires_photo, set_limit, month_target, year, month,
-                    color, enabled, gift_type, created_by, created_by_name,
+                    color, enabled, gift_type, policy_type, created_by, created_by_name,
                     created_at, updated_by, updated_by_name, updated_at,
                     deleted_by, deleted_by_name, deleted_at
                 FROM snow_policies;
@@ -1040,6 +1051,7 @@ class SnowOutboundStore:
             and str(policy.get("outbound_code") or "").strip()
             and str(policy.get("explanation") or "").strip()
             and policy.get("conditions")
+            and policy.get('policy_type') in ('价格政策', '陈列政策', '其他')
         ):
             return False
         if not cls._product_requirements_active(connection):
@@ -1203,7 +1215,7 @@ class SnowOutboundStore:
                     item["shipped_count"] = shipped_counts.get(item["id"], 0)
                     item["reversed_count"] = reversed_counts.get(item["id"], 0)
                     item["alert_count"] = alert_counts.get(item["id"], 0)
-                self._attach_policy_reimbursement_metrics(connection, items)
+                self._attach_policy_outbound_metrics(connection, items)
                 pending_counts = self._pending_outbound_counts(
                     connection,
                     policy_ids,
@@ -1295,11 +1307,11 @@ class SnowOutboundStore:
                 f"SELECT * FROM snow_policies WHERE {' AND '.join(conditions)}",
                 (policy_id.strip(),),
             ).fetchone()
-            return (
-                self._hydrate_policy(connection, dict(row))
-                if row is not None
-                else None
-            )
+            if row is None:
+                return None
+            policy = self._hydrate_policy(connection, dict(row))
+            self._attach_policy_outbound_metrics(connection, [policy])
+            return policy
 
     def policy_summaries(
         self,
@@ -1373,8 +1385,7 @@ class SnowOutboundStore:
         month: int,
         exclude_id: str = "",
     ) -> list[dict[str, Any]]:
-        if year != 2026 or not 1 <= month <= 12:
-            raise ValueError("政策月份格式不正确")
+        year, month = _policy_period(year, month)
         conditions = ["deleted_at = ''", "year = ?", "month = ?"]
         parameters: list[Any] = [year, month]
         if exclude_id.strip():
@@ -1823,12 +1834,73 @@ class SnowOutboundStore:
             )
         return prices
 
-    def _attach_policy_reimbursement_metrics(
+    @staticmethod
+    def _product_short_names(connection, source_rows):
+        """Resolve display aliases without assigning an ambiguous archive to other rows."""
+        if not source_rows or not connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'products'"
+        ).fetchone():
+            return {}
+        names = list({str(row.get('product_name') or '').strip() for row in source_rows} - {''})
+        aliases = {}
+        if names:
+            placeholders = ','.join('?' for _ in names)
+            rows = connection.execute(
+                f"""SELECT product_name, MIN(short_name) AS short_name
+                    FROM products WHERE deleted_at = '' AND product_name IN ({placeholders})
+                    GROUP BY product_name HAVING COUNT(DISTINCT short_name) = 1""", names
+            ).fetchall()
+            aliases = {row['product_name']: row['short_name'] for row in rows if row['short_name']}
+        codes = list({str(row.get('product_code') or '').strip() for row in source_rows} - {''})
+        if not codes:
+            return aliases
+        placeholders = ','.join('?' for _ in codes)
+        rows = connection.execute(
+            f"""SELECT codes.code, MIN(products.short_name) AS short_name
+                FROM product_codes AS codes JOIN products ON products.id = codes.product_id
+                WHERE products.deleted_at = '' AND codes.code IN ({placeholders})
+                GROUP BY codes.code HAVING COUNT(DISTINCT products.id) = 1""", codes
+        ).fetchall()
+        by_code = {row['code']: row['short_name'] for row in rows if row['short_name']}
+        candidates = defaultdict(set)
+        for row in source_rows:
+            code = str(row.get('product_code') or '').strip()
+            name = str(row.get('product_name') or code).strip()
+            if name and name not in aliases:
+                # Include unresolved rows. One resolved code must not rename other
+                # unknown or ambiguous products sharing the same source name.
+                candidates[name].add(by_code.get(code))
+        for name, matches in candidates.items():
+            if len(matches) == 1 and None not in matches:
+                aliases[name] = next(iter(matches))
+        return aliases
+
+    @staticmethod
+    def _normal_sales_for_policy(tickets, policy, short_names):
+        totals = defaultdict(float)
+        for ticket_rows in tickets:
+            if _policy_ticket_match_row(ticket_rows, policy) is None:
+                continue
+            for row in ticket_rows:
+                if str(row.get('sale_type') or '').strip() != '正常销售':
+                    continue
+                quantity = float(row.get('converted_boxes') or 0)
+                if quantity < 0:
+                    continue
+                product = str(row.get('product_name') or row.get('product_code') or '未命名商品').strip()
+                totals[product] += quantity
+        return [
+            {'product_name': product, 'quantity': round(quantity, 6),
+             **({'short_name': short_names[product]} if product in short_names else {})}
+            for product, quantity in sorted(totals.items())
+        ]
+
+    def _attach_policy_outbound_metrics(
         self,
         connection: sqlite3.Connection,
         policies: list[dict[str, Any]],
     ) -> None:
-        """批量附加政策核销箱数及金额，避免列表页逐标签查询数据库。"""
+        """复用有效月度出库行，批量附加核销及命中单据的正常销售统计。"""
 
         rows_by_period: dict[str, list[dict[str, Any]]] = {}
         for policy in policies:
@@ -1845,6 +1917,14 @@ class SnowOutboundStore:
             for row in rows
         ]
         prices = self._product_settlement_prices(connection, product_names)
+        source_rows = [row for rows in rows_by_period.values() for row in rows]
+        short_names = self._product_short_names(connection, source_rows)
+        tickets_by_period = {}
+        for period, period_rows in rows_by_period.items():
+            tickets = defaultdict(list)
+            for row in period_rows:
+                tickets[(row.get('ticket_no'), row.get('terminal_code'))].append(row)
+            tickets_by_period[period] = tickets
         for policy in policies:
             outbound_code = str(policy.get("outbound_code") or "").strip()
             sale_type = str(policy.get("gift_type") or "").strip()
@@ -1871,6 +1951,9 @@ class SnowOutboundStore:
                         amount_total += quantity * price
             policy["reimbursement_quantity"] = round(quantity_total, 6)
             policy["reimbursement_amount"] = round(amount_total, 2)
+            policy['normal_sales'] = self._normal_sales_for_policy(
+                tickets_by_period.get(period, {}).values(), policy, short_names
+            )
 
     def policy_export_rows(
         self,
@@ -2128,10 +2211,10 @@ class SnowOutboundStore:
                     INSERT INTO snow_policies (
                         id, name, display_name, outbound_code, explanation,
                         requires_photo, set_limit, month_target,
-                        year, month, color, enabled, gift_type,
+                        year, month, color, enabled, gift_type, policy_type,
                         created_by, created_by_name, created_at,
                         updated_by, updated_by_name, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         policy_id,
@@ -2146,6 +2229,7 @@ class SnowOutboundStore:
                         policy["month"],
                         color,
                         policy["gift_type"],
+                        policy['policy_type'],
                         operator,
                         operator_name,
                         now,
@@ -2190,7 +2274,6 @@ class SnowOutboundStore:
         operator: str,
         operator_name: str,
     ) -> dict[str, Any]:
-        policy = normalize_policy(payload)
         now = _now()
         with self._connect() as connection:
             current_row = connection.execute(
@@ -2200,6 +2283,7 @@ class SnowOutboundStore:
             if not current_row:
                 raise ValueError("雪花出库政策不存在")
             before = self._hydrate_policy(connection, dict(current_row))
+            policy = normalize_policy({'policy_type': before['policy_type'], **payload})
             try:
                 self._validate_conflict_policies(
                     connection,
@@ -2214,7 +2298,7 @@ class SnowOutboundStore:
                     UPDATE snow_policies
                     SET name = ?, display_name = ?, outbound_code = ?,
                         explanation = ?, requires_photo = ?, set_limit = ?,
-                        month_target = ?, year = ?, month = ?, gift_type = ?,
+                        month_target = ?, year = ?, month = ?, gift_type = ?, policy_type = ?,
                         updated_by = ?,
                         updated_by_name = ?, updated_at = ?
                     WHERE id = ?
@@ -2230,6 +2314,7 @@ class SnowOutboundStore:
                         policy["year"],
                         policy["month"],
                         policy["gift_type"],
+                        policy['policy_type'],
                         operator,
                         operator_name,
                         now,
@@ -2460,7 +2545,7 @@ class SnowOutboundStore:
             """
         ).fetchone()
         if not products_table:
-            raise ValueError("产品档案尚未初始化")
+            raise ValueError("商品档案尚未初始化")
         placeholders = ",".join("?" for _ in product_ids)
         rows = connection.execute(
             f"""
@@ -2495,7 +2580,7 @@ class SnowOutboundStore:
         ).fetchone()
         if not products_table:
             if policy["normal_sale_product_ids"] or policy["gift_product_ids"]:
-                raise ValueError("产品档案尚未初始化")
+                raise ValueError("商品档案尚未初始化")
             return
         connection.execute(
             "DELETE FROM snow_policy_products WHERE policy_id = ?",

@@ -1,4 +1,4 @@
-"""产品档案、编码映射和雪花库存文件合并更新。"""
+"""商品档案、编码映射和雪花库存文件合并更新。"""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from openpyxl import load_workbook
 from openpyxl.utils.exceptions import InvalidFileException
 
 
-PRODUCT_STATUSES = {"正常", "待完善"}
+PRODUCT_STATUSES = {"正常", "待处理", "下线", "待完善"}
 AUXILIARY_UNITS = {"瓶", "听", "罐"}
 STOCK_REQUIRED_HEADERS = (
     "年月",
@@ -144,7 +144,10 @@ def normalize_product(
     *,
     allow_incomplete: bool = False,
 ) -> dict[str, Any]:
+    allow_incomplete = allow_incomplete or payload.get("status") in ("待处理", "下线")
     product = {
+        "brand": _clean(payload.get("brand"), label="品牌", limit=50),
+        "grade": _clean(payload.get("grade"), label="等级", limit=50),
         "product_codes": _codes(
             payload.get("product_codes"),
             label="商品编码",
@@ -169,12 +172,12 @@ def normalize_product(
         ),
         "housekeeper_codes": _codes(
             payload.get("housekeeper_codes"),
-            label="管家婆编码",
+            label="存货编号",
             required=not allow_incomplete,
         ),
         "specification": _nonnegative_number(
             payload.get("specification"),
-            label="规格",
+            label="存货规格",
             integer=True,
             required=not allow_incomplete,
         ),
@@ -184,11 +187,16 @@ def normalize_product(
             limit=10,
             required=not allow_incomplete,
         ),
+        "cost_price": _nonnegative_number(payload.get("cost_price"), label="成本价"),
         "settlement_price": _nonnegative_number(
             payload.get("settlement_price"),
             label="结算价",
         ),
     }
+    if len(product['housekeeper_codes']) > 1:
+        raise ValueError('每个商品只能设置一个存货编号')
+    if product["cost_price"] is not None:
+        product["cost_price"] = round(product["cost_price"], 2)
     if product["settlement_price"] is not None:
         product["settlement_price"] = round(product["settlement_price"], 2)
     if (
@@ -202,6 +210,10 @@ def normalize_product(
         and product["specification"] is not None
         and bool(product["auxiliary_unit"])
     )
+    requested_status = payload.get('status', '')
+    if requested_status and requested_status not in PRODUCT_STATUSES:
+        raise ValueError('状态须为正常、待处理或下线')
+    product['status_override'] = requested_status if requested_status in ('下线', '待处理') else ''
     product["status"] = "正常" if complete else "待完善"
     return product
 
@@ -326,7 +338,7 @@ class ProductStore:
                     ON products(product_name, short_name);
                 CREATE TABLE IF NOT EXISTS product_codes (
                     product_id INTEGER NOT NULL,
-                    code TEXT NOT NULL UNIQUE,
+                    code TEXT NOT NULL,
                     PRIMARY KEY(product_id, code),
                     FOREIGN KEY(product_id) REFERENCES products(id)
                 );
@@ -416,6 +428,25 @@ class ProductStore:
                 row["name"]
                 for row in connection.execute("PRAGMA table_info(products)")
             }
+            # Remove legacy global product-code uniqueness without losing links.
+            unique_code = any(index['unique'] and
+                [column['name'] for column in connection.execute("SELECT name FROM pragma_index_info(?)", (index["name"],))] == ['code']
+                for index in connection.execute('PRAGMA index_list(product_codes)').fetchall())
+            if unique_code:
+                connection.execute('CREATE TABLE product_codes_new (product_id INTEGER NOT NULL REFERENCES products(id), code TEXT NOT NULL, PRIMARY KEY(product_id,code))')
+                connection.execute('INSERT INTO product_codes_new SELECT product_id,code FROM product_codes')
+                connection.execute('DROP TABLE product_codes')
+                connection.execute('ALTER TABLE product_codes_new RENAME TO product_codes')
+            connection.execute('CREATE INDEX IF NOT EXISTS idx_product_codes_product ON product_codes(product_id)')
+            connection.execute('CREATE INDEX IF NOT EXISTS idx_product_codes_code ON product_codes(code)')
+            connection.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_product_single_stock_code ON product_housekeeper_codes(product_id)')
+            if 'status_override' not in product_columns:
+                connection.execute("ALTER TABLE products ADD COLUMN status_override TEXT NOT NULL DEFAULT ''")
+            for field in ('brand', 'grade'):
+                if field not in product_columns:
+                    connection.execute(f"ALTER TABLE products ADD COLUMN {field} TEXT NOT NULL DEFAULT ''")
+            if "cost_price" not in product_columns:
+                connection.execute("ALTER TABLE products ADD COLUMN cost_price REAL CHECK(cost_price IS NULL OR cost_price >= 0)")
             if "stock_month" not in product_columns:
                 connection.execute(
                     """
@@ -488,17 +519,22 @@ class ProductStore:
         status: str = "",
         inventory_sort: str = "",
         summary_month: str = "",
+        brand: str = "",
+        unbranded: bool = False,
         page: int = 1,
         page_size: int = 20,
     ) -> dict[str, Any]:
         page = max(1, int(page))
         page_size = max(1, min(100, int(page_size)))
         current_month = datetime.now().strftime("%Y%m")
-        conditions = [
-            "products.deleted_at = ''",
-            "products.stock_month = ?",
-        ]
-        parameters: list[Any] = [current_month]
+        # 商品档案持续有效；月份选择仅用于入库汇总，不隐藏历史维护的档案。
+        conditions = ["products.deleted_at = ''"]
+        parameters: list[Any] = []
+        if unbranded:
+            conditions.append("products.brand = ''")
+        elif brand.strip():
+            conditions.append("products.brand = ?")
+            parameters.append(brand.strip())
         if name.strip():
             conditions.append(
                 "(products.product_name LIKE ? OR products.short_name LIKE ?)"
@@ -529,8 +565,12 @@ class ProductStore:
         if status.strip():
             if status not in PRODUCT_STATUSES:
                 raise ValueError("档案状态格式不正确")
-            conditions.append("products.status = ?")
-            parameters.append(status)
+            if status == '下线':
+                conditions.append("products.status_override = '下线'")
+            elif status in ('待处理', '待完善'):
+                conditions.append("(products.status_override = '待处理' OR (products.status_override = '' AND products.status = '待完善'))")
+            else:
+                conditions.append("products.status_override = '' AND products.status = '正常'")
         inventory_sort = inventory_sort.strip().lower()
         if inventory_sort not in {"", "asc", "desc"}:
             raise ValueError("库存排序格式不正确")
@@ -549,6 +589,9 @@ class ProductStore:
         )
         where = " AND ".join(conditions)
         with self._connect() as connection:
+            brands = [dict(row) for row in connection.execute(
+                "SELECT brand, COUNT(*) AS count FROM products WHERE deleted_at = '' GROUP BY brand ORDER BY brand"
+            )]
             total = connection.execute(
                 f"SELECT COUNT(*) FROM products WHERE {where}",
                 parameters,
@@ -574,15 +617,9 @@ class ProductStore:
                     """
                 ).fetchall()
             ]
-            selected_month = (
-                summary_month
-                if summary_month
-                else current_month
-                if current_month in summary_months
-                else summary_months[0]
-                if summary_months
-                else current_month
-            )
+            # The unfiltered product page is a persistent catalog with cumulative totals.
+            fixed_summary = not summary_month
+            selected_month = summary_month or "all"
             if selected_month == "all":
                 inbound_summary = connection.execute(
                     """
@@ -637,6 +674,11 @@ class ProductStore:
                 """,
                 (current_month,),
             ).fetchone()
+            if fixed_summary:
+                current_inventory = connection.execute(
+                    "SELECT COALESCE(SUM(snow_inventory), 0) AS inventory_boxes "
+                    "FROM products WHERE deleted_at = ''"
+                ).fetchone()
             if not summary_months:
                 legacy_import = connection.execute(
                     """
@@ -651,9 +693,11 @@ class ProductStore:
                 if legacy_import:
                     summary_months = [current_month]
                     inbound_summary = legacy_import
-                    current_inventory = legacy_import
+                    if not fixed_summary:
+                        current_inventory = legacy_import
         return {
             "items": items,
+            "brands": brands,
             "total": total,
             "page": page,
             "page_size": page_size,
@@ -683,21 +727,25 @@ class ProductStore:
                 (product_id,),
             ).fetchone()
             if not row:
-                raise ValueError("产品档案不存在")
+                raise ValueError("商品档案不存在")
             return self._public_product(connection, row)
 
+    def policy_product_options(self):
+        with self._connect() as connection:
+            return [dict(row) for row in connection.execute(
+                "SELECT id, product_name, short_name FROM products "
+                "WHERE deleted_at = '' ORDER BY product_name, id"
+            )]
+
     def normal_product_options(self) -> list[dict[str, Any]]:
-        current_month = datetime.now().strftime("%Y%m")
         with self._connect() as connection:
             rows = connection.execute(
                 """
                 SELECT *
                 FROM products
-                WHERE deleted_at = '' AND status = '正常'
-                  AND stock_month = ?
+                WHERE deleted_at = '' AND status = '正常' AND status_override = ''
                 ORDER BY short_name, product_name, id
                 """,
-                (current_month,),
             ).fetchall()
             return [
                 {
@@ -735,18 +783,21 @@ class ProductStore:
                 cursor = connection.execute(
                     """
                     INSERT INTO products (
-                        short_name, product_name, snow_inventory, specification,
-                        auxiliary_unit, settlement_price, status, stock_month,
+                        short_name, product_name, brand, grade, snow_inventory, specification,
+                        auxiliary_unit, cost_price, settlement_price, status, stock_month,
                         created_by, created_by_name, created_at,
                         updated_by, updated_by_name, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         product["short_name"],
                         product["product_name"],
+                        product["brand"],
+                        product["grade"],
                         product["snow_inventory"],
                         product["specification"],
                         product["auxiliary_unit"],
+                        product["cost_price"],
                         product["settlement_price"],
                         product["status"],
                         datetime.now().strftime("%Y%m"),
@@ -759,6 +810,7 @@ class ProductStore:
                     ),
                 )
                 product_id = int(cursor.lastrowid)
+                connection.execute("UPDATE products SET status_override=? WHERE id=?", (product['status_override'], product_id))
                 self._replace_codes(
                     connection,
                     product_id,
@@ -771,7 +823,7 @@ class ProductStore:
                     operator,
                     operator_name,
                     "create",
-                    "上传创建待完善产品" if source == "upload" else "新建产品档案",
+                    "上传创建待完善产品" if source == "upload" else "新建商品档案",
                     product,
                 )
             except sqlite3.IntegrityError as exc:
@@ -798,27 +850,35 @@ class ProductStore:
                 (product_id,),
             ).fetchone()
             if not current:
-                raise ValueError("产品档案不存在")
+                raise ValueError("商品档案不存在")
+            for field in ('brand', 'grade'):
+                if field not in payload:
+                    product[field] = current[field]
+            if 'status' not in payload:
+                product['status_override'] = current['status_override']
             expected_version = payload.get("version")
             if expected_version is not None and int(expected_version) != current["version"]:
-                raise ValueError("产品档案已被其他人修改，请刷新后重试")
+                raise ValueError("商品档案已被其他人修改，请刷新后重试")
             now = _now()
             try:
                 connection.execute(
                     """
                     UPDATE products
-                    SET short_name = ?, product_name = ?, snow_inventory = ?,
+                    SET short_name = ?, product_name = ?, brand = ?, grade = ?, snow_inventory = ?,
                         specification = ?, auxiliary_unit = ?,
-                        settlement_price = ?, status = ?, version = version + 1,
+                        cost_price = ?, settlement_price = ?, status = ?, version = version + 1,
                         updated_by = ?, updated_by_name = ?, updated_at = ?
                     WHERE id = ?
                     """,
                     (
                         product["short_name"],
                         product["product_name"],
+                        product["brand"],
+                        product["grade"],
                         product["snow_inventory"],
                         product["specification"],
                         product["auxiliary_unit"],
+                        product["cost_price"],
                         product["settlement_price"],
                         product["status"],
                         operator,
@@ -827,6 +887,7 @@ class ProductStore:
                         product_id,
                     ),
                 )
+                connection.execute("UPDATE products SET status_override=? WHERE id=?", (product['status_override'], product_id))
                 self._replace_codes(
                     connection,
                     product_id,
@@ -839,7 +900,7 @@ class ProductStore:
                     operator,
                     operator_name,
                     "update",
-                    "上传更新产品档案" if source == "upload" else "修改产品档案",
+                    "上传更新商品档案" if source == "upload" else "修改商品档案",
                     product,
                 )
             except sqlite3.IntegrityError as exc:
@@ -862,7 +923,7 @@ class ProductStore:
                 (product_id,),
             ).fetchone()
             if not row:
-                raise ValueError("产品档案不存在")
+                raise ValueError("商品档案不存在")
             snapshot = self._public_product(connection, row)
             now = _now()
             connection.execute(
@@ -896,7 +957,7 @@ class ProductStore:
                 operator,
                 operator_name,
                 "delete",
-                "删除产品档案",
+                "删除商品档案",
                 snapshot,
             )
 
@@ -1109,12 +1170,18 @@ class ProductStore:
                 seen_codes.add(row_key)
                 detail.update(
                     result="仅保存月度汇总",
-                    message="非本月商品数据不写入产品明细",
+                    message="非本月商品数据不写入商品",
                 )
                 counts["summary_only_count"] += 1
             else:
                 seen_codes.add(row_key)
-                existing_id = self._find_product_id_by_code(connection, code)
+                try:
+                    existing_id = self._find_product_id_by_code(connection, code)
+                except ValueError as exc:
+                    detail.update(result='失败', message=str(exc))
+                    counts['failed_count'] += 1
+                    details.append(detail)
+                    continue
                 warning_parts = []
                 if row["specification"] is None:
                     warning_parts.append("未解析到规格")
@@ -1123,7 +1190,7 @@ class ProductStore:
                 if warning_parts:
                     counts["warning_count"] += 1
                 if existing_id is None:
-                    detail["result"] = "新增待完善"
+                    detail["result"] = "新增待处理"
                     counts["created_count"] += 1
                 else:
                     current = connection.execute(
@@ -1212,18 +1279,21 @@ class ProductStore:
         cursor = connection.execute(
             """
             INSERT INTO products (
-                short_name, product_name, snow_inventory, specification,
-                auxiliary_unit, settlement_price, status, stock_month,
+                short_name, product_name, brand, grade, snow_inventory, specification,
+                auxiliary_unit, cost_price, settlement_price, status, stock_month,
                 created_by, created_by_name, created_at,
                 updated_by, updated_by_name, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 normalized["short_name"],
                 normalized["product_name"],
+                normalized["brand"],
+                normalized["grade"],
                 normalized["snow_inventory"],
                 normalized["specification"],
                 normalized["auxiliary_unit"],
+                normalized["cost_price"],
                 normalized["settlement_price"],
                 normalized["status"],
                 product.get("stock_month") or datetime.now().strftime("%Y%m"),
@@ -1314,7 +1384,7 @@ class ProductStore:
             operator,
             operator_name,
             "update",
-            "上传更新产品档案",
+            "上传更新商品档案",
             row,
         )
 
@@ -1322,16 +1392,13 @@ class ProductStore:
     def _find_product_id_by_code(
         connection: sqlite3.Connection, code: str
     ) -> int | None:
-        row = connection.execute(
-            """
-            SELECT product_codes.product_id
-            FROM product_codes
-            JOIN products ON products.id = product_codes.product_id
-            WHERE product_codes.code = ? AND products.deleted_at = ''
-            """,
-            (code,),
-        ).fetchone()
-        return int(row[0]) if row else None
+        rows = connection.execute(
+            "SELECT c.product_id FROM product_codes c JOIN products p ON p.id=c.product_id "
+            "WHERE c.code=? AND p.deleted_at='' ORDER BY c.product_id LIMIT 2", (code,)
+        ).fetchall()
+        if len(rows) > 1:
+            raise ValueError(f'商品编码 {code} 对应多个商品，无法唯一匹配，请先确认编码对应关系')
+        return int(rows[0][0]) if rows else None
 
     @staticmethod
     def _replace_codes(
@@ -1390,10 +1457,10 @@ class ProductStore:
     @staticmethod
     def _integrity_error(error: sqlite3.IntegrityError) -> ValueError:
         message = str(error)
-        if "product_codes.code" in message:
-            return ValueError("商品编码已被其他产品使用")
+        if "product_housekeeper_codes.product_id" in message:
+            return ValueError("每个商品只能设置一个存货编号")
         if "product_housekeeper_codes.code" in message:
-            return ValueError("管家婆编码已被其他产品使用")
+            return ValueError("存货编号已被其他商品使用")
         return ValueError("产品数据与已有记录冲突")
 
     @staticmethod
@@ -1401,6 +1468,8 @@ class ProductStore:
         connection: sqlite3.Connection, row: sqlite3.Row
     ) -> dict[str, Any]:
         item = dict(row)
+        override = item.pop('status_override', '')
+        item['status'] = override or ('待处理' if item['status'] == '待完善' else item['status'])
         item["product_codes"] = [
             code_row[0]
             for code_row in connection.execute(

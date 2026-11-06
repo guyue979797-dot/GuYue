@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+from infolens.notifications import install_notifications
+
 import hmac
 import io
 import json
@@ -67,7 +69,12 @@ from infolens.extractor import (
     photoid_name_field,
 )
 from infolens.image_library import ImageLibraryStore
+from infolens.sales import SalesStore, parse_workbook as parse_sales_workbook
+from infolens.policy_costs import PolicyCostAllocator, COST_LOCK
+from infolens.sales_profit import enrich_sales_profit
+from infolens.product_sales_sync import sync_sales_products
 from infolens.products import ProductStore, parse_stock_workbook
+from infolens.product_policies import ProductPolicyStore
 from infolens.policy_export import build_policy_reimbursement_workbook
 from infolens.snow_outbound import (
     POLICY_GIFT_TYPES,
@@ -148,6 +155,7 @@ CUSTOMER_STORE = CustomerStore(
 PRODUCT_STORE = ProductStore(
     OUTPUT_ROOT / "_system" / "customer_profiles.sqlite3"
 )
+PRODUCT_POLICY_STORE = ProductPolicyStore(PRODUCT_STORE)
 SNOW_OUTBOUND_STORE = SnowOutboundStore(
     OUTPUT_ROOT / "_system" / "customer_profiles.sqlite3"
 )
@@ -185,13 +193,27 @@ def _complete_extraction_record(
     error_information: str = "",
 ) -> None:
     try:
-        EXTRACTION_RECORD_STORE.complete_record(
+        record = EXTRACTION_RECORD_STORE.complete_record(
             record_id,
             status=status,
             image_count=image_count,
             terminal_count=terminal_count,
             error_information=_safe_record_error(error_information),
         )
+        store = application.extensions.get("notifications")
+        if store:
+            job = BATCH_JOBS.get(record_id, {}) if record["method"] == "batch" else {}
+            details = {"image_count": image_count, "terminal_count": terminal_count,
+                       "error": _safe_record_error(error_information)}
+            if job:
+                details.update({k: job[k] for k in ("total", "succeeded", "failed", "duplicate_count", "invalid_count") if k in job})
+                details["errors"] = [{"row": e.get("row"), "error": _safe_record_error(str(e.get("error", "")))} for e in job.get("errors", [])]
+            store.add("照片批量上传" if record["method"] == "batch" else "照片链接导入",
+                      status, record["owner_username"], record["owner_display_name"],
+                      job.get("filename", store.preview_filename("photo:" + record_id)), details,
+                      datetime.fromisoformat(record["created_at"].replace("Z", "+00:00")).timestamp(),
+                      key="photo:" + record_id)
+
     except ValueError as exc:
         if str(exc) == "新增记录不存在":
             return
@@ -712,7 +734,14 @@ def _run_batch_job_chunk(application: Flask, job_id: str) -> bool:
 
 def _batch_worker(application: Flask) -> None:
     while True:
-        job_id = BATCH_QUEUE.get()
+        try:
+            job_id = BATCH_QUEUE.get(timeout=3600)
+        except queue.Empty:
+            try:
+                application.extensions["notifications"].prune()
+            except Exception:
+                application.logger.exception("清理过期通知失败")
+            continue
         try:
             if _run_batch_job_chunk(application, job_id):
                 BATCH_QUEUE.put(job_id)
@@ -1614,6 +1643,8 @@ def create_app() -> Flask:
         SESSION_COOKIE_SECURE=os.environ.get("INFOLENS_ENV") == "production",
         PERMANENT_SESSION_LIFETIME=8 * 60 * 60,
     )
+    install_notifications(application, OUTPUT_ROOT / "_system" / "notifications.sqlite3",
+                          _login_required, _current_user, _customer_operator, _check_csrf)
     oauth = OAuth(application)
     wecom_crypto = None
     if WECOM_BOT_CALLBACK_ENABLED:
@@ -1825,7 +1856,10 @@ def create_app() -> Flask:
     @application.get("/")
     @_login_required
     def index():
-        return send_from_directory(WEB_ROOT, "index.html")
+        response = send_from_directory(WEB_ROOT, "index.html")
+        # HTML contains the current build's versioned asset URLs.
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     @application.get("/assets/<path:filename>")
     @_login_required
@@ -2135,22 +2169,167 @@ def create_app() -> Flask:
             }
         )
 
+    def cost_serialized(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            with COST_LOCK:
+                return view(*args, **kwargs)
+        return wrapped
+
+    @application.get("/api/product-cost-policies/options")
+    @_login_required
+    def product_policy_options():
+        return jsonify({"items": PRODUCT_STORE.policy_product_options()})
+
+    @application.get("/api/product-cost-policies")
+    @_login_required
+    @cost_serialized
+    def list_product_policies():
+        try:
+            policy_allocator.refresh()
+            return jsonify(PRODUCT_POLICY_STORE.list(
+                product_id=request.args.get("product_id", ""),
+                month=request.args.get("month", ""),
+                status=request.args.get("status", ""),
+            ))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @application.post("/api/product-cost-policies")
+    @_login_required
+    @cost_serialized
+    def create_product_policy():
+        _check_csrf()
+        operator, _ = _customer_operator()
+        try:
+            result = PRODUCT_POLICY_STORE.create(request.get_json(silent=True), operator)
+            policy_allocator.refresh()
+            result = PRODUCT_POLICY_STORE.get(result['id'])
+            return jsonify(result), 201
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @application.post("/api/product-cost-policies/<int:policy_id>/end")
+    @_login_required
+    @cost_serialized
+    def end_product_policy(policy_id):
+        _check_csrf()
+        operator, _ = _customer_operator()
+        try:
+            policy_allocator.refresh()
+            PRODUCT_POLICY_STORE.end(policy_id, operator)
+            policy_allocator.refresh()
+            return jsonify(PRODUCT_POLICY_STORE.get(policy_id))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    sales_store = SalesStore(OUTPUT_ROOT / "_system" / "sales.sqlite3")
+    with sales_store.connect():
+        pass
+    policy_allocator = PolicyCostAllocator(PRODUCT_STORE, sales_store)
+
+    @application.get("/api/sales")
+    @_login_required
+    @cost_serialized
+    def list_sales():
+        try:
+            return jsonify(enrich_sales_profit(sales_store.list_rows(
+                document=request.args.get("document", ""),
+                category=request.args.getlist("category"),
+                **{key: request.args.get(key, "") for key in (
+                    "document_type", "date_start", "date_end", "month", "salesperson",
+                    "terminal_code", "customer_type", "customer", "product", "category_mode", "sort_by", "sort_order",
+                )},
+                page=int(request.args.get("page", "1")),
+                page_size=int(request.args.get("page_size", "20")),
+            ), PRODUCT_STORE, policy_allocator))
+        except (ValueError, TypeError) as exc:
+            return jsonify({"error": str(exc) or "分页参数不正确"}), 400
+
+    @application.post("/api/sales/recalculate-cost")
+    @_login_required
+    @cost_serialized
+    def recalculate_sales_cost():
+        _check_csrf()
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"error": "请选择需要重新计算的月份"}), 400
+        try:
+            month = PRODUCT_POLICY_STORE.month(payload.get("month"))
+            results = policy_allocator.refresh(month=month, force=True)
+            return jsonify({"month": month, "rows": len(results),
+                            "costed": sum(row['cost'] is not None for row in results.values())})
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @application.post("/api/sales/delete")
+    @_login_required
+    @cost_serialized
+    def delete_sales_rows():
+        _check_csrf()
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"error": "删除参数不正确"}), 400
+        try:
+            result = sales_store.delete_rows(payload.get("ids"))
+            policy_allocator.refresh()
+            return jsonify(result)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    @application.post("/api/sales/upload")
+    @_login_required
+    @cost_serialized
+    def upload_sales():
+        _check_csrf()
+        upload = request.files.get("file")
+        if not upload or not upload.filename:
+            return jsonify({"error": "请选择销售明细表"}), 400
+        if Path(upload.filename).suffix.lower() != ".xlsx":
+            return jsonify({"error": "仅支持 .xlsx 格式的销售明细表"}), 400
+        try:
+            columns, rows = parse_sales_workbook(io.BytesIO(upload.read()))
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception:
+            application.logger.warning("销售明细表读取失败", exc_info=True)
+            return jsonify({"error": "无法读取 Excel，请检查文件是否损坏或加密"}), 400
+        try:
+            result = sales_store.upload(columns, rows, Path(upload.filename).name)
+            operator, operator_name = _customer_operator()
+            try:
+                result["product_sync"] = sync_sales_products(
+                    PRODUCT_STORE, rows, operator=operator, operator_name=operator_name,
+                )
+                sales_store.save_product_sync(result["product_sync"])
+            except Exception:
+                application.logger.exception("销售表已导入，但商品同步失败")
+                result["product_sync_error"] = "销售表已导入，但商品同步失败，请重试上传或检查服务日志"
+            policy_allocator.refresh()
+            return jsonify(result)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+
     @application.get("/api/products")
     @_login_required
     def list_products():
         try:
-            return jsonify(
-                PRODUCT_STORE.list_products(
-                    name=request.args.get("name", ""),
-                    product_code=request.args.get("product_code", ""),
-                    housekeeper_code=request.args.get("housekeeper_code", ""),
-                    status=request.args.get("status", ""),
-                    inventory_sort=request.args.get("inventory_sort", ""),
-                    summary_month=request.args.get("summary_month", ""),
-                    page=int(request.args.get("page", "1")),
-                    page_size=int(request.args.get("page_size", "20")),
-                )
+            result = PRODUCT_STORE.list_products(
+                name=request.args.get("name", ""),
+                product_code=request.args.get("product_code", ""),
+                housekeeper_code=request.args.get("housekeeper_code", ""),
+                status=request.args.get("status", ""),
+                inventory_sort=request.args.get("inventory_sort", ""),
+                summary_month=request.args.get("summary_month", ""),
+                brand=request.args.get("brand", ""),
+                unbranded=request.args.get("unbranded") == "true",
+                page=int(request.args.get("page", "1")),
+                page_size=int(request.args.get("page_size", "20")),
             )
+            policy_costs = PRODUCT_POLICY_STORE.available_costs([item['id'] for item in result['items']])
+            for item in result['items']:
+                item['policy_costs'] = policy_costs.get(item['id'], [])
+            return jsonify(result)
         except (TypeError, ValueError) as exc:
             return jsonify({"error": str(exc) or "分页参数不正确"}), 400
 
@@ -2209,7 +2388,7 @@ def create_app() -> Flask:
                 operator=operator,
                 operator_name=operator_name,
             )
-            return jsonify({"message": "产品档案已删除"})
+            return jsonify({"message": "商品档案已删除"})
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
 
@@ -2237,6 +2416,36 @@ def create_app() -> Flask:
             )
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
+
+    @application.post("/api/products/import/upload")
+    @_login_required
+    def upload_product_import():
+        """Accept an Excel file and commit using the same rules as the UI."""
+        _check_csrf()
+        upload = request.files.get("file")
+        if not upload or not upload.filename:
+            return jsonify({"error": "请选择雪花库存Excel文件"}), 400
+        if Path(upload.filename).suffix.lower() != ".xlsx":
+            return jsonify({"error": "仅支持.xlsx格式的Excel文件"}), 400
+        operator, operator_name = _customer_operator()
+        try:
+            rows = parse_stock_workbook(io.BytesIO(upload.read()))
+            if not rows:
+                return jsonify({"error": "Excel中没有可导入的商品数据"}), 400
+            preview = PRODUCT_STORE.create_import_preview(
+                filename=Path(upload.filename).name,
+                operator=operator,
+                operator_name=operator_name,
+                rows=rows,
+            )
+            if preview["failed_count"]:
+                return jsonify({"error": "文件中仍有失败记录，请修正后重新上传", **preview}), 400
+            result = PRODUCT_STORE.commit_import_preview(
+                preview["preview_id"], operator=operator, operator_name=operator_name,
+            )
+            return jsonify({**result, "filename": preview["filename"]})
+        except (ValueError, zipfile.BadZipFile) as exc:
+            return jsonify({"error": str(exc) or "无法读取Excel文件"}), 400
 
     @application.post("/api/products/import")
     @_login_required
@@ -3151,6 +3360,8 @@ def create_app() -> Flask:
             return jsonify({"error": "链接过长"}), 400
 
         record_id = secrets.token_hex(16)
+        from flask import g
+        g.upload_record_id = record_id
         owner_username, owner_display_name = _record_owner()
         EXTRACTION_RECORD_STORE.start_record(
             record_id=record_id,
@@ -3209,6 +3420,9 @@ def create_app() -> Flask:
             return jsonify({"error": "仅支持 .xlsx 格式的 Excel 文件"}), 400
 
         job_id = secrets.token_urlsafe(18)
+        from flask import g
+        g.upload_record_id = job_id
+        application.extensions["notifications"].preview("photo:" + job_id, Path(upload.filename).name)
         owner_username, owner_display_name = _record_owner()
         EXTRACTION_RECORD_STORE.start_record(
             record_id=job_id,
@@ -3244,6 +3458,7 @@ def create_app() -> Flask:
             {
                 "owner": _current_user(),
                 "record_id": job_id,
+                "filename": Path(upload.filename).name,
                 "status": "queued",
                 "processed": 0,
                 "total": len(links),

@@ -1,7 +1,7 @@
 /**
  * 雪花政策标签新建/编辑表单弹窗。
  */
-import React, { useEffect, useState } from "../../lib/react.js";
+import React, { useEffect, useState } from "../../../lib/react.js";
 import {
   Alert,
   Button,
@@ -9,16 +9,17 @@ import {
   Input,
   Message,
   Select,
-} from "../../lib/arco.js";
-import { FormModal } from "../../components/ui/FormModal.jsx";
+} from "../../../lib/arco.js";
+import { FormDrawer } from "../../../components/ui/FormDrawer.jsx";
 import {
   createPolicy,
   getPolicyOptions,
   updatePolicy,
-} from "../../api/snowPolicies.js";
-import { getProductOptions } from "../../api/products.js";
+} from "../../../api/snowPolicies.js";
+import { getProductOptions } from "../../../api/products.js";
 import {
   POLICY_GIFT_TYPES,
+  POLICY_TYPES,
   SNOW_RULE_FIELDS,
   SNOW_RULE_OPERATORS,
   emptyPolicyForm,
@@ -26,7 +27,6 @@ import {
 } from "./constants.js";
 
 const { Option } = Select;
-const MONTH_OPTIONS = getPolicyMonthOptions();
 
 export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
   const [form, setForm] = useState(emptyPolicyForm());
@@ -43,6 +43,7 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
     if (policy) {
       setForm({
         ...policy,
+        policy_type: policy.policy_type || '其他',
         set_limit: policy.set_limit ?? "",
         month_target: policy.month_target ?? "",
         conflict_policy_ids: policy.conflict_policy_ids || [],
@@ -208,6 +209,7 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
   }
 
   const formReady =
+    POLICY_TYPES.includes(form.policy_type) &&
     form.name.trim() &&
     form.name.trim().length <= 10 &&
     form.outbound_code.trim() &&
@@ -223,9 +225,9 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
     (form.month_target === "" || /^\d+$/.test(String(form.month_target)));
 
   return (
-    <FormModal
+    <FormDrawer
       size="large"
-      title={form.id ? `编辑标签｜${form.id}` : "新增雪花出库政策标签"}
+      title={form.id ? `编辑标签｜${form.id}` : "新增商品政策标签"}
       visible={visible}
       loading={saving}
       okDisabled={!formReady}
@@ -237,7 +239,7 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
       onSubmit={save}
       className="policy-form-modal"
     >
-      <div className="policy-form-grid">
+      <div className="policy-form-grid drawer-field-stack">
         <div>
           <label><i>*</i>政策月份</label>
           <Select
@@ -251,7 +253,7 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
               });
             }}
           >
-            {MONTH_OPTIONS.map((option) => (
+            {getPolicyMonthOptions(form.year).map((option) => (
               <Option key={option.value} value={option.value}>
                 {option.label}
               </Option>
@@ -297,13 +299,19 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
           />
         </div>
         <div>
-          <label>是否拍照</label>
+          <label>照片核验</label>
           <Checkbox
             checked={form.requires_photo}
             onChange={(checked) => updatePolicyForm({ requires_photo: checked })}
           >
             需要拍照
           </Checkbox>
+        </div>
+        <div>
+          <label><i>*</i>政策类型</label>
+          <Select aria-label="政策类型" aria-required="true" placeholder="请选择政策类型" value={form.policy_type || undefined}
+            options={POLICY_TYPES.map(value => ({ value, label: value }))}
+            onChange={policy_type => updatePolicyForm({ policy_type })} />
         </div>
         <div>
           <label>套数限制</label>
@@ -335,7 +343,7 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
             ))}
           </Select>
         </div>
-        <div className="full-row policy-gift-condition-group">
+        <div className="full-row policy-gift-condition-group drawer-field-stack">
           <div>
             <label><i>*</i>赠送产品</label>
             <Select
@@ -466,7 +474,7 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
       </div>
       <div className="policy-alert-notices">
         {(form.conflict_policy_ids || []).length ? (
-          <Alert type="warning" showIcon content="已开启雪花政策冲突告警" />
+          <Alert type="warning" showIcon content="已开启商品政策冲突告警" />
         ) : null}
         {form.set_limit !== "" ? (
           <Alert type="warning" showIcon content="已开启政策重复出库告警" />
@@ -489,7 +497,7 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
           content={`${form.id ? "保存" : "新增"}失败：${formError}`}
         />
       ) : null}
-    </FormModal>
+    </FormDrawer>
   );
 }
 

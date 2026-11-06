@@ -1,15 +1,17 @@
 /**
  * 雪花政策明细表（统一 Arco DataTable）。
  */
-import React from "../../lib/react.js";
-import { Switch, Tooltip } from "../../lib/arco.js";
-import { DataTable } from "../../components/ui/DataTable.jsx";
-import { TableRowActions } from "../../components/ui/TableRowActions.jsx";
-import { PolicyProgressCell } from "../../components/business/PolicyProgressCell.jsx";
+import React from "../../../lib/react.js";
+import { Switch, Tooltip } from "../../../lib/arco.js";
+import { DataTable } from "../../../components/ui/DataTable.jsx";
+import { TableRowActions } from "../../../components/ui/TableRowActions.jsx";
+import { TableText } from "../../../components/ui/TableText.jsx";
+import { PolicyProgressCell } from "../../../components/business/PolicyProgressCell.jsx";
 import {
   formatPolicyAmount,
   formatPolicyQuantity,
-} from "../../utils/formatters.js";
+  formatPolicyNormalSales,
+} from "../../../utils/formatters.js";
 
 function SortableHeader({ title, active, order, onClick, ariaLabel }) {
   return (
@@ -58,13 +60,13 @@ export function SnowPolicyTable({
       title: "年月",
       key: "year_month",
       // 含单元格内边距后仍需容纳“2026年7月”，避免被拆成两行。
-      width: 120,
+
       render: (value, policy) => `${policy.year}年${policy.month}月`,
     },
     {
       title: "启用",
       key: "enabled",
-      width: 80,
+
       render: (value, policy) => (
         <Tooltip
           content={
@@ -90,7 +92,7 @@ export function SnowPolicyTable({
     {
       title: "标签名",
       key: "display_name",
-      width: 150,
+
       render: (value, policy) => (
         <span className="policy-name-tag">{policy.display_name}</span>
       ),
@@ -98,7 +100,7 @@ export function SnowPolicyTable({
     {
       title: "出库编码",
       key: "outbound_code",
-      width: 160,
+
       render: (value, policy) => (
         <code className="policy-outbound-code">{policy.outbound_code || "-"}</code>
       ),
@@ -106,7 +108,7 @@ export function SnowPolicyTable({
     {
       title: "月目标",
       key: "month_target",
-      width: 80,
+
       render: (value, policy) => policy.month_target ?? "-",
     },
     {
@@ -120,8 +122,11 @@ export function SnowPolicyTable({
         />
       ),
       key: "progress",
+      minWidth: 400,
+      maxAutoWidth: 480,
+      widthText: policy => `已出库 ${policy.shipped_count || 0} 已拍照 ${policy.photographed_count || 0} 待出库 ${policy.pending_outbound_count || 0} 告警 ${policy.alert_count || 0}`,
       // 五类状态并列展示时的最小可读宽度，禁止挤入“套数限制”列。
-      width: 400,
+
       className: "policy-progress-cell",
       render: (value, policy) => (
         <PolicyProgressCell
@@ -143,7 +148,7 @@ export function SnowPolicyTable({
     {
       title: "套数限制",
       key: "set_limit",
-      width: 90,
+
       render: (value, policy) => (
         <span className="policy-metric-number">{policy.set_limit ?? "-"}</span>
       ),
@@ -151,7 +156,7 @@ export function SnowPolicyTable({
     {
       title: "照片核验",
       key: "requires_photo",
-      width: 90,
+
       render: (value, policy) => (
         <span
           className={`policy-photo-check ${policy.requires_photo ? "is-checked" : ""}`.trim()}
@@ -165,9 +170,17 @@ export function SnowPolicyTable({
       ),
     },
     {
+      title: '政策类型', key: 'policy_type', render: (_, policy) => policy.policy_type || '其他',
+    },
+    {
+      title: '正常销售（件）', key: 'normal_sales', maxAutoWidth: 360,
+      widthText: policy => formatPolicyNormalSales(policy.normal_sales),
+      render: (_, policy) => <TableText value={formatPolicyNormalSales(policy.normal_sales)} />,
+    },
+    {
       title: "核销（箱）",
       key: "reimbursement_quantity",
-      width: 110,
+
       render: (value, policy) => (
         <span className="policy-metric-number">
           {formatPolicyQuantity(policy.reimbursement_quantity)}
@@ -185,7 +198,7 @@ export function SnowPolicyTable({
         />
       ),
       key: "reimbursement_amount",
-      width: 130,
+
       render: (value, policy) => (
         <span className="policy-reimbursement-amount">
           {formatPolicyAmount(policy.reimbursement_amount)}
@@ -195,7 +208,7 @@ export function SnowPolicyTable({
     {
       title: "操作",
       key: "actions",
-      width: 110,
+
       className: "table-actions-cell",
       render: (value, policy) => (
         <TableRowActions

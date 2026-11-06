@@ -32,14 +32,18 @@ export const POLICY_GIFT_TYPES = [
   "陈列赠酒",
 ];
 
+export const POLICY_TYPES = ['价格政策', '陈列政策', '其他'];
+
 export function getPolicyYears() {
   const currentYear = new Date().getFullYear();
   return [currentYear, currentYear + 1];
 }
 
-export function getPolicyMonthOptions() {
+export function getPolicyMonthOptions(selectedYear) {
   const options = [];
-  getPolicyYears().forEach((year) => {
+  const years = getPolicyYears();
+  if (Number.isInteger(selectedYear) && selectedYear >= 1 && selectedYear <= 9999 && !years.includes(selectedYear)) years.unshift(selectedYear);
+  years.forEach((year) => {
     for (let month = 1; month <= 12; month += 1) {
       options.push({
         value: `${year}-${String(month).padStart(2, "0")}`,
@@ -57,6 +61,7 @@ export function emptyPolicyForm() {
   return {
     id: "",
     name: "",
+    policy_type: "",
     outbound_code: "",
     explanation: "",
     requires_photo: false,

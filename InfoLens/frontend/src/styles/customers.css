@@ -118,23 +118,11 @@
   white-space: nowrap;
 }
 
-/* 表单弹窗 */
-.customer-form-modal .arco-modal-header,
-.customer-logs-modal .arco-modal-header,
-.customer-import-modal .arco-modal-header {
-  text-align: left;
-}
 
-.customer-form-modal .arco-modal-title,
-.customer-logs-modal .arco-modal-title,
-.customer-import-modal .arco-modal-title {
-  justify-content: flex-start;
-  text-align: left;
-}
 
 .customer-form-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
 }
 
@@ -179,7 +167,7 @@
 
 .customer-textarea:hover,
 .customer-textarea:focus {
-  border-color: var(--primary-6);
+  border-color: var(--brand-6);
 }
 
 /* 修改记录弹窗 */
@@ -227,8 +215,8 @@
   margin-top: 5px;
   border: 2px solid var(--white);
   border-radius: 50%;
-  background: var(--primary-6);
-  box-shadow: 0 0 0 2px var(--primary-3);
+  background: var(--brand-6);
+  box-shadow: 0 0 0 2px var(--brand-3);
   box-sizing: border-box;
 }
 
@@ -279,10 +267,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px dashed var(--primary-5);
+  border: 1px dashed var(--brand-5);
   border-radius: 8px;
-  background: var(--primary-1);
-  color: var(--primary-6);
+  background: var(--brand-1);
+  color: var(--brand-6);
   cursor: pointer;
   font-weight: 600;
 }
@@ -301,7 +289,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  border-color: var(--primary-3);
+  border-color: var(--brand-3);
   background: var(--info-50);
 }
 
@@ -327,3 +315,22 @@
 .snow-update-option .arco-checkbox {
   flex: 0 0 auto;
 }
+
+.customer-page .person-tag,
+.customer-page .policy-tags-cell .customer-policy-badge {
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.customer-page .policy-tags-cell .customer-policy-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  padding: 1px 7px;
+  border: 1px solid var(--brand-3);
+  border-radius: var(--radius-sm);
+  background: var(--brand-1);
+  color: var(--brand-7);
+  line-height: 18px;
+}
+.customer-page .table-tag-more { flex: 0 0 auto; }

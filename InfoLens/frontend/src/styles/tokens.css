@@ -1,14 +1,18 @@
 :root {
-  --primary-1: #eef2ff;
-  --primary-2: #e0e7ff;
-  --primary-3: #c7d2fe;
-  --primary-4: #a5b4fc;
-  --primary-5: #818cf8;
-  --primary-6: #4f46e5;
-  --primary-7: #4338ca;
-  --primary-8: #3730a3;
-  --primary-9: #312e81;
-  --primary-10: #1e1b4b;
+  /* App colors are complete CSS colors; Arco --primary-* tokens are RGB channels. */
+  --nav-active-bg: var(--brand-1);
+  --nav-active-color: var(--brand-7);
+  --nav-active-accent: var(--brand-6);
+  --brand-1: #eef2ff;
+  --brand-2: #e0e7ff;
+  --brand-3: #c7d2fe;
+  --brand-4: #a5b4fc;
+  --brand-5: #818cf8;
+  --brand-6: #4f46e5;
+  --brand-7: #4338ca;
+  --brand-8: #3730a3;
+  --brand-9: #312e81;
+  --brand-10: #1e1b4b;
 
   --gray-50: #f8fafc;
   --gray-100: #f1f5f9;

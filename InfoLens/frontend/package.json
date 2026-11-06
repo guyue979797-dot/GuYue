@@ -7,7 +7,14 @@
     "dev": "vite --host 127.0.0.1 --port 5173",
     "build": "node build.mjs",
     "preview": "vite preview --host 127.0.0.1",
-    "check:arch": "node scripts/check-architecture.mjs"
+    "check:arch": "node scripts/check-architecture.mjs",
+    "check:filters": "node scripts/check-filters.mjs",
+    "check:notifications": "node scripts/check-notifications.mjs",
+    "check:product-widths": "node scripts/check-product-widths.mjs",
+    "check:tables": "node scripts/check-product-widths.mjs && node scripts/check-tables.mjs",
+    "check": "npm run check:arch && npm run check:filters && npm run check:notifications && npm run check:tables && npm run check:product-drawer && npm run check:drawers",
+    "check:product-drawer": "node scripts/check-product-drawer.mjs",
+    "check:drawers": "node scripts/check-drawers.mjs"
   },
   "dependencies": {
     "@arco-design/web-react": "^2.66.0",

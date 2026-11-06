@@ -16,7 +16,7 @@
   min-width: 0;
 }
 
-/* 表格页统一布局（终端明细 / 雪花政策 / 产品档案 / 权限管理共用） */
+/* 表格页统一布局（终端明细 / 雪花政策 / 商品档案 / 权限管理共用） */
 .table-page-filter-card {
   padding: 12px 16px;
   border: 1px solid var(--gray-200);
@@ -200,162 +200,120 @@
   margin-bottom: var(--space-3);
 }
 
-/* FormModal：仅内容区滚动，Header/Footer 固定 */
-.form-modal .arco-modal-header,
-.form-modal .arco-modal-footer {
-  flex-shrink: 0;
-}
 
-.form-modal .arco-modal-content {
-  max-height: calc(100vh - 180px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
 
 /* FilterBar：统一筛选条布局 */
 .filter-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.filter-bar-grid {
-  display: contents;
-}
-
-.filter-field-group {
-  display: flex;
-  min-width: 0;
-}
-
-/* 筛选字段定宽容器：select/input 填满字段宽度 */
-.filter-field {
-  flex: 0 0 auto;
-  min-width: 0;
-}
-
-.filter-field .arco-select,
-.filter-field .arco-input-wrapper {
-  width: 100%;
-}
-
-.filter-field-select {
-  width: 140px;
-}
-
-.filter-field-multi {
-  width: 200px;
-}
-
-.filter-field-input {
-  width: 150px;
-}
-
-.filter-bar-actions {
-  flex: 0 0 auto;
-  margin-left: auto;
-}
-
-/* 表格页筛选区：单排紧凑布局 */
-.customer-filter-bar,
-.policy-filter-bar,
-.product-filter-bar,
-.library-filter-bar {
-  flex-wrap: nowrap;
-  gap: 8px;
-}
-
-/*
- * 终端明细筛选条件按整行可用空间弹性分配：选择框在前、文本框在后，
- * 查询与重置按钮固定在右侧。页面专属规则不影响产品与政策页的筛选布局。
- */
-.customer-filter-bar .filter-bar-grid,
-.policy-filter-bar .filter-bar-grid,
-.product-filter-bar .filter-bar-grid,
-.library-filter-bar .filter-bar-grid {
   display: grid;
-  flex: 1 1 auto;
-  min-width: 0;
-  gap: 8px;
-}
-
-.customer-filter-bar .filter-bar-grid {
-  grid-template-columns: minmax(112px, 0.8fr) minmax(180px, 1.45fr) minmax(180px, 1.45fr) minmax(150px, 1.15fr) minmax(120px, 0.9fr) minmax(140px, 1fr);
-}
-
-.policy-filter-bar .filter-bar-grid {
-  grid-template-columns: minmax(130px, 1fr) minmax(130px, 1fr) minmax(180px, 1.7fr) minmax(180px, 1.7fr);
-}
-
-.product-filter-bar .filter-bar-grid {
-  grid-template-columns: minmax(130px, 1fr) minmax(180px, 1.45fr) minmax(180px, 1.55fr) minmax(200px, 1.8fr);
-}
-
-.library-filter-bar .filter-bar-grid {
-  grid-template-columns: minmax(120px, 0.8fr) minmax(290px, 2.05fr) minmax(290px, 2.05fr) minmax(150px, 1.05fr) minmax(170px, 1.25fr);
-}
-
-/* 覆盖 FilterBar 为历史定宽字段写入的内联 width，使页面栅格列宽生效。 */
-.customer-filter-bar .filter-field,
-.policy-filter-bar .filter-field,
-.product-filter-bar .filter-field,
-.library-filter-bar .filter-field {
-  width: 100% !important;
+  gap: var(--space-3);
   min-width: 0;
 }
-
-/* 组内第一项为条件选择器，第二项承接剩余宽度，视觉与边框连续。 */
-.library-filter-bar .filter-field-group .filter-field {
-  width: auto !important;
-  flex: 1 1 0;
+.filter-bar .filter-bar-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: center;
 }
-
-.library-filter-bar .filter-field-group .filter-field:first-child {
-  flex: 0 0 120px;
+.filter-bar .filter-bar-row-actions {
+  grid-template-columns: minmax(0, 1fr) auto;
 }
-
-.library-filter-bar .filter-field-group .filter-field + .filter-field {
-  margin-left: -1px;
+.filter-bar .filter-bar-grid {
+  display: grid;
+  grid-template-columns: var(--filter-columns);
+  gap: var(--space-3);
+  align-items: center;
+  min-width: 0;
 }
-
-.library-filter-bar .filter-field-group .filter-field:first-child .arco-select-view {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
+.filter-bar .filter-field-group {
+  display: grid;
+  grid-template-columns: var(--filter-group-columns);
+  gap: var(--space-1);
+  min-width: 0;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  background: var(--gray-50);
 }
-
-.library-filter-bar .filter-field-group .filter-field + .filter-field .arco-select-view {
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
+.filter-bar .filter-field {
+  width: 100%;
+  min-width: 0;
 }
-
-.customer-filter-bar .filter-bar-actions,
-.policy-filter-bar .filter-bar-actions,
-.product-filter-bar .filter-bar-actions,
-.library-filter-bar .filter-bar-actions {
-  margin-left: 0;
+.filter-bar .arco-select,
+.filter-bar .arco-input-wrapper,
+.filter-bar .arco-picker {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
-
+.filter-bar .arco-select-view,
+.filter-bar .arco-input-wrapper,
+.filter-bar .arco-picker {
+  background: var(--gray-100);
+  border-color: transparent;
+  border-radius: var(--radius-sm);
+}
+.filter-bar .arco-select-focused .arco-select-view,
+.filter-bar .arco-input-wrapper:focus-within,
+.filter-bar .arco-picker-focused {
+  border-color: var(--brand-6);
+  box-shadow: 0 0 0 2px var(--brand-1);
+}
+.filter-bar .filter-bar-actions {
+  justify-self: end;
+}
 @media (max-width: 1240px) {
-  .customer-filter-bar,
-  .policy-filter-bar,
-  .product-filter-bar,
-  .library-filter-bar {
-    flex-wrap: wrap;
-  }
-
-  .customer-filter-bar .filter-bar-grid,
-  .policy-filter-bar .filter-bar-grid,
-  .product-filter-bar .filter-bar-grid,
-  .library-filter-bar .filter-bar-grid {
-    flex-basis: 100%;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .customer-filter-bar .filter-bar-actions,
-  .policy-filter-bar .filter-bar-actions,
-  .product-filter-bar .filter-bar-actions,
-  .library-filter-bar .filter-bar-actions {
-    margin-left: auto;
+  .filter-bar .filter-bar-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+@media (max-width: 900px) {
+  .filter-bar .filter-bar-row-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 600px) {
+  .filter-bar .filter-bar-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* 多选标签数量由 Arco 按触发框宽度测量；折叠计数保留固有宽度。 */
+.filter-bar .filter-overflow-count {
+  flex-shrink: 0;
+}
+
+/* Shared table sizing: fixed header/body basis; one resize implementation. */
+.data-table .arco-table-th { position: relative; }
+.data-table .arco-table-cell-wrap-value { min-width: 0; max-width: 100%; }
+.table-column-resize { position: absolute; top: 0; right: 0; bottom: 0; width: 9px; cursor: col-resize; touch-action: none; user-select: none; z-index: 2; }
+.table-column-resize::after { content: ''; position: absolute; right: 3px; top: 25%; bottom: 25%; width: 1px; background: var(--gray-300); }
+.table-column-resize:hover::after, .table-column-resize:focus-visible::after { width: 2px; background: var(--brand-6); }
+.adaptive-table-shell { position: relative; min-width: 0; width: 100%; }
+.adaptive-table .data-table-scroll { height: auto; }
+.adaptive-table .arco-table, .adaptive-table .arco-table-container, .adaptive-table .arco-table-content-scroll { height: auto; }
+.data-table .data-link { max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* Arco defaults table min-width to 100%, which stretches short tables beyond
+   their measured/max widths. Keep explicit shared column widths authoritative. */
+.data-table .arco-table table { min-width: 0; }
+
+/* All data/form overlays share AppDrawer. Confirmation dialogs remain Modal. */
+.app-drawer .arco-drawer-inner { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+/* Arco's focus-lock span sits between inner and scroll. It must participate
+   in the height chain; otherwise long forms push the footer outside the panel. */
+.app-drawer .arco-drawer-inner > [data-focus-lock-disabled] { display: flex; flex-direction: column; flex: 1 1 0; height: 100%; min-height: 0; overflow: hidden; }
+.app-drawer .arco-drawer-scroll { display: flex; flex-direction: column; flex: 1; height: 100%; min-height: 0; overflow: hidden; }
+.app-drawer .arco-drawer-header, .app-drawer .arco-drawer-footer { flex-shrink: 0; }
+.app-drawer .arco-drawer-footer { position: sticky; bottom: 0; z-index: 2; background: var(--color-bg-3, var(--white)); }
+.app-drawer .arco-drawer-header-title { min-width: 0; overflow-wrap: anywhere; }
+.app-drawer .arco-drawer-content { flex: 1; height: auto; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.app-drawer .record-detail-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }
+.app-drawer .record-detail-grid > div { min-width: 0; display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: var(--space-4); padding: var(--space-3) 0; border-bottom: 1px solid var(--gray-100); }
+.app-drawer .record-detail-grid strong { margin: 0; font-size: var(--text-sm); }
+.app-drawer .record-detail-grid span { overflow-wrap: anywhere; white-space: pre-wrap; }
+
+@media (max-width: 600px) { .app-drawer .record-detail-grid > div { grid-template-columns: 100px minmax(0, 1fr); } }
+
+/* Independent form fields always stack. Only controls of one logical field
+   (e.g. a rule predicate or packaging quantity/unit) may share a row. */
+.app-drawer.form-drawer .drawer-field-stack { display: grid; grid-template-columns: minmax(0, 1fr); }
+.app-drawer.form-drawer .drawer-field-stack > .full-row { grid-column: auto; }
+.app-drawer.form-drawer .drawer-field-stack > div { min-width: 0; }

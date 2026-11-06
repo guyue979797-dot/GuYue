@@ -1,3 +1,4 @@
+import { FormDrawer } from "../../components/ui/FormDrawer.jsx";
 /**
  * CRM 图片处理页面入口。
  */
@@ -15,7 +16,7 @@ import {
   Tabs,
   Text,
 } from "../../lib/arco.js";
-import { FilterBar } from "../../components/ui/FilterBar.jsx";
+import { FilterBar, sameFilterValue } from "../../components/ui/FilterBar.jsx";
 import { StatusAlert } from "../../components/ui/StatusAlert.jsx";
 import { TerminalListModal } from "../../components/business/TerminalListModal.jsx";
 import { ImageArchiveBadges } from "../../components/business/ImageArchiveBadges.jsx";
@@ -156,7 +157,7 @@ export function PhotoLibraryPage({ activeMonth, onMonthsChange }) {
       type: "multi-select",
       placeholder: "业务",
       options: library.data.businesses || [],
-      maxTagCount: 1,
+      maxTagCount: "responsive",
     },
     {
       name: "policyMatch",
@@ -220,7 +221,13 @@ export function PhotoLibraryPage({ activeMonth, onMonthsChange }) {
     <div className="crm-page">
       <Card bordered className="filter-module">
         <FilterBar
-          fields={filterFields}
+          fields={[...filterFields.slice(0, 5), filterFields[6], filterFields[5]].map((field, index) => ({
+            ...field,
+            ...(index >= 5 ? { row: 1, group: 'photo-customer-filter' } : {}),
+            ...(field.name === 'policyMatch' || field.name === 'archivePolicyMatch' ? { width: 120 } : {}),
+            ...(field.name === 'policyIds' || field.name === 'archivePolicyIds' ? { width: 260, showSearch: true } : {}),
+            ...(field.name === 'customerName' ? { width: 260 } : {}),
+          }))}
           values={{
             businesses: library.businesses,
             policyMatch: library.policyMatch,
@@ -243,9 +250,7 @@ export function PhotoLibraryPage({ activeMonth, onMonthsChange }) {
             keys.forEach((key) => {
               const next = nextValues[key];
               const current = library[key];
-              const changed = Array.isArray(current)
-                ? current.length !== (next || []).length
-                : current !== next;
+              const changed = !sameFilterValue(current, next);
               if (changed) {
                 const setters = {
                   businesses: library.setBusinesses,
@@ -487,7 +492,7 @@ export function PhotoLibraryPage({ activeMonth, onMonthsChange }) {
         onClose={() => setExtractionRecordsOpen(false)}
       />
 
-      <Modal
+      <FormDrawer
         title="新增"
         visible={createOpen}
         footer={null}
@@ -503,7 +508,7 @@ export function PhotoLibraryPage({ activeMonth, onMonthsChange }) {
             <BatchExtract onRefreshResults={refreshAfterExtraction} />
           </TabPane>
         </Tabs>
-      </Modal>
+      </FormDrawer>
 
       <Modal
         title="删除标签"
