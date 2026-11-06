@@ -35,3 +35,28 @@ assert.equal(tree.props.columns[1].render(null,tree.props.data[0]),action);
 tree.props.columns[1].render(null,tree.props.data[0]).props.onClick();
 assert.equal(clicked,true);
 console.log('弹窗表格迁移检查通过：条件列对齐、行保留、按钮及原回调保留');
+
+// Reproduce a tall body running below the viewport into pagination. Header
+// growth and viewport resize must change the body cap; natural-height drilldowns
+// must retain their requested cap rather than shrinking to their current rows.
+let measured, effect, resize, disconnected = false;
+let viewportBottom = 600, bodyTop = 140;
+const header = {};
+const viewport = { getBoundingClientRect:()=>({top:100,bottom:viewportBottom}),
+  querySelector:selector=>selector==='.arco-table-body'?{getBoundingClientRect:()=>({top:bodyTop})}:header };
+const ref = {current:viewport};
+const heights = { window:{React:{useRef:()=>ref,useState:()=>[measured,value=>{measured=value;}],useEffect:fn=>{effect=fn;}},
+  addEventListener(){},removeEventListener(){}},
+  ResizeObserver:class {constructor(callback){resize=callback;}observe(){}disconnect(){disconnected=true;}} };
+vm.createContext(heights);
+const heightBundle=await build({entryPoints:['src/components/ui/useTableBodyHeight.js'],bundle:true,write:false,format:'iife',globalName:'Height'});
+vm.runInContext(heightBundle.outputFiles[0].text,heights);
+heights.Height.useTableBodyHeight(600,true);
+const cleanup=effect();
+assert.equal(heights.Height.useTableBodyHeight(600,true)[1],459);
+viewportBottom=400;bodyTop=160;resize();
+assert.equal(heights.Height.useTableBodyHeight(600,true)[1],239);
+assert.equal(heights.Height.useTableBodyHeight(320,false)[1],320);
+assert.equal(heights.Height.useTableBodyHeight(undefined,true)[1],undefined);
+cleanup();assert.equal(disconnected,true);
+console.log('表格高度回归通过：表头占位、缩放收缩、分页边界及自适应钻取表格');

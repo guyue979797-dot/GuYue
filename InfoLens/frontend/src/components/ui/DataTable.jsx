@@ -7,6 +7,7 @@
  */
 import React, { useMemo } from "../../lib/react.js";
 import { useTableColumnWidths } from "./useTableColumnWidths.js";
+import { useTableBodyHeight } from "./useTableBodyHeight.js";
 import { TableText } from "./TableText.jsx";
 import { columnValue, columnKey } from "./tableColumnSizing.js";
 import { Empty, Pagination, Select, Table } from "../../lib/arco.js";
@@ -22,6 +23,7 @@ export function DataTable({
   scrollX = "max-content",
   scrollY,
   pagination,
+  fitContainer = Boolean(pagination),
   onRow,
   onChange,
   rowClassName,
@@ -32,6 +34,7 @@ export function DataTable({
   pageSizeOptions = [20, 50, 100],
 }) {
   const sizing = useTableColumnWidths(columns, data);
+  const [viewportRef, bodyHeight] = useTableBodyHeight(scrollY, fitContainer);
   const stableColumns = useMemo(() => {
     // 所有列表默认左对齐，确保表头与单元格使用同一条左侧基线。
     // 如未来确有例外，必须同时在需求与列定义中明确说明。
@@ -63,7 +66,7 @@ export function DataTable({
 
   return (
     <div className={`data-table ${className}`.trim()}>
-      <div className="data-table-scroll">
+      <div className="data-table-scroll" ref={viewportRef}>
         <Table
           rowKey={rowKey}
           columns={stableColumns}
@@ -71,7 +74,7 @@ export function DataTable({
           loading={loading}
           noDataElement={empty}
           tableLayoutFixed
-          scroll={{ x: resolvedScrollX, y: scrollY }}
+          scroll={{ x: resolvedScrollX, y: bodyHeight }}
           border={border}
           size={size}
           onRow={onRow}

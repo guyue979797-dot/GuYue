@@ -127,10 +127,11 @@
  * 这会破坏 table-layout: fixed 的宽度分配，使列宽被放大到异常数值，表现为
  * “只有第一列可见、其余字段像消失了一样”。
  */
-.data-table-scroll .arco-table,
+.data-table-scroll .arco-table { height: 100%; min-height: 0; }
+/* Header + measured body determine the intrinsic height. Forcing both nested
+   wrappers to 100% adds the header twice and clips the last rows/scrollbar. */
 .data-table-scroll .arco-table-container,
 .data-table-scroll .arco-table-content-scroll {
-  height: 100%;
   min-height: 0;
 }
 
