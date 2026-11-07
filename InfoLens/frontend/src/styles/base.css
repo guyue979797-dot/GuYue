@@ -16,18 +16,6 @@ body {
   font-family: inherit;
 }
 
-:where(button, a, input, textarea, select):focus-visible {
-  outline: 2px solid var(--brand-4);
-  outline-offset: 2px;
-}
-
-/* Arco draws focus on the control or its wrapper. A second native outline on
-   the inner input overlaps prefixes and stretches beyond the outer border. */
-:where(.arco-input, .arco-textarea, .arco-select-view-input, .arco-picker input):focus-visible {
-  outline: none;
-  outline-offset: 0;
-}
-
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

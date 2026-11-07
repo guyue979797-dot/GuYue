@@ -265,7 +265,7 @@
 }
 
 .product-form-grid .arco-select,
-.product-form-grid .arco-input-wrapper {
+.product-form-grid .arco-input-inner-wrapper {
   width: 100%;
 }
 
@@ -282,21 +282,12 @@
   box-sizing: border-box;
 }
 
-.product-multi-input:focus-within {
-  border-color: var(--brand-6);
-  box-shadow: 0 0 0 2px rgba(22, 93, 255, 0.1);
-}
-
-.product-multi-input .arco-input-wrapper {
+.product-multi-input > .arco-input {
   flex: 1 1 180px;
   min-width: 160px;
   padding: 0;
   border: 0;
   background: transparent;
-}
-
-.product-multi-input .arco-input-wrapper:focus-within {
-  box-shadow: none;
 }
 
 .product-multi-input .product-code-tag {

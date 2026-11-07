@@ -24,7 +24,7 @@ function MultiValueInput({ value, onChange, placeholder }) {
   }
 
   return (
-    <div className="product-multi-input">
+    <div className="product-multi-input" data-focus-owner>
       {(value || []).map((item) => (
         <span className="product-code-tag" key={item}>
           {item}

@@ -651,7 +651,7 @@ body {
 }
 
 .filter-grid .arco-select,
-.filter-grid .arco-input-wrapper {
+.filter-grid .arco-input-inner-wrapper {
   width: 100%;
 }
 
@@ -1063,7 +1063,6 @@ body {
   resize: none;
   border: 1px solid var(--gray-200);
   border-radius: 8px;
-  outline: none;
   background: var(--white);
   color: var(--gray-800);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
@@ -1085,11 +1084,6 @@ body {
 
 .terminal-excel-toolbar strong {
   color: var(--brand-6);
-}
-
-.terminal-excel-textarea:focus {
-  border-color: var(--brand-6);
-  box-shadow: 0 0 0 2px rgba(22, 93, 255, 0.1);
 }
 
 .export-records-modal {
@@ -1144,30 +1138,6 @@ body {
   font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.manual-copy-textarea {
-  width: 100%;
-  min-height: 128px;
-  max-height: min(320px, 40vh);
-  padding: 10px 12px;
-  overflow: auto;
-  resize: vertical;
-  border: 1px solid var(--gray-300);
-  border-radius: 4px;
-  outline: none;
-  background: var(--white);
-  color: var(--gray-800);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 14px;
-  line-height: 1.7;
-  letter-spacing: 0;
-  box-sizing: border-box;
-}
-
-.manual-copy-textarea:focus {
-  border-color: var(--brand-6);
-  box-shadow: 0 0 0 2px rgba(22, 93, 255, 0.12);
 }
 
 .field-details-meta {
@@ -2038,7 +2008,7 @@ body {
     grid-template-columns: 38px 1fr 1fr;
   }
 
-  .policy-condition-row .arco-input-wrapper {
+  .policy-condition-row .arco-input-inner-wrapper {
     grid-column: 2 / -1;
   }
 

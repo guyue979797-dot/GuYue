@@ -239,24 +239,19 @@
   min-width: 0;
 }
 .filter-bar .arco-select,
-.filter-bar .arco-input-wrapper,
+.filter-bar .arco-input,
+.filter-bar .arco-input-inner-wrapper,
 .filter-bar .arco-picker {
   width: 100%;
   min-width: 0;
   max-width: 100%;
 }
 .filter-bar .arco-select-view,
-.filter-bar .arco-input-wrapper,
+.filter-bar .arco-input,
+.filter-bar .arco-input-inner-wrapper,
 .filter-bar .arco-picker {
   background: var(--gray-100);
-  border-color: transparent;
   border-radius: var(--radius-sm);
-}
-.filter-bar .arco-select-focused .arco-select-view,
-.filter-bar .arco-input-wrapper:focus-within,
-.filter-bar .arco-picker-focused {
-  border-color: var(--brand-6);
-  box-shadow: 0 0 0 2px var(--brand-1);
 }
 .filter-bar .filter-bar-actions {
   justify-self: end;

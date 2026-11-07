@@ -172,6 +172,7 @@ export function TerminalListModal({
           </Button>
         </div>
         <textarea
+          data-focus-owner
           ref={excelTextRef}
           className="terminal-excel-textarea"
           value={excelText}

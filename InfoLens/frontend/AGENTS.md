@@ -18,3 +18,9 @@
 - 新增/编辑抽屉的独立字段必须单列，容器使用drawer-field-stack；禁止用双列表单栅格。仅同一逻辑字段的组合控件可同行。
 
 - 应用完整颜色使用--brand-*及语义Token；Arco的--primary-*为RGB通道，仅通过rgb()/rgba()使用，不可重定义或直接用作颜色。
+
+## 输入控件焦点
+
+- 遵守../docs/输入控件焦点设计规范.md。一个输入控件只允许一层焦点外框；由Arco本身或data-focus-owner负责，内部编辑器不重复绘制outline、边框及阴影。
+- 所有通用输入焦点规则集中在styles/focus.css，禁止业务页面补丁和失效的.arco-input-wrapper选择器。保留错误、警告、禁用、只读及键盘焦点语义。
+- 原生文本控件及自定义组合输入必须声明data-focus-owner；执行npm run check:focus和真实浏览器焦点回归。

@@ -163,6 +163,7 @@ export function CustomerFormModal({
         <div className="full-row">
           <label>备注</label>
           <textarea
+            data-focus-owner
             className="customer-textarea"
             value={form.remark}
             maxLength={1000}
