@@ -1,5 +1,6 @@
 import React, { useRef, useState } from "../../lib/react.js";
-import { Button, Modal, Space, DatePicker } from "../../lib/arco.js";
+import { Alert, Button, Modal, Space, DatePicker } from "../../lib/arco.js";
+import { exportSales } from "../../api/sales.js";
 import { FilterBar } from "../../components/ui/FilterBar.jsx";
 import { StatusAlert } from "../../components/ui/StatusAlert.jsx";
 import { useContainerHeight } from "../../hooks/useContainerHeight.js";
@@ -44,7 +45,22 @@ export function SalesPage() {
   const [syncVisible, setSyncVisible] = useState(false);
   const [costVisible, setCostVisible] = useState(false);
   const [costMonth, setCostMonth] = useState('');
+  const [exportVisible, setExportVisible] = useState(false);
+  const [exportMonth, setExportMonth] = useState('');
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
   const [shell, height] = useContainerHeight(64);
+  async function downloadMonth() {
+    if (!exportMonth || exporting) return;
+    setExporting(true);
+    setExportError('');
+    try {
+      await exportSales(exportMonth);
+      setExportVisible(false);
+    } catch (error) {
+      setExportError(error.message);
+    } finally { setExporting(false); }
+  }
   function confirmDelete() {
     const ids = [...sales.selectedKeys];
     if (!ids.length) return;
@@ -64,6 +80,12 @@ export function SalesPage() {
       <div className="table-page-toolbar">
         <div className="table-page-toolbar-title"><strong>单据明细</strong><span>共 {sales.data.total} 条</span></div>
         <Space>
+          <Button disabled={sales.uploading || sales.deleting || sales.updatingCost || exporting || !sales.data.options?.month?.length}
+            onClick={() => {
+              setExportMonth(sales.query.month || sales.data.options?.month?.[0] || '');
+              setExportError('');
+              setExportVisible(true);
+            }}>导出销售表</Button>
           <Button disabled={sales.uploading || sales.deleting || sales.updatingCost} onClick={() => {
             setCostMonth(sales.query.month || sales.data.options?.month?.[0] || '');
             setCostVisible(true);
@@ -85,6 +107,19 @@ export function SalesPage() {
       <StatusAlert status={sales.status} className="table-page-status" /></div>
       <div className="table-page-shell" ref={shell}><SalesTable sales={sales} scrollY={height} /></div>
     </section>
+    <FormDrawer visible={exportVisible} title="导出销售表" size="small" okText="导出"
+      loading={exporting} okDisabled={!exportMonth} onSubmit={downloadMonth}
+      onCancel={() => { if (!exporting) setExportVisible(false); }}>
+      {exportError && <Alert type="error" content={exportError} />}
+      <div className="drawer-field-stack">
+        <div><label htmlFor="sales-export-month">选择月份</label>
+          <DatePicker.MonthPicker id="sales-export-month" aria-label="导出月份" value={exportMonth || undefined}
+            onChange={value => { setExportMonth(value); setExportError(''); }} disabled={exporting}
+            style={{ width: '100%' }} getPopupContainer={() => document.body} />
+        </div>
+      </div>
+      <p>导出所选月份的全部销售明细，包含隐藏字段，不受当前筛选条件和分页限制。</p>
+    </FormDrawer>
     <FormDrawer visible={costVisible} title="更新商品成本" size="small" okText="开始计算"
       loading={sales.updatingCost} okDisabled={!costMonth || sales.updatingCost}
       onCancel={() => { if (!sales.updatingCost) setCostVisible(false); }}

@@ -33,6 +33,22 @@ class ProductStoreTests(unittest.TestCase):
     def tearDown(self):
         self.temporary_directory.cleanup()
 
+    def test_default_status_order_and_explicit_inventory_sort(self):
+        def create(code, status, inventory):
+            return self.store.create_product({'product_codes': [code], 'housekeeper_codes': [code],
+                'product_name': code, 'short_name': code, 'status': status, 'snow_inventory': inventory,
+                'specification': 12, 'auxiliary_unit': '听'}, operator='test', operator_name='测试')
+        offline = create('OFFLINE', '下线', 1)
+        normal = create('NORMAL', '正常', 5)
+        pending = create('PENDING', '待处理', 9)
+        legacy = create('LEGACY', '正常', 3)
+        with self.store._connect() as db:
+            db.execute("UPDATE products SET status='待完善',status_override='' WHERE id=?", (legacy['id'],))
+        self.assertEqual([item['status'] for item in self.store.list_products()['items']], ['待处理', '待处理', '正常', '下线'])
+        self.assertEqual([item['status'] for item in self.store.list_products(page=2, page_size=2)['items']], ['正常', '下线'])
+        self.assertEqual([item['id'] for item in self.store.list_products(inventory_sort='asc')['items']],
+            [offline['id'], legacy['id'], normal['id'], pending['id']])
+
     def test_normal_product_options_survive_month_change(self):
         def create(code, status):
             return self.store.create_product({'product_codes':[code],'housekeeper_codes':['G-'+code],

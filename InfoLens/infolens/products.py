@@ -585,7 +585,9 @@ class ProductStore:
             f"products.snow_inventory {inventory_sort.upper()}, "
             "products.updated_at DESC, products.id DESC"
             if inventory_sort
-            else "products.updated_at DESC, products.id DESC"
+            else "CASE WHEN products.status_override = '下线' THEN 2 "
+                 "WHEN products.status_override = '待处理' OR products.status = '待完善' THEN 0 "
+                 "ELSE 1 END, products.updated_at DESC, products.id DESC"
         )
         where = " AND ".join(conditions)
         with self._connect() as connection:

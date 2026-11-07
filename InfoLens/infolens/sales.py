@@ -317,6 +317,21 @@ class SalesStore:
             ])
         return len(processed)
 
+    def month_rows(self, month):
+        if not isinstance(month, str) or not re.fullmatch(r'[0-9]{4}-(0[1-9]|1[0-2])', month) or month.startswith('0000'):
+            raise ValueError('请选择有效的导出月份')
+        with self.connect() as db:
+            records = db.execute(
+                "SELECT id,payload FROM sales WHERE substr(json_extract(payload, '$.date'),1,7)=? ORDER BY json_extract(payload, '$.date'), id",
+                (month,),
+            ).fetchall()
+            meta = dict(db.execute('SELECT key,value FROM sales_meta'))
+        items = [{'id': key, 'values': {**row['source'], **row['analysis']}}
+                 for key, raw in records for row in [json.loads(raw)]]
+        columns = list(dict.fromkeys(json.loads(meta.get('headers', '[]')) + FIELDS
+            + [field for item in items for field in item['values']]))
+        return {'items': items, 'columns': columns, 'total': len(items)}
+
     def list_rows(self, document='', page=1, page_size=20, sort_by='', sort_order='', **filters):
         if page < 1 or page_size not in (20, 50, 100, 500, 1000):
             raise ValueError('分页参数不正确')

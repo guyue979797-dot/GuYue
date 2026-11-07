@@ -70,6 +70,7 @@ from infolens.extractor import (
 )
 from infolens.image_library import ImageLibraryStore
 from infolens.sales import SalesStore, parse_workbook as parse_sales_workbook
+from infolens.sales_export import build_sales_workbook
 from infolens.policy_costs import PolicyCostAllocator, COST_LOCK
 from infolens.sales_profit import enrich_sales_profit
 from infolens.product_sales_sync import sync_sales_products
@@ -2245,6 +2246,23 @@ def create_app() -> Flask:
             ), PRODUCT_STORE, policy_allocator))
         except (ValueError, TypeError) as exc:
             return jsonify({"error": str(exc) or "分页参数不正确"}), 400
+
+    @application.post('/api/sales/export')
+    @_login_required
+    @cost_serialized
+    def export_sales():
+        _check_csrf()
+        try:
+            month = request.args.get('month', '')
+            result = sales_store.month_rows(month)
+            if not result['items']:
+                raise ValueError('所选月份暂无销售数据')
+            result = enrich_sales_profit(result, PRODUCT_STORE, policy_allocator)
+            return send_file(build_sales_workbook(result), as_attachment=True,
+                download_name=f'销售明细_{month}.xlsx',
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        except (ValueError, TypeError) as exc:
+            return jsonify({'error': str(exc)}), 400
 
     @application.post("/api/sales/recalculate-cost")
     @_login_required

@@ -161,12 +161,12 @@ export function ProductDrawer({ visible, product, mode, onModeChange, onClose, o
           </Select>
         </div>
         <div><label>成本价</label>
-          <Input value={form.cost_price} prefix="¥" placeholder="选填" onChange={value => {
+          <Input aria-label="成本价" value={form.cost_price} prefix="¥" placeholder="选填" onChange={value => {
             if (/^\d*(\.\d{0,2})?$/.test(value)) setField('cost_price', value);
           }} />
         </div>
         <div><label>雪花结算价</label>
-          <Input value={form.settlement_price} prefix="¥" placeholder="选填" onChange={value => {
+          <Input aria-label="雪花结算价" value={form.settlement_price} prefix="¥" placeholder="选填" onChange={value => {
             if (/^\d*(\.\d{0,2})?$/.test(value)) setField('settlement_price', value);
           }} />
         </div>

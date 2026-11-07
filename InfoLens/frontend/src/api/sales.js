@@ -1,4 +1,10 @@
-import { apiRequest, buildQuery } from "./http.js";
+import { apiRequest, buildQuery, downloadPostFile } from "./http.js";
+import { saveBlobDownload } from "../utils/browser.js";
+
+export async function exportSales(month) {
+  const { blob, filename } = await downloadPostFile(`/api/sales/export?${buildQuery({ month })}`);
+  await saveBlobDownload(blob, filename);
+}
 
 async function salesRequest(url, options) {
   try {
