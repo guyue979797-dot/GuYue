@@ -161,13 +161,11 @@ export function SnowPolicyPage({ isAdmin }) {
             <span>共 {policies.total} 条</span>
           </div>
           <div className="policy-latest-upload toolbar-center">
-            <span>雪花出库最新更新时间</span>
+            <span>更新于</span>
             {latestUploadDate ? (
-              <strong className="policy-date-display" aria-label={`${latestUploadDate.year}年${latestUploadDate.month}月${latestUploadDate.day}日`}>
-                <span className="policy-date-tag">{latestUploadDate.year}</span><em>年</em>
-                <span className="policy-date-tag">{latestUploadDate.month}</span><em>月</em>
-                <span className="policy-date-tag">{latestUploadDate.day}</span><em>日</em>
-              </strong>
+              <time className="policy-date-display" dateTime={`${latestUploadDate.year}-${latestUploadDate.month}-${latestUploadDate.day}`}>
+                  {latestUploadDate.year}-{latestUploadDate.month}-{latestUploadDate.day}
+                </time>
             ) : (
               <strong className="policy-date-empty">暂无上传记录</strong>
             )}

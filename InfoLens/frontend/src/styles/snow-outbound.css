@@ -514,29 +514,7 @@
   font-weight: 600;
 }
 
-.policy-date-display {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.policy-date-display .policy-date-tag {
-  min-width: 28px;
-  padding: 2px 7px;
-  color: var(--brand-6);
-  font-variant-numeric: tabular-nums;
-  line-height: 20px;
-  text-align: center;
-  background: var(--brand-1);
-  border: 1px solid var(--brand-3);
-  border-radius: 5px;
-}
-
-.policy-date-display em {
-  color: var(--gray-600);
-  font-style: normal;
-  font-weight: 500;
-}
+.policy-date-display { color: var(--gray-600); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 
 .policy-date-empty {
   color: var(--gray-400);

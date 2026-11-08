@@ -9,11 +9,6 @@ import { TableRowActions } from "../../components/ui/TableRowActions.jsx";
 import { TableText } from "../../components/ui/TableText.jsx";
 import { PolicyTagList } from "../../components/business/PolicyTagList.jsx";
 
-function PersonTag({ name }) {
-  if (!name) return "-";
-  return <span className="person-tag person-gray"><TableText value={name} /></span>;
-}
-
 export function CustomerTable({
   items,
   total,
@@ -63,13 +58,13 @@ export function CustomerTable({
       title: "业务员",
       key: "salesperson",
 
-      render: (value, customer) => <PersonTag name={customer.salesperson} />,
+      render: (value, customer) => <TableText value={customer.salesperson} />,
     },
     {
       title: "雪花业务员",
       key: "snow_salesperson",
 
-      render: (value, customer) => <PersonTag name={customer.snow_salesperson} />,
+      render: (value, customer) => <TableText value={customer.snow_salesperson} />,
     },
     {
       title: "终端业态",

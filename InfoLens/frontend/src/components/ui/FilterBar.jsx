@@ -1,5 +1,5 @@
 /** 统一筛选：按 row 分行，width/weight 作为比例权重；条件组不拆散，末行提供查询与重置。 */
-import React from "../../lib/react.js";
+import React, { useState } from "../../lib/react.js";
 import { Button, DatePicker, Input, Select, Space, Tag } from "../../lib/arco.js";
 
 const { Option } = Select;
@@ -36,12 +36,21 @@ const weight = (field) => Number(field.weight || field.width || 180);
 const columns = (weights) => weights.map((value) => `minmax(0, ${value}fr)`).join(' ');
 
 export function FilterBar({ fields = [], values = {}, onChange, onSearch, onReset,
-  loading = false, showActions = true, className = "" }) {
+  loading = false, showActions = true, showLabels = true, collapsible = true, className = "" }) {
+  const [collapsed, setCollapsed] = useState(false);
   const rows = groupFilterFields(fields);
+  const toggle = collapsible && <button type="button" className="action-detail filter-bar-toggle"
+    aria-expanded={!collapsed} onClick={() => setCollapsed(previous => !previous)}>
+    {collapsed ? '展开筛选' : '收起筛选'}
+  </button>;
   function setValue(name, value) { onChange?.({ ...values, [name]: value }); }
   function renderField(field) {
     const name = field.name;
-    const common = { placeholder: field.placeholder, 'aria-label': field.label,
+    const labeledPlaceholder = field.type === 'select' || field.type === 'multi-select'
+      ? '全部' : field.type === 'month' ? '选择月份' : '请输入';
+    const placeholder = showLabels && (!field.placeholder || field.placeholder === field.label)
+      ? labeledPlaceholder : field.placeholder;
+    const common = { placeholder, 'aria-label': field.label,
       className: field.className, disabled: field.disabled };
     const value = values[name];
     let control;
@@ -74,11 +83,14 @@ export function FilterBar({ fields = [], values = {}, onChange, onSearch, onRese
       control = <Input {...common} value={value ?? ''} maxLength={field.maxLength}
         onChange={(next) => setValue(name, next)} onPressEnter={onSearch} />;
     }
-    return <div key={name} className={`filter-field filter-field-${field.type}`}>{control}</div>;
+    return <div key={name} className={`filter-field filter-field-${field.type}`}>
+      {showLabels && <span className="filter-field-label">{field.label}</span>}
+      {control}
+    </div>;
   }
   return <div className={`filter-bar ${className}`.trim()}>
-    {rows.map((groups, index) => {
-      const actions = showActions && index === rows.length - 1;
+    {collapsed && collapsible ? toggle : rows.map((groups, index) => {
+      const actions = (showActions || collapsible) && index === rows.length - 1;
       return <div className={`filter-bar-row ${actions ? 'filter-bar-row-actions' : ''}`} key={index}>
         <div className="filter-bar-grid" style={{ "--filter-columns": columns(groups.map((group) =>
           group.fields[0].groupWeight || group.fields.reduce((sum, field) => sum + weight(field), 0))) }}>
@@ -90,8 +102,9 @@ export function FilterBar({ fields = [], values = {}, onChange, onSearch, onRese
             : renderField(group.fields[0]))}
         </div>
         {actions ? <Space className="filter-bar-actions">
-          <Button type="primary" loading={loading} onClick={onSearch}>查询</Button>
-          <Button onClick={onReset}>重置</Button>
+          {showActions && <Button type="primary" loading={loading} onClick={onSearch}>查询</Button>}
+          {showActions && <Button onClick={onReset}>重置</Button>}
+          {toggle}
         </Space> : null}
       </div>;
     })}

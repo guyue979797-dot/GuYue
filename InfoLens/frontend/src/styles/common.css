@@ -17,22 +17,16 @@
 
 .action-detail {
   min-height: 28px;
-  padding: 2px 10px;
-  border: 1px solid var(--brand-3);
+  padding: var(--space-1);
+  border: 0;
   border-radius: var(--radius-sm);
-  background: var(--brand-1);
-  color: var(--brand-7);
+  background: transparent;
+  color: var(--gray-600);
   cursor: pointer;
   font-size: var(--text-sm);
-  font-weight: 500;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  font-weight: 400;
 }
-
-.action-detail:hover {
-  border-color: var(--brand-4);
-  background: var(--brand-2);
-  color: var(--brand-7);
-}
+.action-detail:hover { color: var(--gray-900); text-decoration: underline; }
 
 .action-kebab {
   width: 28px;
@@ -177,15 +171,6 @@
   .record-detail-grid {
     grid-template-columns: 1fr;
   }
-}
-
-/* 照片页沿用 Card 容器，筛选区域的边距和阴影与统一表格页保持一致。 */
-.crm-page .filter-module {
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
-}
-.crm-page .filter-module > .arco-card-body {
-  padding: var(--space-3) var(--space-4);
 }
 
 /* 照片标题使用外层网格剩余宽度，而不是固定的240/110/60px上限。 */

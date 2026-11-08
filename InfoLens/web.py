@@ -72,7 +72,7 @@ from infolens.image_library import ImageLibraryStore
 from infolens.sales import SalesStore, parse_workbook as parse_sales_workbook
 from infolens.sales_export import build_sales_workbook
 from infolens.policy_costs import PolicyCostAllocator, COST_LOCK
-from infolens.sales_profit import enrich_sales_profit
+from infolens.sales_profit import enrich_sales_profit, list_sales_with_profit
 from infolens.product_sales_sync import sync_sales_products
 from infolens.products import ProductStore, parse_stock_workbook
 from infolens.product_policies import ProductPolicyStore
@@ -2234,7 +2234,7 @@ def create_app() -> Flask:
     @cost_serialized
     def list_sales():
         try:
-            return jsonify(enrich_sales_profit(sales_store.list_rows(
+            return jsonify(list_sales_with_profit(sales_store, PRODUCT_STORE, policy_allocator,
                 document=request.args.get("document", ""),
                 category=request.args.getlist("category"),
                 **{key: request.args.get(key, "") for key in (
@@ -2243,7 +2243,7 @@ def create_app() -> Flask:
                 )},
                 page=int(request.args.get("page", "1")),
                 page_size=int(request.args.get("page_size", "20")),
-            ), PRODUCT_STORE, policy_allocator))
+            ))
         except (ValueError, TypeError) as exc:
             return jsonify({"error": str(exc) or "分页参数不正确"}), 400
 

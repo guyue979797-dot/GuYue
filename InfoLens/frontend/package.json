@@ -12,10 +12,13 @@
     "check:notifications": "node scripts/check-notifications.mjs",
     "check:product-widths": "node scripts/check-product-widths.mjs",
     "check:tables": "node scripts/check-product-widths.mjs && node scripts/check-tables.mjs",
-    "check": "npm run check:arch && npm run check:filters && npm run check:notifications && npm run check:tables && npm run check:product-drawer && npm run check:drawers && npm run check:focus",
+    "check": "npm run check:arch && npm run check:filters && npm run check:notifications && npm run check:tables && npm run check:product-drawer && npm run check:drawers && npm run check:focus && npm run check:ui",
     "check:focus": "node scripts/check-focus.mjs",
     "check:product-drawer": "node scripts/check-product-drawer.mjs",
-    "check:drawers": "node scripts/check-drawers.mjs"
+    "check:drawers": "node scripts/check-drawers.mjs",
+    "demo:build": "node build-demo.mjs",
+    "demo": "node build-demo.mjs && node serve-demo.mjs",
+    "check:ui": "node scripts/check-ui.mjs"
   },
   "dependencies": {
     "@arco-design/web-react": "^2.66.0",

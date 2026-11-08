@@ -1,3 +1,4 @@
+import { useDraftState } from '../../hooks/useDraftState.js';
 /**
  * 新增/编辑客户档案弹窗表单。
  */
@@ -17,12 +18,12 @@ export function CustomerFormModal({
   onClose,
   onSaved,
 }) {
-  const [form, setForm] = useState({ ...EMPTY_CUSTOMER_FORM });
+  const [form, setForm, resetForm, dirty] = useDraftState({ ...EMPTY_CUSTOMER_FORM });
   const [saving, setSaving] = useState(false);
 
   React.useEffect(() => {
     if (visible) {
-      setForm(customer ? { ...EMPTY_CUSTOMER_FORM, ...customer } : { ...EMPTY_CUSTOMER_FORM });
+      resetForm(customer ? { ...EMPTY_CUSTOMER_FORM, ...customer } : { ...EMPTY_CUSTOMER_FORM });
     }
   }, [visible, customer]);
 
@@ -58,7 +59,7 @@ export function CustomerFormModal({
       size="small"
       title={form.id ? "编辑客户档案" : "新增客户档案"}
       visible={visible}
-      loading={saving}
+      loading={saving} dirty={dirty}
       okDisabled={!canSave}
       okText={form.id ? "保存修改" : "确认新增"}
       onCancel={onClose}
@@ -68,7 +69,7 @@ export function CustomerFormModal({
       <div className="customer-form-grid drawer-field-stack">
         <div>
           <label><i>*</i>终端编码</label>
-          <Input
+          <Input aria-label="终端编码"
             value={form.terminal_code}
             maxLength={10}
             placeholder="10位纯数字"
@@ -77,7 +78,7 @@ export function CustomerFormModal({
         </div>
         <div>
           <label><i>*</i>客户全名</label>
-          <Input
+          <Input aria-label="客户全名"
             value={form.customer_name}
             maxLength={200}
             onChange={(value) => setField("customer_name", value)}
@@ -85,7 +86,7 @@ export function CustomerFormModal({
         </div>
         <div>
           <label>终端业态</label>
-          <Input
+          <Input aria-label="终端业态"
             value={form.terminal_business_type}
             maxLength={100}
             onChange={(value) => setField("terminal_business_type", value)}
@@ -93,7 +94,7 @@ export function CustomerFormModal({
         </div>
         <div>
           <label><i>*</i>状态</label>
-          <Select
+          <Select aria-label="状态"
             value={form.status}
             onChange={(value) => setField("status", value)}
           >
@@ -104,7 +105,7 @@ export function CustomerFormModal({
         </div>
         <div>
           <label>线路归属</label>
-          <Input
+          <Input aria-label="线路归属"
             value={form.route}
             maxLength={100}
             onChange={(value) => setField("route", value)}
@@ -112,7 +113,7 @@ export function CustomerFormModal({
         </div>
         <div>
           <label>业务员</label>
-          <Select
+          <Select aria-label="业务员"
             value={form.salesperson || undefined}
             allowClear
             placeholder="可不选择"
@@ -125,7 +126,7 @@ export function CustomerFormModal({
         </div>
         <div>
           <label>雪花业务员</label>
-          <Select
+          <Select aria-label="雪花业务员"
             value={form.snow_salesperson || undefined}
             allowClear
             placeholder="可不选择"
@@ -138,7 +139,7 @@ export function CustomerFormModal({
         </div>
         <div>
           <label>客户联系人</label>
-          <Input
+          <Input aria-label="客户联系人"
             value={form.contact}
             maxLength={100}
             onChange={(value) => setField("contact", value)}
@@ -146,7 +147,7 @@ export function CustomerFormModal({
         </div>
         <div>
           <label>客户手机</label>
-          <Input
+          <Input aria-label="客户手机"
             value={form.phone}
             maxLength={50}
             onChange={(value) => setField("phone", value)}
@@ -154,7 +155,7 @@ export function CustomerFormModal({
         </div>
         <div className="full-row">
           <label>客户地址</label>
-          <Input
+          <Input aria-label="客户地址"
             value={form.address}
             maxLength={500}
             onChange={(value) => setField("address", value)}
@@ -163,6 +164,7 @@ export function CustomerFormModal({
         <div className="full-row">
           <label>备注</label>
           <textarea
+            aria-label="备注"
             data-focus-owner
             className="customer-textarea"
             value={form.remark}

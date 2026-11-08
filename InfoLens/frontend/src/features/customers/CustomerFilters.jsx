@@ -49,7 +49,7 @@ export function CustomerFilters({
       name: "terminal_code",
       label: "终端编码",
       type: "input",
-      placeholder: "终端编码",
+      placeholder: "输入编码",
       maxLength: 10,
       width: 112,
     },
@@ -57,7 +57,7 @@ export function CustomerFilters({
       name: "customer_name",
       label: "客户全名",
       type: "input",
-      placeholder: "客户全名",
+      placeholder: "输入名称",
       width: 120,
     },
   ];

@@ -7,7 +7,8 @@ import { build } from 'esbuild';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const React = { createElement: (type, props, ...children) => ({ type, props: props || {}, children }) };
+let filterCollapsed = false;
+const React = { useState: () => [filterCollapsed, next => { filterCollapsed = typeof next === "function" ? next(filterCollapsed) : next; }], createElement: (type, props, ...children) => ({ type, props: props || {}, children }) };
 const Button = () => {}, Input = () => {}, Select = () => {}, MonthPicker = () => {}, RangePicker = () => {};
 Select.Option = () => {};
 const context = { window: { React, arco: { Button, Input, Select, DatePicker: { MonthPicker, RangePicker }, Space: () => {}, Tag: () => {}, Typography: { Ellipsis: () => {} } } }, document: { body: {} } };
@@ -50,6 +51,15 @@ assert.equal(selects[0].props.getPopupContainer(), context.document.body);
 nodes.find(node => node.type === MonthPicker).props.onChange('2026-11'); assert.equal(next.month, '2026-11');
 nodes.find(node => node.type === RangePicker).props.onChange(['2026-10-01', '2026-10-31']); assert.equal(next.dates.length, 2);
 assert.equal(flatten(FilterBar({ fields, showActions: false })).filter(node => node.type === Button).length, 0);
+const toggleNode = nodes.find(node => node.props.className?.includes('filter-bar-toggle'));
+assert.equal(toggleNode.props['aria-expanded'], true);
+toggleNode.props.onClick();
+const collapsedNodes = flatten(FilterBar({fields, values}));
+assert.equal(collapsedNodes.filter(node => node.type === Input || node.type === Select).length, 0);
+assert.equal(collapsedNodes.find(node => node.props.className?.includes('filter-bar-toggle')).props['aria-expanded'], false);
+collapsedNodes.find(node => node.props.className?.includes('filter-bar-toggle')).props.onClick();
+assert.equal(flatten(FilterBar({fields, values})).find(node => node.type === Input).props.value, '001');
+assert.equal(searches, 2); assert.equal(resets, 1);
 console.log('统一筛选组件检查通过：分行/组合、查询/重置/回车、多选、月份/日期、零值、弹层挂载');
 
 async function featureModule(file, name) {

@@ -28,3 +28,6 @@
   background: transparent;
   box-shadow: none;
 }
+
+/* The standalone login shares this focus source and complete brand colors. */
+.login-panel [data-focus-owner]:focus-within { border-color: var(--brand-6); box-shadow: none; }

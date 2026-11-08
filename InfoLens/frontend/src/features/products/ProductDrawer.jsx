@@ -1,3 +1,4 @@
+import { useDraftState } from '../../hooks/useDraftState.js';
 import { AppDrawer } from "../../components/ui/AppDrawer.jsx";
 /**
  * 商品右侧抽屉：详情、新增、编辑。
@@ -10,7 +11,7 @@ import { AUXILIARY_UNITS, PRODUCT_STATUSES, PRODUCT_BRANDS, PRODUCT_GRADES, empt
 
 const { Option } = Select;
 
-function MultiValueInput({ value, onChange, placeholder }) {
+function MultiValueInput({ value, onChange, onDraftChange, placeholder }) {
   const [draft, setDraft] = useState("");
 
   function append(raw) {
@@ -21,6 +22,7 @@ function MultiValueInput({ value, onChange, placeholder }) {
     if (!additions.length) return;
     onChange(Array.from(new Set([...(value || []), ...additions])));
     setDraft("");
+    onDraftChange?.(false);
   }
 
   return (
@@ -38,7 +40,7 @@ function MultiValueInput({ value, onChange, placeholder }) {
       <Input
         value={draft}
         placeholder={value?.length ? "继续输入" : placeholder}
-        onChange={setDraft}
+        onChange={value => { setDraft(value); onDraftChange?.(Boolean(value.trim())); }}
         onBlur={() => append(draft)}
         onPaste={(event) => {
           const text = event.clipboardData?.getData("text") || "";
@@ -59,13 +61,15 @@ function MultiValueInput({ value, onChange, placeholder }) {
 }
 
 export function ProductDrawer({ visible, product, mode, onModeChange, onClose, onSaved }) {
-  const [form, setForm] = useState(emptyProductForm());
+  const [form, setForm, resetForm, dirty] = useDraftState(emptyProductForm());
+  const [pendingCode, setPendingCode] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
+    setPendingCode(false);
     if (product) {
-      setForm({
+      resetForm({
         ...product,
         snow_inventory: String(product.snow_inventory ?? 0),
         specification: product.specification == null ? "" : String(product.specification),
@@ -73,7 +77,7 @@ export function ProductDrawer({ visible, product, mode, onModeChange, onClose, o
         settlement_price: product.settlement_price == null ? "" : String(product.settlement_price),
       });
     } else {
-      setForm(emptyProductForm());
+      resetForm(emptyProductForm());
     }
   }, [visible, product, mode]);
 
@@ -127,13 +131,13 @@ export function ProductDrawer({ visible, product, mode, onModeChange, onClose, o
     <AppDrawer
       placement="right" width="min(720px, 100vw)"
       title={mode === 'detail' ? '商品详情' : mode === 'edit' ? '编辑商品' : '新增商品'}
-      visible={visible} onCancel={() => { if (!saving) onClose(); }}
-      closable={!saving} escToExit={!saving} maskClosable={false} unmountOnExit
+      visible={visible} loading={saving} dirty={mode !== 'detail' && (dirty || pendingCode)} onCancel={() => { if (!saving) onClose(); }}
+      closable={!saving} escToExit={!saving} unmountOnExit
       className="product-drawer"
-      footer={<Space>
-        <Button disabled={saving} onClick={() => {
+      footer={(requestClose) => <Space>
+        <Button disabled={saving} onClick={() => requestClose(() => {
           if (mode === 'edit') onModeChange('detail'); else onClose();
-        }}>{mode === 'detail' ? '关闭' : '取消'}</Button>
+        })}>{mode === 'detail' ? '关闭' : '取消'}</Button>
         {mode === 'detail'
           ? <Button type="primary" disabled={saving} onClick={() => onModeChange('edit')}>编辑</Button>
           : <Button type="primary" loading={saving} disabled={!formReady || saving} onClick={save}>
@@ -152,7 +156,7 @@ export function ProductDrawer({ visible, product, mode, onModeChange, onClose, o
         {enumField('brand', '品牌', PRODUCT_BRANDS)}
         <div>
           <label>{form.status === "正常" && <i>*</i>}商品</label>
-          <Input value={form.short_name} maxLength={100} onChange={value => setField('short_name', value)} />
+          <Input aria-label="商品" value={form.short_name} maxLength={100} onChange={value => setField('short_name', value)} />
         </div>
         <div><label>状态</label>
           <Select aria-label="状态" value={form.status || '待处理'} getPopupContainer={() => document.body}
@@ -187,15 +191,15 @@ export function ProductDrawer({ visible, product, mode, onModeChange, onClose, o
         </div>
         <div>
           <label><i>*</i>雪花库存（箱）</label>
-          <Input value={form.snow_inventory} onChange={value => {
+          <Input aria-label="雪花库存（箱）" value={form.snow_inventory} onChange={value => {
             if (/^\d*(\.\d*)?$/.test(value)) setField('snow_inventory', value);
           }} />
         </div>
         <div><label><i>*</i>商品全称</label>
-          <Input value={form.product_name} maxLength={500} onChange={value => setField('product_name', value)} />
+          <Input aria-label="商品全称" value={form.product_name} maxLength={500} onChange={value => setField('product_name', value)} />
         </div>
         <div><label><i>*</i>商品编码</label>
-          <MultiValueInput value={form.product_codes} placeholder="输入后按回车，可粘贴多个编码"
+          <MultiValueInput onDraftChange={setPendingCode} value={form.product_codes} placeholder="输入后按回车，可粘贴多个编码"
             onChange={value => setField('product_codes', value)} />
         </div>
       </div>

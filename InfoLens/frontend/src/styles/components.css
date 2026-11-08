@@ -18,11 +18,11 @@
 
 /* 表格页统一布局（终端明细 / 雪花政策 / 商品档案 / 权限管理共用） */
 .table-page-filter-card {
-  padding: 12px 16px;
+  padding: var(--space-3);
   border: 1px solid var(--gray-200);
   border-radius: var(--radius-lg);
   background: var(--white);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-xs);
 }
 
 .table-page-list-card {
@@ -34,18 +34,18 @@
   border: 1px solid var(--gray-200);
   border-radius: var(--radius-lg);
   background: var(--white);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-xs);
   box-sizing: border-box;
 }
 
 .table-page-toolbar {
   grid-row: 1;
-  min-height: 52px;
-  padding: 0 16px;
+  min-height: 48px;
+  padding: var(--space-2) var(--space-3);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   border-bottom: 1px solid var(--gray-100);
   box-sizing: border-box;
 }
@@ -59,13 +59,13 @@
 
 .table-page-toolbar-title strong {
   color: var(--gray-800);
-  font-size: 16px;
+  font-size: var(--text-base);
   white-space: nowrap;
 }
 
 .table-page-toolbar-title span {
-  color: var(--gray-400);
-  font-size: 13px;
+  color: var(--gray-500);
+  font-size: var(--text-sm);
   white-space: nowrap;
 }
 
@@ -75,7 +75,7 @@
 
 .table-page-status {
   grid-row: 2;
-  margin: 10px 16px 0;
+  margin: var(--space-2) var(--space-2) 0;
 }
 
 .table-page-shell {
@@ -85,7 +85,7 @@
   min-height: 0;
   overflow: hidden;
   /* 统一保留列表工具栏/状态提示与表格之间的呼吸区。 */
-  padding: 12px 16px;
+  padding: var(--space-2);
   box-sizing: border-box;
 }
 
@@ -209,11 +209,12 @@
   gap: var(--space-3);
   min-width: 0;
 }
+.filter-bar .filter-bar-toggle { justify-self: end; white-space: nowrap; min-height: 28px; }
 .filter-bar .filter-bar-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-3);
-  align-items: center;
+  align-items: end;
 }
 .filter-bar .filter-bar-row-actions {
   grid-template-columns: minmax(0, 1fr) auto;
@@ -228,11 +229,8 @@
 .filter-bar .filter-field-group {
   display: grid;
   grid-template-columns: var(--filter-group-columns);
-  gap: var(--space-1);
+  gap: var(--space-3);
   min-width: 0;
-  border: 1px solid var(--gray-200);
-  border-radius: var(--radius-sm);
-  background: var(--gray-50);
 }
 .filter-bar .filter-field {
   width: 100%;
@@ -279,6 +277,8 @@
 
 /* Shared table sizing: fixed header/body basis; one resize implementation. */
 .data-table .arco-table-th { position: relative; }
+/* Keep the native sorter beside its title, including manually narrowed columns. */
+.data-table .arco-table-cell-with-sorter { white-space: nowrap; }
 .data-table .arco-table-cell-wrap-value { min-width: 0; max-width: 100%; }
 .table-column-resize { position: absolute; top: 0; right: 0; bottom: 0; width: 9px; cursor: col-resize; touch-action: none; user-select: none; z-index: 2; }
 .table-column-resize::after { content: ''; position: absolute; right: 3px; top: 25%; bottom: 25%; width: 1px; background: var(--gray-300); }
@@ -287,8 +287,8 @@
 .adaptive-table .data-table-scroll { height: auto; }
 .adaptive-table .arco-table, .adaptive-table .arco-table-container, .adaptive-table .arco-table-content-scroll { height: auto; }
 .data-table .data-link { max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-/* Arco defaults table min-width to 100%, which stretches short tables beyond
-   their measured/max widths. Keep explicit shared column widths authoritative. */
+/* Explicit shared widths now include spare-space distribution. Keep the browser
+   from redistributing them independently between header and body. */
 .data-table .arco-table table { min-width: 0; }
 
 /* All data/form overlays share AppDrawer. Confirmation dialogs remain Modal. */
@@ -313,3 +313,22 @@
 .app-drawer.form-drawer .drawer-field-stack { display: grid; grid-template-columns: minmax(0, 1fr); }
 .app-drawer.form-drawer .drawer-field-stack > .full-row { grid-column: auto; }
 .app-drawer.form-drawer .drawer-field-stack > div { min-width: 0; }
+
+/* Visible labels are opt-in while existing business filters retain their layout. */
+.filter-bar .filter-field-label {
+  display: block;
+  margin-bottom: var(--space-2);
+  color: var(--gray-600);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+/* Toolbars wrap within the content card, never into the global header. */
+.table-page-toolbar { flex-wrap: wrap; }
+.table-page-toolbar .arco-space { flex-wrap: wrap; }
+.data-table .arco-table-th { background: var(--gray-50); color: var(--gray-600); font-size: var(--text-xs); }
+.data-table .arco-table-td { font-size: var(--text-sm); }
+@media (max-width: 600px) {
+  .data-table-pagination { flex-wrap: wrap; white-space: normal; }
+  .table-page-toolbar { gap: var(--space-2); }
+}

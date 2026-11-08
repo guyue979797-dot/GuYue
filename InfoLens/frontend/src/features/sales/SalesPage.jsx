@@ -1,3 +1,4 @@
+import { useDraftState } from '../../hooks/useDraftState.js';
 import React, { useRef, useState } from "../../lib/react.js";
 import { Alert, Button, Modal, Space, DatePicker } from "../../lib/arco.js";
 import { exportSales } from "../../api/sales.js";
@@ -23,9 +24,9 @@ function filterFields(options = {}) {
       group: "sales-category-filter", width: 120,
       options: [{ value: "include", label: "包含" }, { value: "exclude", label: "不包含" }] },
     { ...select("category", "分类"), type: "multi-select", group: "sales-category-filter", maxTagCount: "responsive" },
-    { name: "document", type: "input", label: "单据查找", placeholder: "单据编号", width: 220 },
-    { name: "terminal_code", type: "input", label: "终端编码", placeholder: "终端编码", width: 180 },
-    { name: "customer", type: "input", label: "客户全名", placeholder: "客户全名（模糊匹配）", width: 240 },
+    { name: "document", type: "input", label: "单据查找", placeholder: "输入编号", width: 220 },
+    { name: "terminal_code", type: "input", label: "终端编码", placeholder: "输入编码", width: 180 },
+    { name: "customer", type: "input", label: "客户全名", placeholder: "支持模糊搜索", width: 240 },
   ];
 }
 
@@ -44,9 +45,9 @@ export function SalesPage() {
   const input = useRef(null);
   const [syncVisible, setSyncVisible] = useState(false);
   const [costVisible, setCostVisible] = useState(false);
-  const [costMonth, setCostMonth] = useState('');
+  const [costMonth, setCostMonth, resetCostMonth, costDirty] = useDraftState('');
   const [exportVisible, setExportVisible] = useState(false);
-  const [exportMonth, setExportMonth] = useState('');
+  const [exportMonth, setExportMonth, resetExportMonth, exportDirty] = useDraftState('');
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState('');
   const [shell, height] = useContainerHeight(64);
@@ -82,12 +83,12 @@ export function SalesPage() {
         <Space>
           <Button disabled={sales.uploading || sales.deleting || sales.updatingCost || exporting || !sales.data.options?.month?.length}
             onClick={() => {
-              setExportMonth(sales.query.month || sales.data.options?.month?.[0] || '');
+              resetExportMonth(sales.query.month || sales.data.options?.month?.[0] || '');
               setExportError('');
               setExportVisible(true);
             }}>导出销售表</Button>
           <Button disabled={sales.uploading || sales.deleting || sales.updatingCost} onClick={() => {
-            setCostMonth(sales.query.month || sales.data.options?.month?.[0] || '');
+            resetCostMonth(sales.query.month || sales.data.options?.month?.[0] || '');
             setCostVisible(true);
           }}>更新商品成本</Button>
           {sales.productSync ? <Button onClick={() => setSyncVisible(true)}>商品同步结果</Button> : null}
@@ -108,7 +109,7 @@ export function SalesPage() {
       <div className="table-page-shell" ref={shell}><SalesTable sales={sales} scrollY={height} /></div>
     </section>
     <FormDrawer visible={exportVisible} title="导出销售表" size="small" okText="导出"
-      loading={exporting} okDisabled={!exportMonth} onSubmit={downloadMonth}
+      loading={exporting} dirty={exportDirty} okDisabled={!exportMonth} onSubmit={downloadMonth}
       onCancel={() => { if (!exporting) setExportVisible(false); }}>
       {exportError && <Alert type="error" content={exportError} />}
       <div className="drawer-field-stack">
@@ -121,7 +122,7 @@ export function SalesPage() {
       <p>导出所选月份的全部销售明细，包含隐藏字段，不受当前筛选条件和分页限制。</p>
     </FormDrawer>
     <FormDrawer visible={costVisible} title="更新商品成本" size="small" okText="开始计算"
-      loading={sales.updatingCost} okDisabled={!costMonth || sales.updatingCost}
+      loading={sales.updatingCost} dirty={costDirty} okDisabled={!costMonth || sales.updatingCost}
       onCancel={() => { if (!sales.updatingCost) setCostVisible(false); }}
       onSubmit={async () => { try { await sales.updateCost(costMonth); setCostVisible(false); } catch {} }}>
       <label htmlFor="sales-cost-month">选择月份</label>

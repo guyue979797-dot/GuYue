@@ -15,18 +15,19 @@ vm.runInContext(bundle.outputFiles[0].text,context);
 const product={id:7,version:2,product_codes:['P'],housekeeper_codes:['G'],short_name:'测试商品',product_name:'测试商品全称',brand:'自定义品牌',grade:'自定义等级',status:'正常',snow_inventory:10,specification:12,auxiliary_unit:'听',cost_price:null,settlement_price:null};
 let props={visible:true,product,mode:'edit',onSaved:value=>{saved=value;},onClose:()=>{closed=true;},onModeChange:()=>{}};
 function render(){cursor=0;effectCursor=0;return context.Module.ProductDrawer(props);}
+function footerNodes(tree) { return nodes(typeof tree.props.footer === 'function' ? tree.props.footer(action => typeof action === 'function' ? action() : props.onClose()) : tree.props.footer); }
 function nodes(value){if(!value||typeof value!=='object')return[];if(Array.isArray(value))return value.flatMap(nodes);return[value,...nodes(value.props?.children)];}
 render();let tree=render();
 const { visibleText } = await import('../src/components/ui/tableColumnSizing.js');
 const labels = nodes(tree).filter(node=>node.type==='label').map(node=>visibleText(node.props.children).replaceAll('*','').trim());
 assert.deepEqual(labels,['存货编号','品牌','商品','状态','成本价','雪花结算价','等级','规格','雪花库存（箱）','商品全称','商品编码']);
-let save=nodes(tree.props.footer).find(node=>node.type===Button&&node.props.children==='保存修改');
+let save=footerNodes(tree).find(node=>node.type===Button&&node.props.children==='保存修改');
 assert.equal(save.props.disabled,false);await save.props.onClick();
 assert.equal(payload.version,2);assert.equal(payload.cost_price,null);assert.equal(payload.settlement_price,null);
 assert.equal(payload.brand,'自定义品牌');assert.equal(payload.grade,'自定义等级');assert.equal(saved.version,3);assert.equal(closed,false);
-failure=true;saved=null;tree=render();save=nodes(tree.props.footer).find(node=>node.type===Button&&node.props.children==='保存修改');await save.props.onClick();assert.equal(saved,null);assert.equal(closed,false);
+failure=true;saved=null;tree=render();save=footerNodes(tree).find(node=>node.type===Button&&node.props.children==='保存修改');await save.props.onClick();assert.equal(saved,null);assert.equal(closed,false);
 props={...props,mode:'create',product:null};render();tree=render();
-assert.equal(nodes(tree.props.footer).find(node=>node.props?.children==='确认新增').props.disabled,true);
+assert.equal(footerNodes(tree).find(node=>node.props?.children==='确认新增').props.disabled,true);
 props={...props,mode:'detail',product};render();tree=render();
-assert.ok(nodes(tree.props.footer).some(node=>node.props?.children==='编辑'));
+assert.ok(footerNodes(tree).some(node=>node.props?.children==='编辑'));
 console.log('商品抽屉检查通过：空价格、自定义字段、版本号、保存返回详情数据、错误保留编辑、创建校验与详情入口');

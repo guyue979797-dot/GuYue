@@ -332,7 +332,7 @@ class SalesStore:
             + [field for item in items for field in item['values']]))
         return {'items': items, 'columns': columns, 'total': len(items)}
 
-    def list_rows(self, document='', page=1, page_size=20, sort_by='', sort_order='', **filters):
+    def list_rows(self, document='', page=1, page_size=20, sort_by='', sort_order='', all_rows=False, **filters):
         if page < 1 or page_size not in (20, 50, 100, 500, 1000):
             raise ValueError('分页参数不正确')
         sort_fields = {
@@ -399,7 +399,9 @@ class SalesStore:
                     args.append(value)
             where = ' WHERE ' + ' AND '.join(conditions) if conditions else ''
             total = db.execute('SELECT COUNT(*) FROM sales' + where, args).fetchone()[0]
-            records = db.execute('SELECT id,payload FROM sales' + where + ' ORDER BY ' + order + ' LIMIT ? OFFSET ?', args + [page_size, (page - 1) * page_size]).fetchall()
+            sql = 'SELECT id,payload FROM sales' + where + ' ORDER BY ' + order
+            records = db.execute(sql if all_rows else sql + ' LIMIT ? OFFSET ?',
+                args if all_rows else args + [page_size, (page - 1) * page_size]).fetchall()
             meta = dict(db.execute('SELECT key,value FROM sales_meta'))
             options = {}
             for key in ('document_type', 'month', 'salesperson', 'customer_type', 'product', 'category'):

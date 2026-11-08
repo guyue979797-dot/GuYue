@@ -9,9 +9,9 @@ export function FormDrawer({ onSubmit, onOk, onCancel, loading = false, confirmL
   const busy = Boolean(loading || confirmLoading || okButtonProps.loading);
   const disabled = Boolean(okDisabled || okButtonProps.disabled || busy);
   const submit = onSubmit || onOk;
-  const defaultFooter = <Space>
+  const defaultFooter = (requestClose) => <Space>
     <Button {...cancelButtonProps} disabled={busy || cancelButtonProps.disabled}
-      onClick={() => { if (!busy) onCancel?.(); }}>{cancelText || (submit ? '取消' : '关闭')}</Button>
+      onClick={() => { if (!busy) requestClose(); }}>{cancelText || (submit ? '取消' : '关闭')}</Button>
     {submit && <Button {...okButtonProps} type="primary" loading={busy} disabled={disabled}
       onClick={() => { if (!disabled) return submit(); }}>{okText}</Button>}
   </Space>;

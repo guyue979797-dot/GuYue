@@ -74,7 +74,7 @@ class SalesApiTests(unittest.TestCase):
             exported_sheet = exported_book.active
             export_headers = [cell.value for cell in exported_sheet[1]]
             self.assertEqual(exported_sheet.max_row, 2)
-            self.assertEqual(exported_sheet.cell(2, export_headers.index('成本') + 1).value, 20)
+            self.assertEqual(exported_sheet.cell(2, export_headers.index('单件成本') + 1).value, 20)
             self.assertTrue(exported_sheet.cell(2, export_headers.index('成本来源') + 1).value)
             exported_book.close()
             self.assertAlmostEqual(client.get('/api/product-cost-policies').get_json()['items'][0]['used_quantity'], 10/12)

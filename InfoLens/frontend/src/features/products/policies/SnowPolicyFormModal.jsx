@@ -1,3 +1,4 @@
+import { useDraftState } from '../../../hooks/useDraftState.js';
 /**
  * 雪花政策标签新建/编辑表单弹窗。
  */
@@ -29,7 +30,7 @@ import {
 const { Option } = Select;
 
 export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
-  const [form, setForm] = useState(emptyPolicyForm());
+  const [form, setForm, resetForm, dirty] = useDraftState(emptyPolicyForm());
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [conflictPolicyOptions, setConflictPolicyOptions] = useState([]);
@@ -41,7 +42,7 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
     if (!visible) return;
     setFormError("");
     if (policy) {
-      setForm({
+      resetForm({
         ...policy,
         policy_type: policy.policy_type || '其他',
         set_limit: policy.set_limit ?? "",
@@ -59,7 +60,7 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
         })),
       });
     } else {
-      setForm(emptyPolicyForm());
+      resetForm(emptyPolicyForm());
     }
   }, [visible, policy]);
 
@@ -229,7 +230,7 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
       size="large"
       title={form.id ? `编辑标签｜${form.id}` : "新增商品政策标签"}
       visible={visible}
-      loading={saving}
+      loading={saving} dirty={dirty}
       okDisabled={!formReady}
       okText={form.id ? "保存修改" : "新增"}
       onCancel={() => {
@@ -242,7 +243,7 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
       <div className="policy-form-grid drawer-field-stack">
         <div>
           <label><i>*</i>政策月份</label>
-          <Select
+          <Select aria-label="政策月份" aria-required="true"
             value={`${form.year}-${String(form.month).padStart(2, "0")}`}
             onChange={(value) => {
               const [year, month] = value.split("-");
@@ -262,7 +263,7 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
         </div>
         <div>
           <label>月目标</label>
-          <Input
+          <Input aria-label="月目标"
             value={String(form.month_target)}
             placeholder="选填，非负整数"
             onChange={(value) => updatePolicyForm({ month_target: value.replace(/\D/g, "") })}
@@ -273,7 +274,7 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
             <span><i>*</i>标签名字</span>
             <small>展示为：{form.month}月-{form.name || "标签名字"}</small>
           </label>
-          <Input
+          <Input aria-label="标签名称"
             value={form.name}
             maxLength={10}
             showWordLimit
@@ -283,7 +284,7 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
         </div>
         <div>
           <label><i>*</i>出库编码</label>
-          <Input
+          <Input aria-label="出库编码"
             value={form.outbound_code}
             maxLength={100}
             onChange={setOutboundCode}
@@ -291,7 +292,7 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
         </div>
         <div className="full-row">
           <label><i>*</i>出库解释</label>
-          <Input
+          <Input aria-label="政策说明"
             value={form.explanation}
             maxLength={50}
             showWordLimit
@@ -315,7 +316,7 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
         </div>
         <div>
           <label>套数限制</label>
-          <Input
+          <Input aria-label="套数限制"
             value={String(form.set_limit)}
             placeholder="选填，非负整数"
             onChange={(value) => updatePolicyForm({ set_limit: value.replace(/\D/g, "") })}
@@ -323,7 +324,7 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
         </div>
         <div className="full-row policy-product-field">
           <label><i>*</i>正常销售产品</label>
-          <Select
+          <Select aria-label="正常销售产品" aria-required="true"
             mode="multiple"
             value={form.normal_sale_product_ids || []}
             loading={productOptionsLoading}
@@ -346,7 +347,7 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
         <div className="full-row policy-gift-condition-group drawer-field-stack">
           <div>
             <label><i>*</i>赠送产品</label>
-            <Select
+            <Select aria-label="赠送产品" aria-required="true"
               mode="multiple"
               value={form.gift_product_ids || []}
               loading={productOptionsLoading}
@@ -368,7 +369,7 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
           </div>
           <div>
             <label><i>*</i>售卖类型</label>
-            <Select
+            <Select aria-label="售卖类型" aria-required="true"
               value={form.gift_type || undefined}
               placeholder="请选择售卖类型"
               onChange={(value) => updatePolicyForm({ gift_type: value || "" })}
@@ -384,7 +385,7 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
         </div>
         <div className="full-row">
           <label>冲突政策</label>
-          <Select
+          <Select aria-label="冲突政策"
             className="policy-conflict-select"
             mode="multiple"
             value={form.conflict_policy_ids || []}
@@ -439,7 +440,7 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
           return (
             <div className="policy-condition-row" key={`${condition.field}-${index}`}>
               <span>{index ? "并且" : "当"}</span>
-              <Select
+              <Select aria-label={`条件${index + 1}字段`}
                 value={condition.field}
                 onChange={(value) => updatePolicyCondition(index, { field: value })}
               >
@@ -447,7 +448,7 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
                   .filter((option) => option.value === condition.field || !usedFields.has(option.value))
                   .map((option) => <Option key={option.value} value={option.value}>{option.label}</Option>)}
               </Select>
-              <Select
+              <Select aria-label={`条件${index + 1}运算符`}
                 value={condition.operator}
                 onChange={(value) => updatePolicyCondition(index, { operator: value })}
               >
@@ -455,7 +456,7 @@ export function SnowPolicyFormModal({ visible, policy, onClose, onSaved }) {
                   <Option key={operator} value={operator}>{SNOW_RULE_OPERATORS[operator]}</Option>
                 ))}
               </Select>
-              <Input
+              <Input aria-label={`条件${index + 1}值`}
                 value={String(condition.value ?? "")}
                 placeholder={condition.field === "converted_boxes" ? "输入数值" : "输入匹配内容"}
                 onChange={(value) => updatePolicyCondition(index, { value })}

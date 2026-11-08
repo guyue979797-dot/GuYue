@@ -2,10 +2,41 @@ import tempfile
 import unittest
 from pathlib import Path
 from infolens.products import ProductStore
-from infolens.sales_profit import enrich_sales_profit
+from infolens.sales_profit import enrich_sales_profit, list_sales_with_profit
+from infolens.sales import SalesStore, REQUIRED
+from test_sales import row
 
 
 class ProfitTests(unittest.TestCase):
+    def test_live_profit_sort_before_pagination_with_nulls_last(self):
+        with tempfile.TemporaryDirectory() as directory:
+            products = ProductStore(Path(directory) / 'products.db')
+            products.create_product(dict(product_codes=['P'], short_name='商品', product_name='商品',
+                snow_inventory=0, housekeeper_codes=['A'], specification=12, auxiliary_unit='听', cost_price=30),
+                operator='test', operator_name='测试')
+            sales = SalesStore(Path(directory) / 'sales.db')
+            rows = [row(doc=f'S{i:02}', qty=12 if i % 2 == 0 else 24, amount=24 + i) for i in range(26)]
+            rows += [row(doc='SNULL', sku='missing'), row(doc='OTHER', amount=999)]
+            sales.upload(REQUIRED, rows, 'sort.xlsx')
+            for field in ('profit', 'unit_profit', 'profit_rate'):
+                for direction in ('asc', 'desc'):
+                    query = dict(document='S', sort_by=field, sort_order=direction, page_size=20)
+                    first = list_sales_with_profit(sales, products, page=1, **query)
+                    second = list_sales_with_profit(sales, products, page=2, **query)
+                    self.assertEqual(first['total'], 27)
+                    items = first['items'] + second['items']
+                    self.assertEqual(len({item['id'] for item in items}), 27)
+                    self.assertIsNone(items[-1]['values']['单件利润'])
+                    amounts = []
+                    for item in items[:-1]:
+                        values = item['values']
+                        unit = values['单件利润']
+                        amounts.append(round(unit * values['辅1数量'], 2) if field == 'profit'
+                            else values['利润率'] if field == 'profit_rate' else unit)
+                    self.assertEqual(amounts, sorted(amounts, reverse=direction == 'desc'))
+            with self.assertRaises(ValueError):
+                list_sales_with_profit(sales, products, sort_by='profit', sort_order='invalid')
+
     def test_profit_live_cost_missing_zero_and_pending_price(self):
         with tempfile.TemporaryDirectory() as directory:
             store = ProductStore(Path(directory) / 'p.db')

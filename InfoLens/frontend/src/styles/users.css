@@ -11,12 +11,6 @@
   min-width: 0;
 }
 
-.user-toolbar {
-  display: flex;
-  justify-content: flex-end;
-  padding: var(--space-4) var(--space-4) 0;
-}
-
 .user-account-cell {
   display: inline-flex;
   max-width: 100%;

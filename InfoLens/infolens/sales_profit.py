@@ -50,3 +50,33 @@ def enrich_sales_profit(result, product_store, allocator=None):
         values['利润计算状态'] = '已计算' if cost else '成本价为0，利润率无法计算'
     result['columns'] = list(dict.fromkeys(result['columns'] + PROFIT_FIELDS))
     return result
+
+
+PROFIT_SORT_FIELDS = {'unit_profit': '单件利润', 'profit_rate': '利润率', 'profit': '利润'}
+
+
+def list_sales_with_profit(sales_store, product_store, allocator=None, **query):
+    """Sort live calculated values across all matching rows before taking a page."""
+    sort_by = query.get('sort_by', '')
+    if sort_by not in PROFIT_SORT_FIELDS:
+        return enrich_sales_profit(sales_store.list_rows(**query), product_store, allocator)
+    direction = query.get('sort_order', '')
+    if direction not in ('asc', 'desc'):
+        raise ValueError('排序参数不正确')
+    page, page_size = query.get('page', 1), query.get('page_size', 20)
+    result = enrich_sales_profit(sales_store.list_rows(**{**query, 'sort_by': '',
+        'sort_order': '', 'all_rows': True}), product_store, allocator)
+    def value(item):
+        values = item['values']
+        if sort_by != 'profit':
+            return values.get(PROFIT_SORT_FIELDS[sort_by])
+        unit_profit = values.get('单件利润')
+        if unit_profit is None:
+            return None
+        return float(money(number(unit_profit) *
+            (number(values.get('辅1数量')) + number(values.get('赠品辅1数量')))))
+    def key(item):
+        amount = value(item)
+        return (amount is None, (amount if direction == 'asc' else -amount) if amount is not None else 0, item['id'])
+    result['items'] = sorted(result['items'], key=key)[(page - 1) * page_size:page * page_size]
+    return result

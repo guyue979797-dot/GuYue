@@ -9,6 +9,12 @@ export function salesCellValue(values, column) {
     return raw == null || raw === '' ? 0 : Number(String(raw).replaceAll(',', ''));
   };
   const total = quantity('辅1数量') + quantity('赠品辅1数量');
+  if (column.calculation === 'profit') {
+    const profit = values['单件利润'];
+    if (profit == null || profit === '') return null;
+    const result = quantity('单件利润') * total;
+    return Number.isFinite(result) ? Number(result.toFixed(2)) : null;
+  }
   return Number.isFinite(total) ? Number(total.toFixed(12)) : null;
 }
 

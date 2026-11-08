@@ -87,7 +87,7 @@ export function CustomerPage({ isAdmin }) {
       <div className="customer-list-card table-page-list-card">
         <div className="customer-toolbar table-page-toolbar">
           <div className="table-page-toolbar-title">
-            <strong>明细</strong>
+            <strong>客户档案</strong>
             <span className="customer-total">共 {customers.total} 条</span>
           </div>
           <Space wrap>

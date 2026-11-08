@@ -1,8 +1,8 @@
 import { useMemo, useRef, useState } from '../../lib/react.js';
-import { automaticWidths, columnKey, visibleText } from './tableColumnSizing.js';
+import { automaticWidths, fillColumnWidths, columnKey, visibleText } from './tableColumnSizing.js';
 
 
-export function useTableColumnWidths(columns, data) {
+export function useTableColumnWidths(columns, data, availableWidth = 0) {
   const [manual, setManual] = useState({});
   const drag = useRef(null);
   const labels = Object.fromEntries(columns.map((column, index) => [columnKey(column,index), column.widthLabel || visibleText(column.title) || '列']));
@@ -14,7 +14,12 @@ export function useTableColumnWidths(columns, data) {
   function minimum(key) { return columns.find((column, index) => columnKey(column,index) === key)?.minWidth ?? 64; }
   function resize(key, width) { setManual(previous => ({ ...previous, [key]: Math.max(minimum(key), Math.min(1200, Math.round(width))) })); }
   function reset(key) { setManual(previous => { const next = { ...previous }; delete next[key]; return next; }); }
-  const width = key => manual[key] ?? automatic[key];
+  const resolved = useMemo(() => fillColumnWidths(
+    Object.fromEntries(Object.keys(automatic).map(key => [key, manual[key] ?? automatic[key]])),
+    availableWidth,
+    manual,
+  ), [automatic, manual, availableWidth]);
+  const width = key => resolved[key];
   function handleProps(key) {
     return {
       role: 'separator', tabIndex: 0, 'aria-orientation': 'vertical',

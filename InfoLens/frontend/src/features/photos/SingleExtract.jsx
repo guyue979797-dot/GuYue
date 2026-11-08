@@ -6,10 +6,11 @@ import { Button, Input } from "../../lib/arco.js";
 import { StatusAlert } from "../../components/ui/StatusAlert.jsx";
 import { extractSingle } from "../../api/photos.js";
 
-export function SingleExtract({ onRefreshResults }) {
+export function SingleExtract({ onRefreshResults, onStateChange }) {
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState(null);
+  React.useEffect(() => { onStateChange?.({ dirty: Boolean(url.trim()), busy }); }, [url, busy, onStateChange]);
   const canSubmit = Boolean(url.trim()) && !busy;
 
   async function submit() {
@@ -32,13 +33,13 @@ export function SingleExtract({ onRefreshResults }) {
     <div className="extract-pane">
       <div className="extract-input-group">
         <Input
-          size="large"
+          aria-label="拜访链接"
           value={url}
           placeholder="链接"
           onChange={setUrl}
           onPressEnter={submit}
         />
-        <Button size="large" type="primary" loading={busy} disabled={!canSubmit} onClick={submit}>
+        <Button type="primary" loading={busy} disabled={!canSubmit} onClick={submit}>
           提取
         </Button>
       </div>

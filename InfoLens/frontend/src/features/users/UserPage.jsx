@@ -47,7 +47,8 @@ export function UserPage() {
   return (
     <div className="user-page">
       <div className="user-card table-page-list-card">
-        <div className="user-toolbar">
+        <div className="table-page-toolbar">
+          <div className="table-page-toolbar-title"><strong>用户</strong><span>共 {users.users.length} 条</span></div>
           <Button type="primary" onClick={openCreate}>新增用户</Button>
         </div>
         <StatusAlert status={users.status} className="table-page-status" />

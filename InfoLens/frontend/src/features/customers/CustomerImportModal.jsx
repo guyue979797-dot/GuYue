@@ -39,6 +39,7 @@ export function CustomerImportModal({ visible, onClose, onImported }) {
 
   return (
     <FormDrawer
+      dirty={Boolean(file && !result)}
       title="批量新增客户"
       visible={visible}
       onCancel={onClose}

@@ -1,21 +1,358 @@
-/* 页面框架 Token 化覆盖；页面细节继续由各页面样式负责。 */
-.app-shell,
-.workspace-layout {
+/* Application shell: navigation and global actions only. */
+.app-shell {
+  height: 100vh;
+  overflow: hidden;
   background: var(--gray-50);
+}
+
+.app-sider {
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  background-color: var(--white);
+  border-right: 1px solid var(--gray-200);
+  box-shadow: none;
+  transition: width 0.2s ease;
+}
+
+.app-sider.collapsed {
+  width: 88px;
+  flex: 0 0 88px;
+  max-width: 88px;
+  min-width: 88px;
+}
+
+.app-sider.collapsed .sider-brand {
+  padding: 0;
+}
+
+.app-sider.collapsed .brand-mark {
+  width: 48px;
+  height: 48px;
+}
+
+.app-sider .arco-layout-sider-children {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.sider-brand {
+  height: 72px;
+  padding: 0 var(--space-3);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid var(--gray-100);
+}
+
+.brand-mark {
+  width: 160px;
+  height: 54px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 6px;
+}
+
+.brand-mark img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  object-position: center;
+  transform: scale(1);
+}
+
+/* 收起侧栏时只展示 XC 图标，放大源图中心标识以消除画布留白。 */
+.app-sider.collapsed .brand-mark img {
+  transform: scale(1.55);
+}
+
+.brand-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  line-height: 1.25;
+}
+
+.sider-toggle {
+  margin-top: auto;
+  padding: 16px;
+  border-top: 1px solid var(--gray-100);
+}
+
+.sider-toggle-button {
+  width: 100%;
+  height: 38px;
+  padding: 0;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.side-nav {
+  padding: 6px 12px 20px;
+  display: grid;
+  gap: 6px;
+}
+
+.nav-item {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--gray-600);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+.nav-item:hover {
+  background: var(--gray-100);
+}
+
+.nav-item.active {
+  background: var(--nav-active-bg);
+  color: var(--nav-active-color);
+  border-left: 3px solid var(--nav-active-accent);
+  padding-left: 7px;
+}
+
+.nav-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.nav-icon svg {
+  width: 19px;
+  height: 19px;
+}
+
+.nav-icon path {
+  fill: none;
+  stroke: var(--gray-600);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.nav-item.active .nav-icon {
+  background: transparent;
+}
+
+.nav-item.active .nav-icon path {
+  stroke: var(--nav-active-color);
+}
+
+.nav-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.nav-copy small {
+  color: var(--gray-500);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.sub-nav {
+  display: grid;
+  gap: 4px;
+  padding: 0 0 6px 40px;
+}
+
+.sub-nav-item {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gray-500);
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.sub-nav-item:hover {
+  background: var(--gray-100);
+}
+
+.sub-nav-item.active {
+  color: var(--nav-active-color);
+  background: var(--info-50);
+  border-left: 3px solid var(--nav-active-accent);
+  padding-left: 9px;
+}
+
+.workspace-layout {
+  min-width: 0;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .app-header {
   height: 52px;
-  border-bottom: 1px solid var(--gray-200);
+  padding: 0;
   background: var(--white);
+  border-bottom: 1px solid var(--gray-200);
 }
 
 .app-content {
-  padding: var(--space-5) var(--space-6);
+  width: 100%;
+  height: calc(100vh - 52px);
+  overflow: auto;
+  padding: var(--space-3) var(--space-2);
+  box-sizing: border-box;
 }
 
-@media (max-width: 768px) {
-  .app-content {
-    padding: var(--space-4);
-  }
+.topbar {
+  height: 52px;
+  padding: 0 var(--space-5);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-5);
+}
+
+.breadcrumbs,
+.topbar-actions,
+.user-chip {
+  display: inline-flex;
+  align-items: center;
+}
+
+.breadcrumbs {
+  min-width: 0;
+  gap: var(--space-2);
+  color: var(--gray-500);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.breadcrumb-link {
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--gray-500);
+  cursor: pointer;
+  font: inherit;
+}
+
+.breadcrumb-link:hover {
+  color: var(--brand-7);
+}
+
+.breadcrumb-separator {
+  color: var(--gray-300);
+}
+
+.breadcrumb-current {
+  margin: 0;
+  color: var(--gray-900);
+  font-size: var(--text-base);
+  font-weight: 500;
+}
+
+.topbar-actions {
+  min-width: 0;
+  flex-shrink: 0;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.icon-btn,
+.user-chip {
+  height: 32px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--gray-600);
+  cursor: pointer;
+}
+
+.icon-btn {
+  width: 32px;
+  position: relative;
+  font-size: 16px;
+}
+
+.icon-btn:hover,
+.user-chip:hover {
+  background: var(--gray-100);
+  color: var(--brand-7);
+}
+
+
+.user-chip {
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  font: inherit;
+}
+
+.user-avatar {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  background: var(--brand-1);
+  color: var(--brand-7);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.library-content {
+  overflow: hidden;
+  padding-bottom: var(--space-3);
+}
+
+.customer-content {
+  overflow: hidden;
+  padding-bottom: var(--space-3);
+}
+
+
+/* Narrow screens retain navigation and global actions without covering content. */
+@media (max-width: 960px) {
+  .app-shell { display: block; height: auto; overflow: visible; }
+  /* Override the desktop width supplied inline by Arco Sider. */
+  .app-sider, .app-sider.collapsed { width: 100% !important; min-width: 0; max-width: none; height: auto; position: static; border-right: 0; border-bottom: 1px solid var(--gray-200); }
+  .app-sider .arco-layout-sider-children { height: auto; }
+  .sider-brand { height: 56px; padding: var(--space-2) var(--space-4); justify-content: start; }
+  .sider-toggle { display: none; }
+  .side-nav { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2); overflow-x: auto; }
+  .nav-item { width: auto; min-width: 80px; flex-shrink: 0; }
+  .sub-nav { display: flex; flex-shrink: 0; padding: 0; gap: var(--space-1); }
+  .sub-nav-item { width: auto; white-space: nowrap; }
+  .workspace-layout { height: auto; overflow: visible; }
+  .app-content { height: auto; min-height: calc(100dvh - 160px); overflow: visible; }
+}
+@media (max-width: 600px) {
+  .topbar { padding-inline: var(--space-2); gap: var(--space-2); }
+  .breadcrumbs { overflow: hidden; text-overflow: ellipsis; }
+  .breadcrumb-link { flex-shrink: 0; }
+  .user-chip > span:not(.user-avatar) { display: none; }
 }

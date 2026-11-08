@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
-import { automaticWidths, visibleText } from '../src/components/ui/tableColumnSizing.js';
+import { automaticWidths, fillColumnWidths, visibleText } from '../src/components/ui/tableColumnSizing.js';
 const measure = text => text.length * 13;
 const columns = [{ key:'name', title:'名称', maxAutoWidth:300 }, { key:'amount', title:'金额', render:(_,r)=>`¥${r.amount.toFixed(2)}` }];
 assert.equal(automaticWidths(columns,[{name:'长'.repeat(100),amount:12.3}],measure).name,300);
 assert.equal(automaticWidths(columns,[],measure).name,80);
+// Short body values must not remove the header space needed by a native sorter.
+assert.equal(automaticWidths([{key:"person",title:"经办人",sorter:true}], [{person:"张三"}], measure).person, measure("经办人") + 68);
 assert.ok(automaticWidths(columns,[{name:'短',amount:123456789}],measure).amount > automaticWidths(columns,[{name:'短',amount:1}],measure).amount);
 assert.equal(visibleText({props:{content:'隐藏信息不参与测量',children:'可见文字'}}),'可见文字');
 assert.equal(automaticWidths([{key:'e',title:'证据',minWidth:160,maxAutoWidth:400}], [{e:'短\n短'}],measure).e,160);
@@ -17,6 +19,14 @@ for (const file of scan('src').filter(file=>file.endsWith('.jsx'))) {
   assert.ok(!/<table\b/.test(source), `${file} 禁止新增独立原生表格，请使用DataTable`);
   if (file !== 'src/components/ui/DataTable.jsx') assert.ok(!/<Table\b/.test(source), `${file} 禁止绕过DataTable`);
 }
+// Short tables fill exactly; wide tables and manual widths remain authoritative.
+assert.deepEqual(fillColumnWidths({a:100,b:200},600),{a:200,b:400});
+assert.deepEqual(fillColumnWidths({a:100,b:200},250),{a:100,b:200});
+assert.deepEqual(fillColumnWidths({a:100,b:200},600,{a:100}),{a:100,b:500});
+assert.deepEqual(fillColumnWidths({a:100,b:200},600,{a:100,b:200}),{a:200,b:400});
+assert.deepEqual(fillColumnWidths({},600),{});
+assert.equal(Object.values(fillColumnWidths({a:80,b:80,c:80},1001)).reduce((sum,w)=>sum+w,0),1001);
+assert.equal(Object.values(fillColumnWidths({a:80,b:80},500-40)).reduce((sum,w)=>sum+w,0)+40,500);
 console.log('表格规范检查通过：内容测量、自动上限、空表、金额、隐藏提示、多行证据、业务测量、全站入口统一');
 // Migration contract: conditional cells stay aligned and action callbacks survive unchanged.
 const { build } = await import('esbuild');

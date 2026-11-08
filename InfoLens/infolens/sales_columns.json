@@ -65,6 +65,16 @@
     "width": 140
   },
   {
+    "title": "金额",
+    "source": "折后金额",
+    "width": 140
+  },
+  {
+    "title": "真实金额",
+    "source": "真实金额",
+    "width": 140
+  },
+  {
     "title": "单价",
     "source": "折后单价",
     "width": 140
@@ -75,7 +85,7 @@
     "width": 140
   },
   {
-    "title": "成本",
+    "title": "单件成本",
     "source": "利润参考成本价",
     "width": 140
   },
@@ -85,18 +95,14 @@
     "width": 140
   },
   {
+    "title": "利润",
+    "source": null,
+    "calculation": "profit",
+    "width": 140
+  },
+  {
     "title": "利润率",
     "source": "利润率",
-    "width": 140
-  },
-  {
-    "title": "金额",
-    "source": "折后金额",
-    "width": 140
-  },
-  {
-    "title": "真实金额",
-    "source": "真实金额",
     "width": 140
   },
   {

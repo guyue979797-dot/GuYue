@@ -75,6 +75,7 @@ export function SnowOutboundUploadModal({ visible, onClose, onImported }) {
 
   return (
     <FormDrawer
+      dirty={Boolean(file)}
       size="large"
       title="雪花出库上传"
       visible={visible}

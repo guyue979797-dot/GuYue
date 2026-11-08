@@ -13,6 +13,15 @@ from test_sales import row
 
 
 class SalesExportTests(unittest.TestCase):
+    def test_total_profit_preserves_missing_zero_and_negative_values(self):
+        result = {'columns': [], 'items': [{'values': {'单件利润': profit, '辅1数量': 2,
+            '赠品辅1数量': 1}} for profit in (None, 0, -1.5)]}
+        workbook = load_workbook(build_sales_workbook(result))
+        sheet = workbook.active
+        index = [cell.value for cell in sheet[1]].index('利润') + 1
+        self.assertEqual([sheet.cell(row, index).value for row in (2, 3, 4)], [None, 0, -4.5])
+        workbook.close()
+
     def test_complete_month_includes_hidden_fields_profit_and_literal_text(self):
         with tempfile.TemporaryDirectory() as directory:
             sales = SalesStore(Path(directory) / 'sales.sqlite3')
@@ -35,6 +44,9 @@ class SalesExportTests(unittest.TestCase):
             def cell(title, row_number=2):
                 return sheet.cell(row_number, headers.index(title) + 1)
             self.assertEqual(sheet.max_row, 1006)
+            self.assertEqual(headers[13:17], ['金额', '真实金额', '单价', '真实单价'])
+            self.assertEqual(cell('单价').number_format, '0.00')
+            self.assertEqual(cell('真实单价').number_format, '0.00')
             self.assertEqual(headers[:4], ['年月', '单据日期', '单据类型', '单据编号'])
             self.assertEqual(cell('年月').value, '2026-07')
             self.assertEqual(cell('单据编号', 1006).value, 'S1004')
@@ -44,8 +56,9 @@ class SalesExportTests(unittest.TestCase):
             self.assertEqual(cell('行摘要').value, '=1+1')
             self.assertEqual(cell('行摘要').data_type, 's')
             self.assertEqual(cell('隐藏字段').value, '@原始文本')
-            self.assertEqual(cell('成本').value, 40)
+            self.assertEqual(cell('单件成本').value, 40)
             self.assertEqual(cell('单件利润').value, 80)
+            self.assertEqual(cell('利润').value, 266.67)
             self.assertEqual(cell('利润率').value, 2)
             self.assertEqual(cell('利润率').number_format, '0.00%')
             self.assertAlmostEqual(cell('合计（件）').value, 10 / 12 + 2.5)

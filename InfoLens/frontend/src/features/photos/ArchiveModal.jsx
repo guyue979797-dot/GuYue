@@ -19,10 +19,12 @@ export function ArchiveModal({
   const [archivePolicyId, setArchivePolicyId] = useState("");
   const [archiveOptions, setArchiveOptions] = useState([]);
   const [archiveOptionsLoading, setArchiveOptionsLoading] = useState(false);
+  const [archiveError, setArchiveError] = useState('');
   const [archiving, setArchiving] = useState(false);
 
   useEffect(() => {
     if (!visible || !selectedIds.length || !month) return;
+    setArchiveError('');
     setArchivePolicyId("");
     setArchiveOptions([]);
     setArchiveOptionsLoading(true);
@@ -37,6 +39,7 @@ export function ArchiveModal({
 
   async function submit() {
     if (!selectedIds.length || !archivePolicyId || !month) return;
+    setArchiveError('');
     setArchiving(true);
     try {
       const result = await archivePhotos({
@@ -50,6 +53,7 @@ export function ArchiveModal({
       );
       await onArchived?.();
     } catch (error) {
+      setArchiveError(error.message);
       Message.error(error.message);
     } finally {
       setArchiving(false);
@@ -58,6 +62,7 @@ export function ArchiveModal({
 
   return (
     <FormDrawer
+      dirty={Boolean(archivePolicyId)}
       size="small"
       title="照片归档"
       visible={visible}
@@ -69,12 +74,14 @@ export function ArchiveModal({
       cancelButtonProps={{ disabled: archiving }}
       className="photo-archive-action-modal"
     >
+      {archiveError && <Alert type="error" showIcon content={archiveError} />}
       <div className="photo-archive-action-form">
         <div className="photo-archive-field">
           <label>
             归类标签 <span className="required-mark">*</span>
           </label>
           <Select
+            aria-label="归类标签"
             value={archivePolicyId || undefined}
             placeholder={
               archiveOptionsLoading

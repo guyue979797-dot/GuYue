@@ -1,3 +1,4 @@
+import { useDraftState } from '../../hooks/useDraftState.js';
 /**
  * 新增/编辑用户弹窗表单。
  */
@@ -10,13 +11,13 @@ import { EMPTY_USER_FORM, USER_ROLES } from "./constants.js";
 const { Option } = Select;
 
 export function UserFormModal({ visible, user, onClose, onSaved }) {
-  const [form, setForm] = useState({ ...EMPTY_USER_FORM });
+  const [form, setForm, resetForm, dirty] = useDraftState({ ...EMPTY_USER_FORM });
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
     if (user) {
-      setForm({
+      resetForm({
         id: user.id,
         username: user.username,
         display_name: user.display_name,
@@ -26,7 +27,7 @@ export function UserFormModal({ visible, user, onClose, onSaved }) {
         is_super_admin: user.is_super_admin,
       });
     } else {
-      setForm({ ...EMPTY_USER_FORM });
+      resetForm({ ...EMPTY_USER_FORM });
     }
   }, [visible, user]);
 
@@ -66,7 +67,7 @@ export function UserFormModal({ visible, user, onClose, onSaved }) {
       size="small"
       title={form.id ? "编辑用户" : "新增用户"}
       visible={visible}
-      loading={saving}
+      loading={saving} dirty={dirty}
       okDisabled={!canSave}
       okText={form.id ? "保存" : "新增"}
       onCancel={onClose}
@@ -75,20 +76,20 @@ export function UserFormModal({ visible, user, onClose, onSaved }) {
     >
       <div className="user-form">
         <label>账号</label>
-        <Input
+        <Input aria-label="账号"
           value={form.username}
           disabled={Boolean(form.id)}
           placeholder="登录账号"
           onChange={(value) => setField("username", value)}
         />
         <label>用户名称</label>
-        <Input
+        <Input aria-label="用户名称"
           value={form.display_name}
           placeholder="用户名称"
           onChange={(value) => setField("display_name", value)}
         />
         <label>{form.id ? "重置密码" : "初始密码"}</label>
-        <Input
+        <Input aria-label="密码"
           value={form.password}
           type="password"
           placeholder={form.id ? "不填写则不修改密码" : "至少 6 位"}
@@ -97,7 +98,7 @@ export function UserFormModal({ visible, user, onClose, onSaved }) {
         <div className="user-form-grid drawer-field-stack">
           <div>
             <label>角色</label>
-            <Select
+            <Select aria-label="角色"
               value={form.role}
               disabled={form.is_super_admin}
               onChange={(value) => setField("role", value)}
@@ -109,7 +110,7 @@ export function UserFormModal({ visible, user, onClose, onSaved }) {
           </div>
           <div>
             <label>状态</label>
-            <Select
+            <Select aria-label="状态"
               value={form.status}
               disabled={form.is_super_admin}
               onChange={(value) => setField("status", value)}

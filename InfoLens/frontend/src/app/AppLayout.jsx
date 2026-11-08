@@ -156,6 +156,7 @@ export function AppLayout({
               <nav className="breadcrumbs" aria-label="当前位置">
                 <button type="button" className="breadcrumb-link" onClick={() => onNavigate("library")}>首页</button>
                 <span className="breadcrumb-separator" aria-hidden="true">›</span>
+                {moduleTitle !== pageTitle && <>
                 <button
                   type="button"
                   className="breadcrumb-link"
@@ -164,7 +165,8 @@ export function AppLayout({
                   {moduleTitle}
                 </button>
                 <span className="breadcrumb-separator" aria-hidden="true">›</span>
-                <span className="breadcrumb-current">{pageTitle}</span>
+                </>}
+                <h1 className="breadcrumb-current" aria-current="page">{pageTitle}</h1>
               </nav>
               <div className="topbar-actions">
                 <NotificationCenter />

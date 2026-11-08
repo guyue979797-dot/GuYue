@@ -54,6 +54,7 @@ export function ProductImportModal({ visible, onClose, onImported }) {
 
   return (
     <FormDrawer
+      dirty={Boolean(file)}
       size="large"
       title="上传商品"
       visible={visible}

@@ -42,6 +42,8 @@ const { TabPane } = Tabs;
 
 export function PhotoLibraryPage({ activeMonth, onMonthsChange }) {
   const library = usePhotoLibrary({ activeMonth, onMonthsChange });
+  const [singleState, setSingleState] = useState({ dirty: false, busy: false });
+  const [batchState, setBatchState] = useState({ dirty: false, busy: false });
   const [missingFieldsCollapsed, setMissingFieldsCollapsed] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [photoArchiveOpen, setPhotoArchiveOpen] = useState(false);
@@ -213,7 +215,7 @@ export function PhotoLibraryPage({ activeMonth, onMonthsChange }) {
       name: "fields",
       label: "批量终端编码",
       type: "input",
-      placeholder: "批量终端编码",
+      placeholder: "输入编码",
     },
   ];
 
@@ -310,7 +312,7 @@ export function PhotoLibraryPage({ activeMonth, onMonthsChange }) {
       <Card bordered className="crm-operation-module">
         <div className="operation-toolbar">
           <div className="business-action-group toolbar-primary-actions">
-            <Button className="add-button" onClick={() => setCreateOpen(true)}>
+            <Button type="primary" className="add-button" onClick={() => { setSingleState({ dirty: false, busy: false }); setBatchState({ dirty: false, busy: false }); setCreateOpen(true); }}>
               新增照片
             </Button>
             <Button onClick={() => setExtractionRecordsOpen(true)}>新增记录</Button>
@@ -493,8 +495,10 @@ export function PhotoLibraryPage({ activeMonth, onMonthsChange }) {
       />
 
       <FormDrawer
-        title="新增"
+        title="新增照片"
         visible={createOpen}
+        dirty={singleState.dirty || batchState.dirty}
+        loading={singleState.busy || batchState.busy}
         footer={null}
         onCancel={() => setCreateOpen(false)}
         className="create-modal"
@@ -502,10 +506,10 @@ export function PhotoLibraryPage({ activeMonth, onMonthsChange }) {
       >
         <Tabs defaultActiveTab={recoveringBatchJob ? "batch" : "single"}>
           <TabPane key="single" title="单链接提取">
-            <SingleExtract onRefreshResults={refreshAfterExtraction} />
+            <SingleExtract onStateChange={setSingleState} onRefreshResults={refreshAfterExtraction} />
           </TabPane>
           <TabPane key="batch" title="批量提取">
-            <BatchExtract onRefreshResults={refreshAfterExtraction} />
+            <BatchExtract onStateChange={setBatchState} onRefreshResults={refreshAfterExtraction} />
           </TabPane>
         </Tabs>
       </FormDrawer>

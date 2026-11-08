@@ -71,21 +71,16 @@ export function ProductPage() {
       <div className="product-list-card table-page-list-card">
         <div className="product-toolbar table-page-toolbar">
           <div className="table-page-toolbar-title">
-            <strong>明细</strong>
+            <strong>商品档案</strong>
             <span>共 {products.total} 条</span>
           </div>
           <div className="product-overview toolbar-center">
             <div className="product-latest-upload">
-              <span>商品最新更新时间</span>
+              <span>更新于</span>
               {latestUploadDate ? (
-                <strong
-                  className="product-date-display"
-                  aria-label={`${latestUploadDate.year}年${latestUploadDate.month}月${latestUploadDate.day}日`}
-                >
-                  <span className="product-date-tag">{latestUploadDate.year}</span><em>年</em>
-                  <span className="product-date-tag">{latestUploadDate.month}</span><em>月</em>
-                  <span className="product-date-tag">{latestUploadDate.day}</span><em>日</em>
-                </strong>
+                <time className="product-date-display" dateTime={`${latestUploadDate.year}-${latestUploadDate.month}-${latestUploadDate.day}`}>
+                  {latestUploadDate.year}-{latestUploadDate.month}-{latestUploadDate.day}
+                </time>
               ) : (
                 <strong className="product-date-empty">暂无上传记录</strong>
               )}

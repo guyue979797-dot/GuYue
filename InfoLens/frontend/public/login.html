@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登录 · CRM图片处理</title>
+  <style>{{LOGIN_STYLES}}</style>
+</head>
+<body class="login-page">
+  <main class="login-panel">
+    <form method="post">
+      <input type="hidden" name="csrf_token" value="{{CSRF_TOKEN}}">
+      <div class="login-brand">鑫向晨商贸</div>
+      <h1>账号登录</h1>
+      <div class="error" aria-live="polite">{{ERROR}}</div>
+      <label for="username">账号</label>
+      <input data-focus-owner id="username" name="username" autocomplete="username" required autofocus>
+      <label for="password">密码</label>
+      <input data-focus-owner id="password" name="password" type="password" autocomplete="current-password" required>
+      <button type="submit">登录系统</button>
+    </form>
+  </main>
+</body>
+</html>

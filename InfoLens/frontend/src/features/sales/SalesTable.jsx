@@ -1,12 +1,15 @@
 import React, { useMemo, useState } from "../../lib/react.js";
-import { Button, Tag, Tooltip } from "../../lib/arco.js";
+import { Tag, Tooltip } from "../../lib/arco.js";
 import { DataTable } from "../../components/ui/DataTable.jsx";
+import { TableRowActions } from "../../components/ui/TableRowActions.jsx";
 import { TableText } from "../../components/ui/TableText.jsx";
 import { SALES_COLUMNS, salesCellValue } from "./columns.js";
 import { SalesDetail } from "./SalesDetail.jsx";
 
-const sortFields = { 折后单价: 'unit_price', 真实单价: 'real_price', 分类: 'category',
+const sortFields = { 单件利润: 'unit_profit', 利润率: 'profit_rate', 折后单价: 'unit_price', 真实单价: 'real_price', 分类: 'category',
   单据日期: 'date', 经办人全名: 'salesperson', 客户备用2: 'terminal_code' };
+
+const sortField = column => column.calculation === 'profit' ? 'profit' : sortFields[column.source];
 
 export function SalesTable({ sales, scrollY }) {
   const [detail, setDetail] = useState(null);
@@ -14,11 +17,11 @@ export function SalesTable({ sales, scrollY }) {
     ...SALES_COLUMNS.map((column) => ({
       title: column.title,
       // Arco 的排序回调使用列 key，必须与后端白名单字段一致。
-      key: sortFields[column.source] || column.source || 'calculated-box-total',
+      key: sortField(column) || column.source || column.calculation || 'calculated-box-total',
 
-      dataIndex: sortFields[column.source] || column.source,
-      sorter: Boolean(sortFields[column.source]),
-      sortOrder: sortFields[column.source] && sales.query.sort_by === sortFields[column.source]
+      dataIndex: sortField(column) || column.source,
+      sorter: Boolean(sortField(column)),
+      sortOrder: sortField(column) && sales.query.sort_by === sortField(column)
         ? (sales.query.sort_order === 'asc' ? 'ascend' : 'descend') : undefined,
       render: (_, record) => {
         if (column.source === '成本来源') {
@@ -31,14 +34,19 @@ export function SalesTable({ sales, scrollY }) {
           </div> : null;
         }
         const raw = salesCellValue(record.values, column);
+        if (['折后单价', '真实单价'].includes(column.source) && raw != null && raw !== '') {
+          return <Tooltip trigger={['hover', 'focus']} content={String(raw)} getPopupContainer={() => document.body}>
+            <span tabIndex={0} aria-label={String(raw)}>{Number(raw).toFixed(2)}</span>
+          </Tooltip>;
+        }
         const value = raw == null ? raw : column.source === '利润率'
-          ? `${(Number(raw) * 100).toFixed(2)}%` : ['单件利润', '利润参考成本价'].includes(column.source) ? Number(raw).toFixed(2) : raw;
-        if (column.source === '分类' && value === '无法分类') return <Tag color="orange">无法分类</Tag>;
+          ? `${(Number(raw) * 100).toFixed(2)}%` : (column.calculation === 'profit' || ['单件利润', '利润参考成本价'].includes(column.source)) ? Number(raw).toFixed(2) : raw;
+        if (column.source === '分类' && value) return <Tag color={value === '无法分类' ? 'orange' : undefined}>{value}</Tag>;
         return <TableText value={value} />;
       },
     })),
     { title: '操作', key: 'detail', render: (_, record) => (
-      <Button type="text" size="small" onClick={() => setDetail(record)}>查看详情</Button>
+      <TableRowActions onDetail={() => setDetail(record)} />
     ) },
   ], [sales.query.sort_by, sales.query.sort_order]);
   return <>

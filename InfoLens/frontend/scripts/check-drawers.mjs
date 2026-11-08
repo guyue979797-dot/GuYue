@@ -4,25 +4,43 @@ import vm from 'node:vm';
 import { readdirSync,readFileSync } from 'node:fs';
 const element=(type,props,...children)=>({type,props:{...props,children:children.length===1?children[0]:children}});
 const Button=()=>{},Drawer=()=>{},Space=()=>{};
-const ctx={document:{body:{}},window:{React:{createElement:element},arco:{Typography:{},Button,Drawer,Space}}};
+let confirmation;
+const ctx={document:{body:{}},window:{React:{createElement:element,useState:value=>[value,()=>{}],useRef:()=>({current:null}),useEffect:()=>{}},arco:{Typography:{},Button,Drawer,Space,Modal:{confirm:config=>{confirmation=config;return {close:()=>config.afterClose?.()};}}}}};
 vm.createContext(ctx);
 const bundle=await build({entryPoints:['src/components/ui/FormDrawer.jsx'],bundle:true,write:false,format:'iife',globalName:'Module',jsxFactory:'React.createElement'});
 vm.runInContext(bundle.outputFiles[0].text,ctx);
 function nodes(node){if(!node||typeof node!=='object')return[];if(Array.isArray(node))return node.flatMap(nodes);return[node,...nodes(node.props?.children)];}
 let saved=0,closed=0;
 let form=ctx.Module.FormDrawer({visible:true,size:'small',loading:true,onSubmit:()=>saved++,onCancel:()=>closed++});
-let buttons=nodes(form.props.footer).filter(node=>node.type===Button);
+let buttons=nodes(form.props.footer(()=>closed++)).filter(node=>node.type===Button);
 assert.ok(buttons.every(node=>node.props.disabled));buttons[0].props.onClick();buttons[1].props.onClick();
 let drawer=form.type(form.props);drawer.props.onCancel();
 assert.equal(saved,0);assert.equal(closed,0);assert.equal(drawer.props.closable,false);assert.equal(drawer.props.escToExit,false);
 assert.equal(drawer.props.getChildrenPopupContainer(),ctx.document.body);
 assert.equal(drawer.props.placement,'right');assert.equal(drawer.props.width,'min(520px, 100vw)');
 form=ctx.Module.FormDrawer({visible:true,onOk:()=>saved++,onCancel:()=>closed++,okText:'确认导入'});
-buttons=nodes(form.props.footer).filter(node=>node.type===Button);buttons[1].props.onClick();assert.equal(saved,1);
+buttons=nodes(form.props.footer(()=>closed++)).filter(node=>node.type===Button);buttons[1].props.onClick();assert.equal(saved,1);
 form=ctx.Module.FormDrawer({visible:true,onCancel:()=>closed++});
-buttons=nodes(form.props.footer).filter(node=>node.type===Button);assert.equal(buttons.length,1);assert.equal(buttons[0].props.children,'关闭');buttons[0].props.onClick();assert.equal(closed,1);
+buttons=nodes(form.props.footer(()=>closed++)).filter(node=>node.type===Button);assert.equal(buttons.length,1);assert.equal(buttons[0].props.children,'关闭');buttons[0].props.onClick();assert.equal(closed,1);
 assert.equal(ctx.Module.FormDrawer({footer:null}).props.footer,null);
 assert.equal(ctx.Module.FormDrawer({okButtonProps:{loading:true}}).props.loading,true);
+// Mask clicks use the same guarded cancellation path; busy panels never close.
+form=ctx.Module.FormDrawer({visible:true,maskClosable:true,onCancel:()=>closed++});
+drawer=form.type(form.props);assert.equal(drawer.props.maskClosable,true);
+drawer.props.onCancel();assert.equal(closed,2);
+form=ctx.Module.FormDrawer({visible:true,maskClosable:true,loading:true,onCancel:()=>closed++});
+drawer=form.type(form.props);assert.equal(drawer.props.maskClosable,false);
+drawer.props.onCancel();assert.equal(closed,2);
+form=ctx.Module.FormDrawer({visible:true,onCancel:()=>closed++});
+assert.equal(form.type(form.props).props.maskClosable,true);
+form=ctx.Module.FormDrawer({visible:true,maskClosable:false});
+assert.equal(form.type(form.props).props.maskClosable,false);
+form=ctx.Module.FormDrawer({visible:true,dirty:true,onCancel:()=>closed++});
+drawer=form.type(form.props);drawer.props.onCancel();drawer.props.onCancel();
+assert.equal(closed,2);assert.equal(confirmation.title,'放弃未保存的修改？');
+confirmation.onOk();confirmation.afterClose();assert.equal(closed,3);
+
+
 function scan(dir){return readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?scan(`${dir}/${e.name}`):[`${dir}/${e.name}`]);}
 for(const file of scan('src').filter(file=>file.endsWith('.jsx'))){
  const source=readFileSync(file,'utf8');

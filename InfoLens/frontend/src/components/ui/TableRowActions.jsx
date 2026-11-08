@@ -15,7 +15,7 @@ export function TableRowActions({ onDetail, items = [], detailLabel = "详情" }
       <button className="action-detail" type="button" onClick={onDetail}>
         {detailLabel}
       </button>
-      <Dropdown
+      {items.length > 0 && <Dropdown
         droplist={(
           <Menu>
             {items.map((item) => (
@@ -42,7 +42,7 @@ export function TableRowActions({ onDetail, items = [], detailLabel = "详情" }
         >
           ⋯
         </button>
-      </Dropdown>
+      </Dropdown>}
     </div>
   );
 }

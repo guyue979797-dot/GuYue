@@ -1,0 +1,12 @@
+/* Standalone login: no business CSS, shared tokens and focus source. */
+.login-page { min-height: 100dvh; margin: 0; display: grid; place-items: center; padding: var(--space-4); background: var(--gray-50); color: var(--gray-800); font-family: var(--font-sans); }
+.login-page * { box-sizing: border-box; }
+.login-panel { width: min(380px, 100%); padding: var(--space-6); background: var(--white); border: 1px solid var(--gray-200); border-radius: var(--radius-lg); box-shadow: var(--shadow-xs); }
+.login-brand { color: var(--gray-500); font-size: var(--text-sm); margin-bottom: var(--space-4); }
+.login-panel h1 { margin: 0 0 var(--space-5); font-size: var(--text-lg); font-weight: 500; }
+.login-panel label { display: block; margin: var(--space-4) 0 var(--space-2); font-size: var(--text-sm); color: var(--gray-600); }
+.login-panel input:not([type="hidden"]) { width: 100%; height: 36px; padding: 0 var(--space-3); border: 1px solid var(--gray-200); border-radius: var(--radius-sm); background: var(--gray-50); color: var(--gray-800); font-size: var(--text-base); }
+.login-panel button { width: 100%; height: 36px; margin-top: var(--space-5); border: 0; border-radius: var(--radius-sm); background: var(--brand-6); color: var(--white); font-size: var(--text-base); cursor: pointer; }
+.login-panel button:hover { background: var(--brand-7); }
+.login-panel .error { color: var(--error-600); font-size: var(--text-sm); }
+.login-panel .error:empty { display: none; }

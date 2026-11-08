@@ -9,8 +9,8 @@ export const NAV_ITEMS = [
     label: "商品",
     icon: "products",
     sections: [
-      { key: "products", label: "明细" },
-      { key: "outbound-policies", label: "政策" },
+      { key: "products", label: "明细", title: "商品档案" },
+      { key: "outbound-policies", label: "政策", title: "雪花政策" },
       { key: "product-policies", label: "价格与用量" },
     ],
   },
@@ -19,7 +19,7 @@ export const NAV_ITEMS = [
     label: "客户",
     icon: "customers",
     sections: [
-      { key: "terminals", label: "明细" },
+      { key: "terminals", label: "明细", title: "终端明细" },
     ],
   },
   {
@@ -38,5 +38,6 @@ export const NAV_ITEMS = [
 export function getPageTitle(activePage, customerSection, productSection) {
   const page = NAV_ITEMS.find((item) => item.key === activePage);
   const section = activePage === 'products' ? productSection : customerSection;
-  return page?.sections?.find((item) => item.key === section)?.label || page?.label || '照片';
+  const selected = page?.sections?.find((item) => item.key === section);
+  return selected?.title || selected?.label || page?.label || '照片';
 }

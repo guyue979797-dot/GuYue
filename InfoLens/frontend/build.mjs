@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { copyFile, mkdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -11,6 +11,11 @@ const htmlFile = resolve(root, "../web/index.html");
 const assetVersion = Date.now().toString(36);
 
 await mkdir(outDir, { recursive: true });
+// Login is served before authentication; inline the same source styles at build time.
+const loginStyles = await Promise.all(['tokens.css', 'login.css', 'focus.css'].map(name =>
+  readFile(resolve(root, 'src/styles', name), 'utf8')));
+const loginTemplate = await readFile(resolve(root, 'public/login.html'), 'utf8');
+await writeFile(resolve(root, '../web/login.html'), loginTemplate.replace('{{LOGIN_STYLES}}', loginStyles.join('\n')));
 
 await copyFile(
   resolve(root, "node_modules/@arco-design/web-react/dist/arco.min.js"),

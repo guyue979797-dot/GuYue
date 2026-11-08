@@ -7,6 +7,7 @@
  */
 import React, { useMemo } from "../../lib/react.js";
 import { useTableColumnWidths } from "./useTableColumnWidths.js";
+import { useTableViewportWidth } from "./useTableViewportWidth.js";
 import { useTableBodyHeight } from "./useTableBodyHeight.js";
 import { TableText } from "./TableText.jsx";
 import { columnValue, columnKey } from "./tableColumnSizing.js";
@@ -33,8 +34,10 @@ export function DataTable({
   className = "",
   pageSizeOptions = [20, 50, 100],
 }) {
-  const sizing = useTableColumnWidths(columns, data);
   const [viewportRef, bodyHeight] = useTableBodyHeight(scrollY, fitContainer);
+  const viewportWidth = useTableViewportWidth(viewportRef, loading);
+  const selectionWidth = rowSelection ? Number(rowSelection.columnWidth || 40) : 0;
+  const sizing = useTableColumnWidths(columns, data, Math.max(0, viewportWidth - selectionWidth));
   const stableColumns = useMemo(() => {
     // 所有列表默认左对齐，确保表头与单元格使用同一条左侧基线。
     // 如未来确有例外，必须同时在需求与列定义中明确说明。
@@ -91,6 +94,8 @@ export function DataTable({
             <span>每页</span>
             <Select
               size="small"
+              aria-label="每页条数"
+              disabled={loading}
               value={pagination.pageSize}
               onChange={(value) => pagination.onPageSizeChange?.(value)}
             >

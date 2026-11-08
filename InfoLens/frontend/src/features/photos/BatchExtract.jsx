@@ -23,11 +23,13 @@ function ProgressBar({ percent, completed = false, label }) {
   );
 }
 
-export function BatchExtract({ onRefreshResults }) {
+export function BatchExtract({ onRefreshResults, onStateChange }) {
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(null);
   const [status, setStatus] = useState(null);
+  const submitted = Boolean(progress?.job_id || progress?.id);
+  useEffect(() => { onStateChange?.({ dirty: Boolean(file) && !submitted, busy: busy && !submitted }); }, [file, busy, submitted, onStateChange]);
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -53,7 +55,7 @@ export function BatchExtract({ onRefreshResults }) {
     let job = initialJob;
     const startedAt = Date.now();
     while (mountedRef.current) {
-      setProgress(job);
+      setProgress({ ...job, job_id: jobId });
       if (job.status === "completed") {
         window.localStorage.removeItem(BATCH_JOB_STORAGE_KEY);
         return job.result;
@@ -106,6 +108,7 @@ export function BatchExtract({ onRefreshResults }) {
     try {
       const started = await startBatchExtract(file);
       window.localStorage.setItem(BATCH_JOB_STORAGE_KEY, started.job_id);
+      setProgress({ ...started, job_id: started.job_id });
       const data = await waitForJob(started.job_id, started);
       if (!mountedRef.current) return;
       setStatus({

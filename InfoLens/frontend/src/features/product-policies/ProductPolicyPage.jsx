@@ -1,3 +1,4 @@
+import { useDraftState } from '../../hooks/useDraftState.js';
 import React, { useEffect, useRef, useState } from "../../lib/react.js";
 import { Alert, Button, DatePicker, Empty, Input, Message, Modal, Select, Spin, Tag, Tooltip } from "../../lib/arco.js";
 import { FilterBar } from "../../components/ui/FilterBar.jsx";
@@ -17,7 +18,7 @@ export function ProductPolicyPage() {
   const [error, setError] = useState("");
   const [optionsError, setOptionsError] = useState("");
   const [visible, setVisible] = useState(false);
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm, resetForm, dirty] = useDraftState(emptyForm);
   const [saving, setSaving] = useState(false);
   const requestId = useRef(0);
 
@@ -92,7 +93,7 @@ export function ProductPolicyPage() {
       </div>
       <div className="product-policy-results">
         <div className="product-policy-heading"><strong>价格与用量</strong><span>共 {items.length} 条政策</span>
-          <Button className="product-policy-new-button" type="primary" onClick={() => { setForm(emptyForm()); setVisible(true); loadOptions(); }}>新建政策</Button>
+          <Button className="product-policy-new-button" type="primary" onClick={() => { resetForm(emptyForm()); setVisible(true); loadOptions(); }}>新建政策</Button>
         </div>
         {optionsError && <Alert type="error" content={`商品选项加载失败：${optionsError}`} action={<Button onClick={loadOptions}>重试</Button>} />}
         {error && <Alert type="error" content={error} action={<Button onClick={() => load(query)}>重试</Button>} />}
@@ -111,7 +112,7 @@ export function ProductPolicyPage() {
           </div>
         </Spin>
       </div>
-      <FormDrawer className="product-policy-form-modal" title="新建商品政策" size="small" visible={visible} loading={saving} okDisabled={!ready || saving} onSubmit={save} onCancel={() => { if (!saving) setVisible(false); }}>
+      <FormDrawer className="product-policy-form-modal" title="新建商品政策" size="small" visible={visible} loading={saving} dirty={dirty} okDisabled={!ready || saving} onSubmit={save} onCancel={() => { if (!saving) setVisible(false); }}>
         {optionsError && <Alert type="error" content={optionsError} />}
         <div className="product-form-grid drawer-field-stack">
           <div className="full-row"><label><i>*</i>商品名称</label><Select getPopupContainer={() => document.body} aria-label="商品名称" showSearch renderFormat={renderProduct} options={options} placeholder="从商品档案选择商品" value={form.product_id} onChange={(value) => field("product_id", value)} /></div>
