@@ -7,10 +7,39 @@ from infolens.product_policies import ProductPolicyStore
 from infolens.sales import SalesStore
 from infolens.policy_costs import PolicyCostAllocator
 from infolens.sales_profit import enrich_sales_profit
+from infolens.sales_profit import SalesProfitQuery
+from unittest.mock import patch
 from test_sales import row
 
 
 class PolicyCostTests(unittest.TestCase):
+    def test_query_cache_invalidates_sales_product_policy_and_force_refresh(self):
+        self.upload([self.sale('one', 1, 1)])
+        query = SalesProfitQuery(self.sales, self.products, self.allocator)
+        params = dict(sort_by='profit', sort_order='desc', page_size=20)
+        for _ in range(3):
+            result = query(**params)
+        self.assertEqual(result['items'][0]['values']['单件利润'], 30)
+        with patch.object(self.sales, 'list_rows', wraps=self.sales.list_rows) as read:
+            changed = query(**params)
+            changed['items'][0]['values']['单件利润'] = 999
+            self.assertEqual(query(**params)['items'][0]['values']['单件利润'], 30)
+            self.assertEqual(query(page=2, **params)['items'], [])
+            self.assertEqual(query(sort_by='', sort_order='', page_size=50)['total'], 1)
+            self.assertEqual(read.call_count, 0)
+        # Separate committed connection, including WAL writes, must invalidate.
+        with self.products._connect() as db:
+            db.execute('UPDATE products SET cost_price=40 WHERE id=?', (self.product['id'],))
+        self.assertEqual(query(**params)['items'][0]['values']['单件利润'], 20)
+        self.policy(10, 1)
+        self.assertEqual(query(**params)['items'][0]['values']['单件利润'], 50)
+        self.allocator.refresh('2026-07', force=True)
+        self.assertEqual(query(**params)['items'][0]['values']['单件利润'], 50)
+        self.upload([self.sale('two', 2, 1)])
+        self.assertEqual(query(**params)['total'], 2)
+        self.sales.delete_rows([query(**params)['items'][0]['id']])
+        self.assertEqual(query(**params)['total'], 1)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)

@@ -50,7 +50,7 @@ export function SalesTable({ sales, scrollY }) {
     ) },
   ], [sales.query.sort_by, sales.query.sort_order]);
   return <>
-    <DataTable pageSizeOptions={[20, 50, 100, 500, 1000]} rowSelection={{ type: 'checkbox', selectedRowKeys: sales.selectedKeys,
+    <DataTable pageSizeOptions={[20, 50, 100]} rowSelection={{ type: 'checkbox', selectedRowKeys: sales.selectedKeys,
       onChange: sales.setSelectedKeys, checkAll: true, fixed: false,
       checkboxProps: () => ({ disabled: sales.loading || sales.uploading || sales.deleting || sales.updatingCost }),
     }} onChange={(_, sorter, __, extra) => { if (extra?.action === 'sort') sales.changeSort(sorter); }} columns={columns} data={sales.data.items} loading={sales.loading || sales.uploading || sales.deleting || sales.updatingCost}

@@ -10,7 +10,7 @@ function appliedFilters(draft) {
 
 export function useSales() {
   const [draft, setDraft] = useState(emptyFilters);
-  const [query, setQuery] = useState({ ...appliedFilters(emptyFilters()), page: 1, page_size: 100, sort_by: "", sort_order: "" });
+  const [query, setQuery] = useState({ ...appliedFilters(emptyFilters()), page: 1, page_size: 50, sort_by: "", sort_order: "" });
   const [data, setData] = useState({ items: [], columns: [], total: 0 });
   const [loading, setLoading] = useState(false);
   const [productSync, setProductSync] = useState(null);

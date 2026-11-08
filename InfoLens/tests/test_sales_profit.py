@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from infolens.products import ProductStore
-from infolens.sales_profit import enrich_sales_profit, list_sales_with_profit
+from infolens.sales_profit import enrich_sales_profit, SalesProfitQuery
 from infolens.sales import SalesStore, REQUIRED
 from test_sales import row
 
@@ -18,11 +18,12 @@ class ProfitTests(unittest.TestCase):
             rows = [row(doc=f'S{i:02}', qty=12 if i % 2 == 0 else 24, amount=24 + i) for i in range(26)]
             rows += [row(doc='SNULL', sku='missing'), row(doc='OTHER', amount=999)]
             sales.upload(REQUIRED, rows, 'sort.xlsx')
+            query_sales = SalesProfitQuery(sales, products, None)
             for field in ('profit', 'unit_profit', 'profit_rate'):
                 for direction in ('asc', 'desc'):
                     query = dict(document='S', sort_by=field, sort_order=direction, page_size=20)
-                    first = list_sales_with_profit(sales, products, page=1, **query)
-                    second = list_sales_with_profit(sales, products, page=2, **query)
+                    first = query_sales(page=1, **query)
+                    second = query_sales(page=2, **query)
                     self.assertEqual(first['total'], 27)
                     items = first['items'] + second['items']
                     self.assertEqual(len({item['id'] for item in items}), 27)
@@ -35,7 +36,7 @@ class ProfitTests(unittest.TestCase):
                             else values['利润率'] if field == 'profit_rate' else unit)
                     self.assertEqual(amounts, sorted(amounts, reverse=direction == 'desc'))
             with self.assertRaises(ValueError):
-                list_sales_with_profit(sales, products, sort_by='profit', sort_order='invalid')
+                query_sales(sort_by='profit', sort_order='invalid')
 
     def test_profit_live_cost_missing_zero_and_pending_price(self):
         with tempfile.TemporaryDirectory() as directory:

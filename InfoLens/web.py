@@ -72,7 +72,7 @@ from infolens.image_library import ImageLibraryStore
 from infolens.sales import SalesStore, parse_workbook as parse_sales_workbook
 from infolens.sales_export import build_sales_workbook
 from infolens.policy_costs import PolicyCostAllocator, COST_LOCK
-from infolens.sales_profit import enrich_sales_profit, list_sales_with_profit
+from infolens.sales_profit import enrich_sales_profit, SalesProfitQuery
 from infolens.product_sales_sync import sync_sales_products
 from infolens.products import ProductStore, parse_stock_workbook
 from infolens.product_policies import ProductPolicyStore
@@ -2228,13 +2228,14 @@ def create_app() -> Flask:
     with sales_store.connect():
         pass
     policy_allocator = PolicyCostAllocator(PRODUCT_STORE, sales_store)
+    sales_query = SalesProfitQuery(sales_store, PRODUCT_STORE, policy_allocator)
 
     @application.get("/api/sales")
     @_login_required
     @cost_serialized
     def list_sales():
         try:
-            return jsonify(list_sales_with_profit(sales_store, PRODUCT_STORE, policy_allocator,
+            return jsonify(sales_query(
                 document=request.args.get("document", ""),
                 category=request.args.getlist("category"),
                 **{key: request.args.get(key, "") for key in (

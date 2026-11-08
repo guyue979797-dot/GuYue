@@ -6,6 +6,7 @@ from datetime import datetime
 from decimal import Decimal
 from threading import RLock
 from .sales import number
+from .sqlite_revisions import SQLiteRevisions
 
 COST_LOCK = RLock()
 ELIGIBLE = {'正常销售', '本品搭赠', '非本品搭赠'}
@@ -30,7 +31,24 @@ class PolicyCostAllocator:
                 );
             ''')
 
+        self.revisions = SQLiteRevisions([products.database_path, sales.database])
+        self._cached_costs = None
+        self._cached_revision = None
+
     def refresh(self, month=None, force=False):
+        with COST_LOCK:
+            before = self.revisions.read()
+            if month is None and not force and self._cached_revision == before:
+                return self._cached_costs
+            result = self._refresh(month, force)
+            after = self.revisions.read()
+            # A rebuild writes policy usage itself. Cache only a stable read so
+            # concurrent external commits cannot be mistaken for our own writes.
+            self._cached_revision = after if before == after and month is None else None
+            self._cached_costs = result if self._cached_revision is not None else None
+            return result
+
+    def _refresh(self, month=None, force=False):
         if month is not None:
             from .product_policies import ProductPolicyStore
             month = ProductPolicyStore.month(month)
