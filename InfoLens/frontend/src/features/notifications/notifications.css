@@ -1,0 +1,21 @@
+.notice-bell { position: relative; }
+.notice-bell svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.6; }
+.notice-count { position: absolute; top: -3px; right: -7px; min-width: 16px; padding: 0 3px; border: 2px solid white; border-radius: 10px; background: #f53f3f; color: white; font-size: 10px; line-height: 14px; }
+.notice-toolbar { margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.notice-item { display: block; width: 100%; padding: 16px; margin-bottom: 10px; border: 1px solid var(--color-border-2); border-radius: 6px; background: var(--color-bg-2); color: var(--color-text-1); text-align: left; cursor: pointer; }
+.notice-item:hover { border-color: rgb(var(--primary-6)); }
+.notice-item-unread { background: rgb(var(--primary-1)); }
+.notice-item-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.notice-item-title i { width: 6px; height: 6px; background: rgb(var(--primary-6)); border-radius: 50%; }
+.notice-filename { margin-top: 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.notice-item-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; margin-top: 10px; font-size: 12px; color: var(--color-text-3); }
+.notice-item-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; font-size: 12px; color: var(--color-text-3); }
+.notice-view { margin-left: auto; flex-shrink: 0; color: rgb(var(--primary-6)); font-size: 12px; }
+.notice-result-fields { margin: 0; }
+.notice-result-fields > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--color-border-1); }
+.notice-result-fields dt { color: var(--color-text-3); }
+.notice-result-fields dd { margin: 0; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.notice-result-array { min-width: 0; }
+.notice-result-item { padding: 8px; margin: 6px 0; background: var(--color-fill-1); border-radius: 4px; }
+.notice-detail { overflow-wrap: anywhere; }
+@media(max-width:600px) { .notice-result-fields > div { grid-template-columns: minmax(0,1fr); gap: 4px; } }

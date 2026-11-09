@@ -3,56 +3,138 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>登录 · InfoLens</title>
-  <style>
-    :root { color-scheme: dark; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif; }
-    * { box-sizing: border-box; }
-    body {
-      min-height: 100vh; margin: 0; display: grid; place-items: center; color: #f5f5f7;
-      background: radial-gradient(ellipse 70% 55% at 50% -5%, #172950 0, transparent 70%), #050609;
-      -webkit-font-smoothing: antialiased;
-    }
-    .card {
-      width: min(420px, calc(100% - 32px)); padding: 34px; border: 1px solid rgba(255,255,255,.14);
-      border-radius: 28px; background: rgba(24,27,34,.76); box-shadow: 0 32px 100px rgba(0,0,0,.5);
-      backdrop-filter: blur(28px); -webkit-backdrop-filter: blur(28px);
-    }
-    .mark {
-      width: 42px; height: 42px; margin-bottom: 28px; display: grid; place-items: center;
-      border: 1px solid rgba(255,255,255,.16); border-radius: 13px;
-      background: linear-gradient(145deg, rgba(255,255,255,.16), rgba(255,255,255,.04));
-    }
-    .mark::before { content: ""; width: 14px; height: 14px; border: 2px solid #a8d7ff; border-radius: 50%; box-shadow: 5px 0 15px #5da8ff; }
-    h1 { margin: 0; font-size: 30px; letter-spacing: -.045em; }
-    p { margin: 9px 0 28px; color: #8d8f98; font-size: 14px; line-height: 1.6; }
-    label { display: block; margin: 0 0 8px 3px; color: #b9bac0; font-size: 12px; }
-    input {
-      width: 100%; height: 52px; margin-bottom: 16px; padding: 0 15px; color: #fff;
-      border: 1px solid rgba(255,255,255,.1); border-radius: 15px; outline: none;
-      background: rgba(0,0,0,.3); font-size: 14px;
-    }
-    input:focus { border-color: rgba(93,168,255,.65); box-shadow: 0 0 0 4px rgba(93,168,255,.1); }
-    button {
-      width: 100%; height: 52px; margin-top: 6px; border: 0; border-radius: 15px; cursor: pointer;
-      color: #07101d; background: linear-gradient(135deg,#f7fbff,#aacfff 60%,#a5b8ff);
-      font-size: 14px; font-weight: 700; box-shadow: 0 14px 35px rgba(79,130,255,.22);
-    }
-    .error { min-height: 20px; margin: -3px 0 9px; color: #ff827c; font-size: 12px; }
-    footer { margin-top: 24px; color: #666872; text-align: center; font-size: 11px; }
-  </style>
+  <title>登录 · CRM图片处理</title>
+  <style>:root {
+  /* App colors are complete CSS colors; Arco --primary-* tokens are RGB channels. */
+  --nav-active-bg: var(--brand-1);
+  --nav-active-color: var(--brand-7);
+  --nav-active-accent: var(--brand-6);
+  --brand-1: #eef2ff;
+  --brand-2: #e0e7ff;
+  --brand-3: #c7d2fe;
+  --brand-4: #a5b4fc;
+  --brand-5: #818cf8;
+  --brand-6: #4f46e5;
+  --brand-7: #4338ca;
+  --brand-8: #3730a3;
+  --brand-9: #312e81;
+  --brand-10: #1e1b4b;
+
+  --gray-50: #f8fafc;
+  --gray-100: #f1f5f9;
+  --gray-200: #e2e8f0;
+  --gray-300: #cbd5e1;
+  --gray-400: #94a3b8;
+  --gray-500: #64748b;
+  --gray-600: #475569;
+  --gray-700: #334155;
+  --gray-800: #1e293b;
+  --gray-900: #0f172a;
+  --white: #ffffff;
+
+  --success-50: #f0fdf4;
+  --success-600: #16a34a;
+  --success-700: #15803d;
+  --warning-50: #fffbeb;
+  --warning-600: #d97706;
+  --warning-700: #b45309;
+  --error-50: #fef2f2;
+  --error-600: #dc2626;
+  --error-700: #b91c1c;
+  --info-50: #eff6ff;
+  --info-600: #2563eb;
+  --info-700: #1d4ed8;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "SF Mono", "JetBrains Mono", Menlo, monospace;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+  --text-2xl: 24px;
+  --text-3xl: 30px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 9999px;
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.07), 0 2px 4px -2px rgba(15, 23, 42, 0.05);
+  --shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.08), 0 4px 6px -4px rgba(15, 23, 42, 0.05);
+}
+
+/* Standalone login: no business CSS, shared tokens and focus source. */
+.login-page { min-height: 100dvh; margin: 0; display: grid; place-items: center; padding: var(--space-4); background: var(--gray-50); color: var(--gray-800); font-family: var(--font-sans); }
+.login-page * { box-sizing: border-box; }
+.login-panel { width: min(380px, 100%); padding: var(--space-6); background: var(--white); border: 1px solid var(--gray-200); border-radius: var(--radius-lg); box-shadow: var(--shadow-xs); }
+.login-brand { color: var(--gray-500); font-size: var(--text-sm); margin-bottom: var(--space-4); }
+.login-panel h1 { margin: 0 0 var(--space-5); font-size: var(--text-lg); font-weight: 500; }
+.login-panel label { display: block; margin: var(--space-4) 0 var(--space-2); font-size: var(--text-sm); color: var(--gray-600); }
+.login-panel input:not([type="hidden"]) { width: 100%; height: 36px; padding: 0 var(--space-3); border: 1px solid var(--gray-200); border-radius: var(--radius-sm); background: var(--gray-50); color: var(--gray-800); font-size: var(--text-base); }
+.login-panel button { width: 100%; height: 36px; margin-top: var(--space-5); border: 0; border-radius: var(--radius-sm); background: var(--brand-6); color: var(--white); font-size: var(--text-base); cursor: pointer; }
+.login-panel button:hover { background: var(--brand-7); }
+.login-panel .error { color: var(--error-600); font-size: var(--text-sm); }
+.login-panel .error:empty { display: none; }
+
+/* One focus owner per control. Native controls keep a keyboard indicator;
+   Arco controls paint their own status-aware border on the input or wrapper. */
+:where(button, a, input, textarea, select):focus-visible {
+  outline: 2px solid var(--brand-6);
+  outline-offset: 2px;
+}
+
+:where(.arco-input, .arco-textarea, [data-focus-owner]):focus-visible,
+:where(.arco-input-inner-wrapper, .arco-textarea-wrapper, .arco-select, .arco-picker,
+  .arco-input-tag, .arco-input-number, .arco-auto-complete, .arco-cascader,
+  .arco-tree-select, [data-focus-owner]) :where(input, textarea):focus-visible {
+  outline: none;
+  outline-offset: 0;
+}
+
+/* Custom native controls and composite fields explicitly own one outer border. */
+:where([data-focus-owner]):not(:disabled):focus-within {
+  border-color: rgb(var(--primary-6));
+  box-shadow: none;
+}
+[data-focus-owner][data-focus-status="error"] { border-color: rgb(var(--danger-6)); }
+[data-focus-owner][data-focus-status="warning"] { border-color: rgb(var(--warning-6)); }
+
+/* An embedded editor contributes text, never a second input frame. */
+[data-focus-owner] :is(.arco-input, .arco-input-inner-wrapper),
+[data-focus-owner] :is(.arco-input, .arco-input-inner-wrapper):is(:hover, :focus, :focus-within) {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* The standalone login shares this focus source and complete brand colors. */
+.login-panel [data-focus-owner]:focus-within { border-color: var(--brand-6); box-shadow: none; }
+</style>
 </head>
-<body>
-  <form class="card" method="post">
-    <div class="mark"></div>
-    <h1>欢迎回来</h1>
-    <p>登录 InfoLens，继续处理团队的现场影像。</p>
-    <div class="error">{{ERROR}}</div>
-    <label for="username">账号</label>
-    <input id="username" name="username" autocomplete="username" required autofocus>
-    <label for="password">密码</label>
-    <input id="password" name="password" type="password" autocomplete="current-password" required>
-    <button type="submit">安全登录</button>
-    <footer>InfoLens · Protected workspace</footer>
-  </form>
+<body class="login-page">
+  <main class="login-panel">
+    <form method="post">
+      <input type="hidden" name="csrf_token" value="{{CSRF_TOKEN}}">
+      <div class="login-brand">鑫向晨商贸</div>
+      <h1>账号登录</h1>
+      <div class="error" aria-live="polite">{{ERROR}}</div>
+      <label for="username">账号</label>
+      <input data-focus-owner id="username" name="username" autocomplete="username" required autofocus>
+      <label for="password">密码</label>
+      <input data-focus-owner id="password" name="password" type="password" autocomplete="current-password" required>
+      <button type="submit">登录系统</button>
+    </form>
+  </main>
 </body>
 </html>

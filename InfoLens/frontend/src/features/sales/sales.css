@@ -1,0 +1,63 @@
+.sales-page {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--space-3);
+  height: 100%;
+  min-height: 0;
+}
+.sales-page .sales-feedback { grid-row: 2; }
+.sales-page .sales-price-risk { color: var(--error-600); }
+.sales-page .sales-pending { color: var(--warning-700); }
+.sales-detail-modal .sales-detail-fields {
+  margin: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+.sales-detail-modal .sales-detail-fields > div {
+  display: grid;
+  grid-template-columns: 144px minmax(0, 1fr);
+  gap: var(--space-4);
+}
+.sales-detail-modal .sales-detail-fields dt {
+  color: var(--gray-500);
+}
+.sales-detail-modal .sales-detail-fields dd {
+  margin: 0;
+  color: var(--gray-800);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.sales-page .sales-policy-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+
+.sales-page .sales-policy-sources .arco-tag {
+  max-width: 100%;
+  min-width: 0;
+}
+.sales-page .sales-policy-sources .arco-tag-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+.sales-page .sales-policy-source-name {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The mobile app shell has natural height; retain a usable table area when filters toggle. */
+@media (max-width: 960px) {
+  .sales-page {
+    height: auto;
+    min-height: calc(100dvh - 184px);
+    grid-template-rows: auto minmax(360px, 1fr);
+  }
+}

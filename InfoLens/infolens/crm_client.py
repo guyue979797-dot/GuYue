@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -29,6 +30,18 @@ class CrmApiError(Exception):
     """CRM API 调用失败。"""
 
 
+def _crm_ssl_context() -> ssl.SSLContext:
+    """兼容 CRM 网关的旧式 TLS 重协商，同时保留证书校验。"""
+    context = ssl.create_default_context()
+    allow_legacy = os.environ.get(
+        "INFOLENS_CRM_ALLOW_LEGACY_RENEGOTIATION",
+        "true",
+    ).strip().lower() in {"1", "true", "yes", "on"}
+    if allow_legacy:
+        context.options |= getattr(ssl, "OP_LEGACY_SERVER_CONNECT", 0x4)
+    return context
+
+
 def _post(path: str, form_data: dict[str, str], timeout: float = 30) -> dict[str, Any]:
     body = urllib.parse.urlencode(form_data).encode()
     req = urllib.request.Request(
@@ -38,7 +51,11 @@ def _post(path: str, form_data: dict[str, str], timeout: float = 30) -> dict[str
         headers={"Content-Type": "application/x-www-form-urlencoded"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(
+            req,
+            timeout=timeout,
+            context=_crm_ssl_context(),
+        ) as resp:
             payload = json.loads(resp.read())
     except urllib.error.HTTPError as exc:
         raise CrmApiError(f"HTTP {exc.code}: {exc.reason}") from exc
@@ -57,7 +74,11 @@ def _get_timestamp() -> dict[str, Any]:
         method="POST",
         headers={"Content-Type": "application/x-www-form-urlencoded"},
     )
-    with urllib.request.urlopen(req, timeout=15) as resp:
+    with urllib.request.urlopen(
+        req,
+        timeout=15,
+        context=_crm_ssl_context(),
+    ) as resp:
         payload = json.loads(resp.read())
     if payload.get("msg") != "success":
         raise CrmApiError("获取时间戳失败")

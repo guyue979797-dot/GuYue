@@ -1,0 +1,14 @@
+import { build } from 'esbuild';
+import { copyFile, mkdir, writeFile } from 'node:fs/promises';
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+const root = dirname(fileURLToPath(import.meta.url));
+const out = resolve(root, '.demo-dist');
+await mkdir(out, { recursive: true });
+const options = { bundle: true, platform: 'browser', target: ['chrome107','safari16'], minify: true, legalComments: 'none', define: { 'process.env.NODE_ENV': '"production"' } };
+await build({ ...options, entryPoints: [resolve(root, 'src/react-globals.js')], outfile: resolve(out, 'react-globals.js'), format: 'iife' });
+await build({ ...options, entryPoints: [resolve(root, 'src/demo/entry.jsx')], outfile: resolve(out, 'demo.js'), format: 'esm', jsx: 'transform', jsxFactory: 'React.createElement' });
+await copyFile(resolve(root, 'node_modules/@arco-design/web-react/dist/arco.min.js'), resolve(out, 'arco.min.js'));
+await copyFile(resolve(root, 'node_modules/@arco-design/web-react/dist/css/arco.min.css'), resolve(out, 'arco.min.css'));
+await writeFile(resolve(out, 'index.html'), '<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>终端明细 · UI 整改样板</title><link rel="stylesheet" href="./arco.min.css"><link rel="stylesheet" href="./demo.css"></head><body><div id="root"></div><script src="./react-globals.js"></script><script src="./arco.min.js"></script><script type="module" src="./demo.js"></script></body></html>');
+console.log('Demo built: .demo-dist/index.html');

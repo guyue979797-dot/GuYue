@@ -43,6 +43,7 @@ class ExtractResult:
     output_dir: str
     images: list[SavedImage]
     metadata_file: str
+    visit_in_time: str = ""
 
 
 def parse_visit_url(url: str) -> dict[str, str]:
@@ -68,6 +69,7 @@ def parse_visit_url(url: str) -> dict[str, str]:
         "appuser": flat["appuser"],
         "id": flat["id"],
         "process_type": flat.get("process_type", ""),
+        "visit_in_time": flat.get("visit_in_time", ""),
     }
 
 
@@ -144,7 +146,12 @@ def _download(url: str, dest: Path, timeout: float = 60) -> tuple[int, str | Non
         time.sleep(min(0.75 * (2 ** (attempt - 1)), 4))
 
 
-def extract_images(url: str, output_root: str | Path = "output") -> ExtractResult:
+def extract_images(
+    url: str,
+    output_root: str | Path = "output",
+    *,
+    group_by_partner: bool = False,
+) -> ExtractResult:
     parsed = parse_visit_url(url)
     if parsed["page_type"] == "workcirclevisit":
         detail = get_work_circle_detail(parsed["appuser"], parsed["id"])
@@ -182,7 +189,10 @@ def extract_images(url: str, output_root: str | Path = "output") -> ExtractResul
         raise CrmApiError("该拜访记录没有可提取的图片")
 
     folder_name = f"{_safe_name(terminal_name)}_{parsed['id'][:8]}"
-    output_dir = Path(output_root) / folder_name
+    output_dir = Path(output_root)
+    if group_by_partner:
+        output_dir /= _safe_name(partner_name)
+    output_dir /= folder_name
     output_dir.mkdir(parents=True, exist_ok=True)
 
     saved: list[SavedImage] = []
@@ -223,12 +233,13 @@ def extract_images(url: str, output_root: str | Path = "output") -> ExtractResul
             )
         )
 
+    visit_in_time = str(detail.get("visit_in_time") or parsed.get("visit_in_time") or "")
     metadata = {
         "visit_id": parsed["id"],
         "process_type": parsed["process_type"],
         "terminal_name": terminal_name,
         "partner_name": partner_name,
-        "visit_in_time": detail.get("visit_in_time"),
+        "visit_in_time": visit_in_time,
         "visit_out_time": detail.get("visit_out_time"),
         "leaving_note": detail.get("leaving_note"),
         "extracted_at": datetime.now().isoformat(timespec="seconds"),
@@ -254,4 +265,5 @@ def extract_images(url: str, output_root: str | Path = "output") -> ExtractResul
         output_dir=str(output_dir),
         images=saved,
         metadata_file=str(metadata_file),
+        visit_in_time=visit_in_time,
     )

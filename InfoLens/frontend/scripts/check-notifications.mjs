@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import { resultErrors } from '../src/features/notifications/resultErrors.js';
+assert.deepEqual(resultErrors({total_count:12,details:[{result:'更新',message:'正常提示'}]}), []);
+assert.equal(resultErrors({errors:[{row:2,error:'编号重复',data:{unused:1}}]})[0].identity,'第2行');
+const batch = resultErrors({error:'无效链接 1 条\n第 3 行：读取失败',errors:[{row:3,error:'读取失败'}]});
+assert.equal(batch.length,2);
+assert.equal(batch.filter(e=>e.message.includes('读取失败')).length,1);
+assert.ok(batch.some(e=>e.message==='无效链接 1 条'));
+assert.equal(resultErrors({product_sync_error:'同步失败',product_sync:{details:[{result:'失败',reason:'编号冲突'}]}}).length,2);
+assert.deepEqual(resultErrors({details:[{result:'仅保存月度汇总',message:'非本月'}]}),[]);
+console.log('通知错误展示检查通过：仅错误、行号、汇总不遗漏、重复错误去重、嵌套同步异常');

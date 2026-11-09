@@ -1,0 +1,334 @@
+/*
+ * UI 基础组件样式（重构要求 6.2）。
+ * 每条规则都定位到具体组件类，禁止全局选择器。
+ */
+
+/* DataTable：统一滚动容器 + 分页条 + 加载遮罩 */
+.data-table {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  height: 100%;
+  min-height: 0;
+}
+
+/* 页面卡片（div 容器）语义标记 */
+.page-card-flat {
+  min-width: 0;
+}
+
+/* 表格页统一布局（终端明细 / 雪花政策 / 商品档案 / 权限管理共用） */
+.table-page-filter-card {
+  padding: var(--space-3);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  background: var(--white);
+  box-shadow: var(--shadow-xs);
+}
+
+.table-page-list-card {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  background: var(--white);
+  box-shadow: var(--shadow-xs);
+  box-sizing: border-box;
+}
+
+.table-page-toolbar {
+  grid-row: 1;
+  min-height: 48px;
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  border-bottom: 1px solid var(--gray-100);
+  box-sizing: border-box;
+}
+
+.table-page-toolbar-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.table-page-toolbar-title strong {
+  color: var(--gray-800);
+  font-size: var(--text-base);
+  white-space: nowrap;
+}
+
+.table-page-toolbar-title span {
+  color: var(--gray-500);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.table-page-toolbar .toolbar-center {
+  margin-inline: auto;
+}
+
+.table-page-status {
+  grid-row: 2;
+  margin: var(--space-2) var(--space-2) 0;
+}
+
+.table-page-shell {
+  grid-row: 3;
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  /* 统一保留列表工具栏/状态提示与表格之间的呼吸区。 */
+  padding: var(--space-2);
+  box-sizing: border-box;
+}
+
+.table-page-shell .data-table {
+  height: 100%;
+}
+
+.data-table-scroll {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Mac 触控板触顶/触底边界（重构要求 5.2-8） */
+.data-table-scroll .arco-table-body,
+.data-table-scroll .arco-table {
+  overscroll-behavior: contain;
+}
+
+/*
+ * 表头与表体是 Arco 的独立滚动容器。固定保留纵向滚动条槽位，
+ * 防止数据量或分页变化时 body 宽度变化，从而造成列边界错位。
+ */
+.data-table-scroll .arco-table-body {
+  box-sizing: border-box;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: auto;
+}
+
+.data-table-scroll .arco-table-th,
+.data-table-scroll .arco-table-td {
+  box-sizing: border-box;
+}
+
+/*
+ * Arco Table 内部的 header / body / content 容器由组件自己计算列宽与滚动。
+ * 禁止在这些内部节点上设置 display:flex 或 width:max-content：
+ * 这会破坏 table-layout: fixed 的宽度分配，使列宽被放大到异常数值，表现为
+ * “只有第一列可见、其余字段像消失了一样”。
+ */
+.data-table-scroll .arco-table { height: 100%; min-height: 0; }
+/* Header + measured body determine the intrinsic height. Forcing both nested
+   wrappers to 100% adds the header twice and clips the last rows/scrollbar. */
+.data-table-scroll .arco-table-container,
+.data-table-scroll .arco-table-content-scroll {
+  min-height: 0;
+}
+
+/* 空数据兜底：空行撑出可视区域，避免“暂无数据”不可见 */
+.data-table-scroll .arco-table-empty-row .arco-table-td {
+  height: 240px;
+  vertical-align: middle;
+}
+
+.data-table-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-4);
+  padding-top: var(--space-3);
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.data-table-page-size {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--gray-500);
+  font-size: var(--text-sm);
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.data-table-page-size .arco-select {
+  width: 92px;
+  flex: 0 0 auto;
+}
+
+/* TableText：统一截断 */
+.table-text {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-text > .arco-tag {
+  display: inline-flex;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+/* TableRowActions：详情 + 更多菜单 */
+.table-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.table-actions-cell {
+  min-width: 100px;
+  overflow: visible;
+}
+
+/* StatusAlert */
+.status-alert {
+  margin-bottom: var(--space-3);
+}
+
+
+
+/* FilterBar：统一筛选条布局 */
+.filter-bar {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.filter-bar .filter-bar-toggle { justify-self: end; white-space: nowrap; min-height: 28px; }
+.filter-bar .filter-bar-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: end;
+}
+.filter-bar .filter-bar-row-actions {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.filter-bar .filter-bar-grid {
+  display: grid;
+  grid-template-columns: var(--filter-columns);
+  gap: var(--space-3);
+  align-items: center;
+  min-width: 0;
+}
+.filter-bar .filter-field-group {
+  display: grid;
+  grid-template-columns: var(--filter-group-columns);
+  gap: var(--space-3);
+  min-width: 0;
+}
+.filter-bar .filter-field {
+  width: 100%;
+  min-width: 0;
+}
+.filter-bar .arco-select,
+.filter-bar .arco-input,
+.filter-bar .arco-input-inner-wrapper,
+.filter-bar .arco-picker {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+.filter-bar .arco-select-view,
+.filter-bar .arco-input,
+.filter-bar .arco-input-inner-wrapper,
+.filter-bar .arco-picker {
+  background: var(--gray-100);
+  border-radius: var(--radius-sm);
+}
+.filter-bar .filter-bar-actions {
+  justify-self: end;
+}
+@media (max-width: 1240px) {
+  .filter-bar .filter-bar-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 900px) {
+  .filter-bar .filter-bar-row-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 600px) {
+  .filter-bar .filter-bar-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* 多选标签数量由 Arco 按触发框宽度测量；折叠计数保留固有宽度。 */
+.filter-bar .filter-overflow-count {
+  flex-shrink: 0;
+}
+
+/* Shared table sizing: fixed header/body basis; one resize implementation. */
+.data-table .arco-table-th { position: relative; }
+/* Keep the native sorter beside its title, including manually narrowed columns. */
+.data-table .arco-table-cell-with-sorter { white-space: nowrap; }
+.data-table .arco-table-cell-wrap-value { min-width: 0; max-width: 100%; }
+.table-column-resize { position: absolute; top: 0; right: 0; bottom: 0; width: 9px; cursor: col-resize; touch-action: none; user-select: none; z-index: 2; }
+.table-column-resize::after { content: ''; position: absolute; right: 3px; top: 25%; bottom: 25%; width: 1px; background: var(--gray-300); }
+.table-column-resize:hover::after, .table-column-resize:focus-visible::after { width: 2px; background: var(--brand-6); }
+.adaptive-table-shell { position: relative; min-width: 0; width: 100%; }
+.adaptive-table .data-table-scroll { height: auto; }
+.adaptive-table .arco-table, .adaptive-table .arco-table-container, .adaptive-table .arco-table-content-scroll { height: auto; }
+.data-table .data-link { max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* Explicit shared widths now include spare-space distribution. Keep the browser
+   from redistributing them independently between header and body. */
+.data-table .arco-table table { min-width: 0; }
+
+/* All data/form overlays share AppDrawer. Confirmation dialogs remain Modal. */
+.app-drawer .arco-drawer-inner { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+/* Arco's focus-lock span sits between inner and scroll. It must participate
+   in the height chain; otherwise long forms push the footer outside the panel. */
+.app-drawer .arco-drawer-inner > [data-focus-lock-disabled] { display: flex; flex-direction: column; flex: 1 1 0; height: 100%; min-height: 0; overflow: hidden; }
+.app-drawer .arco-drawer-scroll { display: flex; flex-direction: column; flex: 1; height: 100%; min-height: 0; overflow: hidden; }
+.app-drawer .arco-drawer-header, .app-drawer .arco-drawer-footer { flex-shrink: 0; }
+.app-drawer .arco-drawer-footer { position: sticky; bottom: 0; z-index: 2; background: var(--color-bg-3, var(--white)); }
+.app-drawer .arco-drawer-header-title { min-width: 0; overflow-wrap: anywhere; }
+.app-drawer .arco-drawer-content { flex: 1; height: auto; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.app-drawer .record-detail-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; }
+.app-drawer .record-detail-grid > div { min-width: 0; display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: var(--space-4); padding: var(--space-3) 0; border-bottom: 1px solid var(--gray-100); }
+.app-drawer .record-detail-grid strong { margin: 0; font-size: var(--text-sm); }
+.app-drawer .record-detail-grid span { overflow-wrap: anywhere; white-space: pre-wrap; }
+
+@media (max-width: 600px) { .app-drawer .record-detail-grid > div { grid-template-columns: 100px minmax(0, 1fr); } }
+
+/* Independent form fields always stack. Only controls of one logical field
+   (e.g. a rule predicate or packaging quantity/unit) may share a row. */
+.app-drawer.form-drawer .drawer-field-stack { display: grid; grid-template-columns: minmax(0, 1fr); }
+.app-drawer.form-drawer .drawer-field-stack > .full-row { grid-column: auto; }
+.app-drawer.form-drawer .drawer-field-stack > div { min-width: 0; }
+
+/* Visible labels are opt-in while existing business filters retain their layout. */
+.filter-bar .filter-field-label {
+  display: block;
+  margin-bottom: var(--space-2);
+  color: var(--gray-600);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+/* Toolbars wrap within the content card, never into the global header. */
+.table-page-toolbar { flex-wrap: wrap; }
+.table-page-toolbar .arco-space { flex-wrap: wrap; }
+.data-table .arco-table-th { background: var(--gray-50); color: var(--gray-600); font-size: var(--text-xs); }
+.data-table .arco-table-td { font-size: var(--text-sm); }
+@media (max-width: 600px) {
+  .data-table-pagination { flex-wrap: wrap; white-space: normal; }
+  .table-page-toolbar { gap: var(--space-2); }
+}

@@ -1,0 +1,33 @@
+/* One focus owner per control. Native controls keep a keyboard indicator;
+   Arco controls paint their own status-aware border on the input or wrapper. */
+:where(button, a, input, textarea, select):focus-visible {
+  outline: 2px solid var(--brand-6);
+  outline-offset: 2px;
+}
+
+:where(.arco-input, .arco-textarea, [data-focus-owner]):focus-visible,
+:where(.arco-input-inner-wrapper, .arco-textarea-wrapper, .arco-select, .arco-picker,
+  .arco-input-tag, .arco-input-number, .arco-auto-complete, .arco-cascader,
+  .arco-tree-select, [data-focus-owner]) :where(input, textarea):focus-visible {
+  outline: none;
+  outline-offset: 0;
+}
+
+/* Custom native controls and composite fields explicitly own one outer border. */
+:where([data-focus-owner]):not(:disabled):focus-within {
+  border-color: rgb(var(--primary-6));
+  box-shadow: none;
+}
+[data-focus-owner][data-focus-status="error"] { border-color: rgb(var(--danger-6)); }
+[data-focus-owner][data-focus-status="warning"] { border-color: rgb(var(--warning-6)); }
+
+/* An embedded editor contributes text, never a second input frame. */
+[data-focus-owner] :is(.arco-input, .arco-input-inner-wrapper),
+[data-focus-owner] :is(.arco-input, .arco-input-inner-wrapper):is(:hover, :focus, :focus-within) {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* The standalone login shares this focus source and complete brand colors. */
+.login-panel [data-focus-owner]:focus-within { border-color: var(--brand-6); box-shadow: none; }

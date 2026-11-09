@@ -1,0 +1,148 @@
+[
+  {
+    "title": "年月",
+    "source": "单据年月",
+    "width": 120
+  },
+  {
+    "title": "单据日期",
+    "source": "单据日期",
+    "width": 140
+  },
+  {
+    "title": "单据类型",
+    "source": "单据类型",
+    "width": 140
+  },
+  {
+    "title": "单据编号",
+    "source": "单据编号",
+    "width": 240
+  },
+  {
+    "title": "经办人",
+    "source": "经办人全名",
+    "width": 140
+  },
+  {
+    "title": "客户全名",
+    "source": "客户全名",
+    "width": 240
+  },
+  {
+    "title": "终端编码",
+    "source": "客户备用2",
+    "width": 180
+  },
+  {
+    "title": "客户类型",
+    "source": "客户备用4",
+    "width": 140
+  },
+  {
+    "title": "分类",
+    "source": "分类",
+    "width": 140
+  },
+  {
+    "title": "存货全名",
+    "source": "存货全名",
+    "width": 240
+  },
+  {
+    "title": "合计（件）",
+    "source": null,
+    "width": 140
+  },
+  {
+    "title": "辅1数量",
+    "source": "辅1数量",
+    "width": 140
+  },
+  {
+    "title": "赠品辅1数量",
+    "source": "赠品辅1数量",
+    "width": 140
+  },
+  {
+    "title": "金额",
+    "source": "折后金额",
+    "width": 140
+  },
+  {
+    "title": "真实金额",
+    "source": "真实金额",
+    "width": 140
+  },
+  {
+    "title": "单价",
+    "source": "折后单价",
+    "width": 140
+  },
+  {
+    "title": "真实单价",
+    "source": "真实单价",
+    "width": 140
+  },
+  {
+    "title": "单件成本",
+    "source": "利润参考成本价",
+    "width": 140
+  },
+  {
+    "title": "单件利润",
+    "source": "单件利润",
+    "width": 140
+  },
+  {
+    "title": "利润",
+    "source": null,
+    "calculation": "profit",
+    "width": 140
+  },
+  {
+    "title": "利润率",
+    "source": "利润率",
+    "width": 140
+  },
+  {
+    "title": "行摘要",
+    "source": "行摘要",
+    "width": 280
+  },
+  {
+    "title": "单据摘要",
+    "source": "单据摘要",
+    "width": 280
+  },
+  {
+    "title": "生产日期",
+    "source": "生产日期",
+    "width": 140
+  },
+  {
+    "title": "到期时间",
+    "source": "到期日期",
+    "width": 140
+  },
+  {
+    "title": "批号",
+    "source": "批号",
+    "width": 160
+  },
+  {
+    "title": "仓库全名",
+    "source": "仓库全名",
+    "width": 180
+  },
+  {
+    "title": "搭赠匹配商品",
+    "source": "搭赠匹配商品",
+    "width": 240
+  },
+  {
+    "title": "成本来源",
+    "source": "成本来源",
+    "width": 320
+  }
+]
